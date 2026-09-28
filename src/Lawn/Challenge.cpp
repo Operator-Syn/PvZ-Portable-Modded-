@@ -106,8 +106,8 @@ Challenge::Challenge()
 
 void Challenge::LoadBeghouledBoardState(BeghouledBoardState* theBoardState)
 {
-	for (int i = 0; i < MAX_GRID_SIZE_X; i++)
-		for (int j = 0; j < MAX_GRID_SIZE_Y; j++)
+	for (int i = 0; i < CLASSIC_GRID_SIZE_X; i++)
+		for (int j = 0; j < BEGHOULED_MAX_GRIDSIZEY + 1; j++)
 			theBoardState->mSeedType[i][j] = SEED_NONE;
 
 	for (Plant* aPlant : mBoard->mPlants)
@@ -206,7 +206,7 @@ void Challenge::StartLevel()
 	GameMode aGameMode = mApp->mGameMode;
 	if (aGameMode == GAMEMODE_CHALLENGE_BOBSLED_BONANZA)
 	{
-		for (int i = 0; i < MAX_GRID_SIZE_Y; i++)
+		for (int i = 0; i < BEGHOULED_MAX_GRIDSIZEY + 1; i++)
 		{
 			if (mBoard->mPlantRow[i] != PLANTROW_POOL)
 			{
@@ -586,7 +586,7 @@ void Challenge::BeghouledClearCrater(int theCount)
 	mBoard->ClearAdvice(ADVICE_BEGHOULED_USE_CRATER_1);
 	mBoard->ClearAdvice(ADVICE_BEGHOULED_USE_CRATER_2);
 
-	for (int aGridX = 0; aGridX < MAX_GRID_SIZE_X; aGridX++)
+	for (int aGridX = 0; aGridX < CLASSIC_GRID_SIZE_X; aGridX++)
 	{
 		for (int aGridY = 0; aGridY < BEGHOULED_MAX_GRIDSIZEY; aGridY++)
 		{
@@ -1922,7 +1922,8 @@ void Challenge::Update()
 	}
 	if ((mApp->IsScaryPotterLevel() || mApp->IsWhackAZombieLevel()) && mBoard->mSeedBank->mY < 0)
 	{
-		if (mBoard->mSunMoney + mBoard->CountSunBeingCollected() > 0 || mBoard->mSeedBank->mY > Sexy::IMAGE_SEEDBANK->mWidth)
+		if (static_cast<int64_t>(mBoard->mSunMoney) + mBoard->CountSunBeingCollected() > 0 ||
+			mBoard->mSeedBank->mY > Sexy::IMAGE_SEEDBANK->mWidth)
 		{
 			mBoard->mSeedBank->mY += 2;
 			if (mBoard->mSeedBank->mY > 0)
@@ -2039,9 +2040,9 @@ void Challenge::CheckForCompleteArtChallenge(int theGridX, int theGridY)
 	if (mBoard->HasLevelAwardDropped())
 		return;
 
-	for (int aGridY = 0; aGridY < MAX_GRID_SIZE_Y; aGridY++)
+	for (int aGridY = 0; aGridY < BEGHOULED_MAX_GRIDSIZEY + 1; aGridY++)
 	{
-		for (int aGridX = 0; aGridX < MAX_GRID_SIZE_X; aGridX++)
+		for (int aGridX = 0; aGridX < CLASSIC_GRID_SIZE_X; aGridX++)
 		{
 			SeedType aSeedType = GetArtChallengeSeed(aGridX, aGridY);
 			if (aSeedType != SEED_NONE)
@@ -2062,9 +2063,9 @@ void Challenge::DrawArtChallenge(Graphics* g)
 	g->SetColorizeImages(true);
 	g->SetColor(Color(255, 255, 255, 100));
 
-	for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
+	for (int aRow = 0; aRow < 6; aRow++)
 	{
-		for (int aCol = 0; aCol < MAX_GRID_SIZE_X; aCol++)
+		for (int aCol = 0; aCol < CLASSIC_GRID_SIZE_X; aCol++)
 		{
 			SeedType aSeedType = GetArtChallengeSeed(aCol, aRow);
 			if (aSeedType != SEED_NONE && mBoard->GetTopPlantAt(aCol, aRow, TOPPLANT_ONLY_NORMAL_POSITION) == nullptr)
@@ -2084,9 +2085,9 @@ void Challenge::DrawArtChallenge(Graphics* g)
 
 void Challenge::DrawBeghouled(Graphics* g)
 {
-	for (int aGridY = 0; aGridY < MAX_GRID_SIZE_Y; aGridY++)
+	for (int aGridY = 0; aGridY < 6; aGridY++)
 	{
-		for (int aGridX = 0; aGridX < MAX_GRID_SIZE_X; aGridX++)
+		for (int aGridX = 0; aGridX < CLASSIC_GRID_SIZE_X; aGridX++)
 		{
 			if (mBeghouledEated[aGridX][aGridY])
 			{
@@ -2493,9 +2494,9 @@ void Challenge::WhackAZombiePlaceGraves(int theGraveCount)
 	int aPickCount = 0;
 	PvzpWeightedGridArray aPicks[36];
 
-	for (int aCol = 3; aCol < MAX_GRID_SIZE_X; aCol++)
+	for (int aCol = 3; aCol < CLASSIC_GRID_SIZE_X; aCol++)
 	{
-		for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
+	for (int aRow = 0; aRow < 6; aRow++)
 		{
 			if (!mBoard->CanAddGraveStoneAt(aCol, aRow))
 				continue;
@@ -2693,9 +2694,9 @@ void Challenge::GraveDangerSpawnRandomGrave()
 	int aPickCount = 0;
 	PvzpWeightedGridArray aPicks[30];
 
-	for (int aCol = 4; aCol < MAX_GRID_SIZE_X; aCol++)
+	for (int aCol = 4; aCol < CLASSIC_GRID_SIZE_X; aCol++)
 	{
-		for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
+		for (int aRow = 0; aRow < 6; aRow++)
 		{
 			if (mBoard->CanAddGraveStoneAt(aCol, aRow))
 			{
@@ -3444,9 +3445,9 @@ void Challenge::ZombiquariumUpdate()
 
 void Challenge::ShovelAddWallnuts()
 {
-	for (int aCol = 0; aCol < MAX_GRID_SIZE_X; aCol++)
+	for (int aCol = 0; aCol < CLASSIC_GRID_SIZE_X; aCol++)
 	{
-		for (int aRow = 0; aRow < MAX_GRID_SIZE_Y - 1; aRow++)
+		for (int aRow = 0; aRow < 5; aRow++)
 		{
 			mBoard->AddPlant(aCol, aRow, SEED_WALLNUT, SEED_NONE);
 		}
@@ -3468,7 +3469,7 @@ void Challenge::ScaryPotterFillColumnWithPlant(int theCol, SeedType theSeedType,
 {
 	ScaryPotterDontPlaceInCol(theCol, theGridArray, theGridArrayCount);
 
-	for (int i = 0; i < MAX_GRID_SIZE_Y - 1; i++)
+	for (int i = 0; i < 5; i++)
 	{
 		Plant* aPlant = mBoard->NewPlant(theCol, i, theSeedType, SeedType::SEED_NONE);
 		if (theSeedType == SeedType::SEED_POTATOMINE)
@@ -3535,9 +3536,9 @@ void Challenge::ScaryPotterPopulate()
 {
 	int aGridArrayCount = 0;
 	PvzpWeightedGridArray aGridArray[MAX_SCARY_POTS];
-	for (int aGridX = 0; aGridX < MAX_GRID_SIZE_X; aGridX++)
+	for (int aGridX = 0; aGridX < CLASSIC_GRID_SIZE_X; aGridX++)
 	{
-		for (int aGridY = 0; aGridY < MAX_GRID_SIZE_Y - 1; aGridY++)
+		for (int aGridY = 0; aGridY < 5; aGridY++)
 		{
 			aGridArray[aGridArrayCount].mX = aGridX;
 			aGridArray[aGridArrayCount].mY = aGridY;
@@ -4141,7 +4142,7 @@ void Challenge::IZombiePlacePlants(SeedType theSeedType, int theCount, int theGr
 	}
 
 	int aGridArrayCount = 0;
-	PvzpWeightedGridArray aGridArray[MAX_GRID_SIZE_X * MAX_GRID_SIZE_Y];
+	PvzpWeightedGridArray aGridArray[CLASSIC_GRID_SIZE_X * 6];
 	// Collect candidate squares from rows aMinGridY to aMaxGridY
 	for (int aRow = aMinGridY; aRow <= aMaxGridY; aRow++)
 	{
@@ -4407,7 +4408,7 @@ void Challenge::IZombieStart()
 
 void Challenge::IZombieUpdate()
 {
-	int aSunMoney = mBoard->mSunMoney + mBoard->CountSunBeingCollected();
+	int64_t aSunMoney = static_cast<int64_t>(mBoard->mSunMoney) + mBoard->CountSunBeingCollected();
 
 	for (Zombie* aZombie : mBoard->mZombies)
 	{
@@ -4639,11 +4640,11 @@ int Challenge::SquirrelCountUncaught()
 
 void Challenge::SquirrelStart()
 {
-	PvzpWeightedGridArray aPicks[MAX_GRID_SIZE_X * (MAX_GRID_SIZE_Y - 1)];
+	PvzpWeightedGridArray aPicks[CLASSIC_GRID_SIZE_X * 5];
 	int aPicksCount = 0;
-	for (int aCol = 0; aCol < MAX_GRID_SIZE_X; aCol++)
+	for (int aCol = 0; aCol < CLASSIC_GRID_SIZE_X; aCol++)
 	{
-		for (int aRow = 0; aRow < MAX_GRID_SIZE_Y - 1; aRow++)
+		for (int aRow = 0; aRow < 5; aRow++)
 		{
 			aPicks[aPicksCount] = { aCol, aRow, 1 };
 			aPicksCount++;

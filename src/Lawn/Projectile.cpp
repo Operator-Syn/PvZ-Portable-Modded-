@@ -48,7 +48,9 @@ constinit const ProjectileDefinition gProjectileDefinition[] = {
 	{ .mProjectileType = ProjectileType::PROJECTILE_KERNEL, .mImageRow = 0, .mDamage = 20 },
 	{ .mProjectileType = ProjectileType::PROJECTILE_COBBIG, .mImageRow = 0, .mDamage = 300 },
 	{ .mProjectileType = ProjectileType::PROJECTILE_BUTTER, .mImageRow = 0, .mDamage = 40 },
-	{ .mProjectileType = ProjectileType::PROJECTILE_ZOMBIE_PEA, .mImageRow = 0, .mDamage = 20 }
+	{ .mProjectileType = ProjectileType::PROJECTILE_ZOMBIE_PEA, .mImageRow = 0, .mDamage = 20 },
+	{ .mProjectileType = ProjectileType::PROJECTILE_CHERRYBOMB, .mImageRow = 0, .mDamage = 1800 },
+	{ .mProjectileType = ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB, .mImageRow = 0, .mDamage = 1800 }
 };
 
 Projectile::Projectile()
@@ -269,7 +271,7 @@ void Projectile::CheckForCollision()
 		return;
 	}
 
-	if (mPosX > WIDE_BOARD_WIDTH || mPosX + mWidth < 0.0f)
+	if (mPosX > mApp->mWidth || mPosX + mWidth < 0.0f)
 	{
 		Die();
 		return;
@@ -395,6 +397,8 @@ bool Projectile::IsSplashDamage(Zombie* theZombie)
 	return
 		mProjectileType == ProjectileType::PROJECTILE_MELON ||
 		mProjectileType == ProjectileType::PROJECTILE_WINTERMELON ||
+		mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB ||
+		mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB ||
 		mProjectileType == ProjectileType::PROJECTILE_FIREBALL;
 }
 
@@ -508,6 +512,14 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 
 void Projectile::UpdateLobMotion()
 {
+	if (mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB)
+	{
+		mPosZ += mVelZ;
+		if (mProjectileAge > 20 && mPosZ >= -35.0f)
+			DoImpact(nullptr);
+		return;
+	}
+
 	if (mProjectileType == ProjectileType::PROJECTILE_COBBIG && mPosZ < -700.0f)
 	{
 		mVelZ = 8.0f;
@@ -519,6 +531,22 @@ void Projectile::UpdateLobMotion()
 		mRotation = -PI / 2;
 	}
 
+	if ((mProjectileType == ProjectileType::PROJECTILE_WINTERMELON || mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB) &&
+		mTargetZombieID != ZombieID::ZOMBIEID_NULL)
+	{
+		Zombie* aTargetZombie = mBoard->ZombieTryToGet(mTargetZombieID);
+		if (aTargetZombie && !aTargetZombie->IsDeadOrDying() && aTargetZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
+		{
+			float aTargetGroundY = mBoard->GetPosYBasedOnRow(mPosX, aTargetZombie->mRow) + 67.0f + mCobTargetRow;
+			float aProjectileGroundOffset = mShadowY - mPosY;
+			int aFlightDuration = mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_HIGH_GRAVITY ? 60 : 120;
+			int aRemainingFlight = std::max(1, aFlightDuration - mProjectileAge);
+			float aTargetX = aTargetZombie->ZombieTargetLeadX(static_cast<float>(aRemainingFlight)) - 30.0f + mCobTargetX;
+			mVelX = (aTargetX - mPosX) / aRemainingFlight;
+			mVelY = (aTargetGroundY - aProjectileGroundOffset - mPosY) / aRemainingFlight;
+		}
+	}
+
 	mVelZ += mAccZ;
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_HIGH_GRAVITY)
 	{
@@ -526,6 +554,9 @@ void Projectile::UpdateLobMotion()
 	}
 	mPosX += mVelX;
 	mPosY += mVelY;
+	if ((mProjectileType == ProjectileType::PROJECTILE_WINTERMELON || mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB) &&
+		mTargetZombieID != ZombieID::ZOMBIEID_NULL)
+		mShadowY += mVelY;
 	mPosZ += mVelZ;
 
 	bool isRising = mVelZ < 0.0f;
@@ -549,7 +580,8 @@ void Projectile::UpdateLobMotion()
 		{
 			aMinCollisionZ = 60.0f;
 		}
-		else if (mProjectileType == ProjectileType::PROJECTILE_MELON || mProjectileType == ProjectileType::PROJECTILE_WINTERMELON)
+		else if (mProjectileType == ProjectileType::PROJECTILE_MELON || mProjectileType == ProjectileType::PROJECTILE_WINTERMELON ||
+			mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB)
 		{
 			aMinCollisionZ = -35.0f;
 		}
@@ -770,6 +802,9 @@ void Projectile::UpdateMotion()
 		mPosZ -= aSlopeHeightChange;
 	}
 	mShadowY += aSlopeHeightChange;
+	if ((mProjectileType == ProjectileType::PROJECTILE_WINTERMELON || mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB) &&
+		mTargetZombieID != ZombieID::ZOMBIEID_NULL)
+		mRow = mBoard->PixelToGridYKeepOnBoard(mPosX, mShadowY);
 	mX = static_cast<int>(mPosX);
 	mY = static_cast<int>(mPosY + mPosZ);
 }
@@ -822,6 +857,20 @@ void Projectile::PlayImpactSound(Zombie* theZombie)
 
 void Projectile::DoImpact(Zombie* theZombie)
 {
+	if (mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB ||
+		mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB)
+	{
+		mApp->PlayFoley(FoleyType::FOLEY_CHERRYBOMB);
+		mApp->PlayFoley(FoleyType::FOLEY_JUICY);
+		int aImpactX = static_cast<int>(mPosX + 40.0f);
+		int aImpactY = static_cast<int>(mPosY + mPosZ + 40.0f);
+		mBoard->KillAllZombiesInRadius(mRow, aImpactX, aImpactY, 115, 1, true, mDamageRangeFlags);
+		mApp->AddPvzpParticle(aImpactX, aImpactY, static_cast<int>(RenderLayer::RENDER_LAYER_TOP), ParticleEffect::PARTICLE_POWIE);
+		mBoard->ShakeBoard(3, -4);
+		Die();
+		return;
+	}
+
 	PlayImpactSound(theZombie);
 
 	if (IsSplashDamage(theZombie))
@@ -952,6 +1001,8 @@ void Projectile::Update()
 		mProjectileType == ProjectileType::PROJECTILE_KERNEL ||
 		mProjectileType == ProjectileType::PROJECTILE_BUTTER ||
 		mProjectileType == ProjectileType::PROJECTILE_COBBIG ||
+		mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB ||
+		mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB ||
 		mProjectileType == ProjectileType::PROJECTILE_ZOMBIE_PEA ||
 		mProjectileType == ProjectileType::PROJECTILE_SPIKE)
 	{
@@ -1027,6 +1078,10 @@ void Projectile::Draw(Graphics* g)
 	case ProjectileType::PROJECTILE_WINTERMELON:
 		aImage = IMAGE_REANIM_WINTERMELON_PROJECTILE;
 		aScale = 1.0f;
+		break;
+	case ProjectileType::PROJECTILE_CHERRYBOMB:
+	case ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB:
+		aImage = nullptr;
 		break;
 	default:
 		PVZP_ASSERT(false);
@@ -1119,6 +1174,8 @@ void Projectile::DrawShadow(Graphics* g)
 	case ProjectileType::PROJECTILE_BUTTER:
 	case ProjectileType::PROJECTILE_MELON:
 	case ProjectileType::PROJECTILE_WINTERMELON:
+	case ProjectileType::PROJECTILE_CHERRYBOMB:
+	case ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB:
 		aOffsetX += 3.0f;
 		aOffsetY += 10.0f;
 		aScale = 1.6f;
@@ -1176,7 +1233,9 @@ Rect Projectile::GetProjectileRect()
 	{
 		return Rect(mX + mWidth / 2 - 115, mY + mHeight / 2 - 115, 230, 230);
 	}
-	else if (mProjectileType == ProjectileType::PROJECTILE_MELON || mProjectileType == ProjectileType::PROJECTILE_WINTERMELON)
+	else if (mProjectileType == ProjectileType::PROJECTILE_MELON || mProjectileType == ProjectileType::PROJECTILE_WINTERMELON ||
+		mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB ||
+		mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB)
 	{
 		return Rect(mX + 20, mY, 60, mHeight);
 	}

@@ -84,6 +84,29 @@ void LawnMower::LawnMowerInitialize(int theRow)
 	}
 }
 
+void LawnMower::ConvertToPoolCleaner()
+{
+	if (mMowerType == LawnMowerType::LAWNMOWER_POOL ||
+		!mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_POOL_CLEANER])
+		return;
+
+	Reanimation* aOldReanim = mApp->ReanimationTryToGet(mReanimID);
+	if (aOldReanim)
+		aOldReanim->ReanimationDie();
+
+	mMowerType = LawnMowerType::LAWNMOWER_POOL;
+	mMowerHeight = MowerHeight::MOWER_HEIGHT_LAND;
+	mAltitude = 0.0f;
+	Reanimation* aMowerReanim = mApp->AddReanimation(0.0f, 18.0f, mRenderOrder, ReanimationType::REANIM_POOL_CLEANER);
+	aMowerReanim->mAnimRate = 0.0f;
+	aMowerReanim->mLoopType = ReanimLoopType::REANIM_LOOP;
+	aMowerReanim->mIsAttachment = true;
+	aMowerReanim->OverrideScale(0.8f, 0.8f);
+	aMowerReanim->SetFramesForLayer("anim_land");
+	aMowerReanim->SetTruncateDisappearingFrames(nullptr, false);
+	mReanimID = mApp->ReanimationGetID(aMowerReanim);
+}
+
 void LawnMower::UpdatePool()
 {
 	bool isPoolRange = false;
@@ -264,7 +287,7 @@ void LawnMower::Update()
 		mApp->mSoundSystem->StopFoley(FoleyType::FOLEY_LAWNMOWER);
 		Die();
 	}
-	if (mPosX > WIDE_BOARD_WIDTH)
+	if (mPosX > mApp->mWidth)
 	{
 		Die();
 	}

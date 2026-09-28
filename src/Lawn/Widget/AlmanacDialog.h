@@ -26,7 +26,7 @@
 #include <array>
 #include <memory>
 
-constexpr const int NUM_ALMANAC_SEEDS = 49;
+constexpr const int NUM_ALMANAC_SEEDS = 50;
 constexpr const int NUM_ALMANAC_ZOMBIES = 26;
 
 constexpr const float			ALMANAC_PLANT_POSITION_X		= 578.0f;

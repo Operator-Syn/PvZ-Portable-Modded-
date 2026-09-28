@@ -24,6 +24,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "../ConstEnums.h"
 #include "../PvzpLib/DataArray.h"
@@ -39,14 +40,16 @@
 
 using namespace Sexy;
 
-constexpr const int MAX_GRID_SIZE_X = 9;
-constexpr const int MAX_GRID_SIZE_Y = 6;
+constexpr const int CLASSIC_GRID_SIZE_X = 9;
+constexpr const int MAX_GRID_SIZE_X = 12;
+constexpr const int MAX_GRID_SIZE_Y = 10;
 constexpr const int MAX_ZOMBIES_IN_WAVE = 50;
 constexpr const int MAX_ZOMBIE_WAVES = 100;
 constexpr const int MAX_GRAVE_STONES = MAX_GRID_SIZE_X * MAX_GRID_SIZE_Y;
 constexpr const int MAX_POOL_GRID_SIZE = 10;
 constexpr const int MAX_RENDER_ITEMS = 2048;
 constexpr const int PROGRESS_METER_COUNTER = 150;
+constexpr const int SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS = 10;
 
 class LawnApp;
 class CursorObject;
@@ -127,6 +130,32 @@ struct BungeeDropGrid
 class Board : public Widget, public ButtonListener
 {
 public:
+	struct PlantHealGlow
+	{
+		PlantID mPlantID;
+		ParticleSystemID mParticleID;
+		int32_t mElapsedTicks;
+		int32_t mTicksUntilPulse;
+	};
+	struct PlantHealVisual
+	{
+		PlantID mPlantID;
+		ParticleSystemID mParticleID;
+		int32_t mElapsedTicks;
+		int32_t mCreationRetryTicks;
+	};
+	struct ChomperHealAura
+	{
+		PlantID mPlantID;
+		PlantID mChomperID;
+		int32_t mTicksUntilPulse;
+	};
+	struct SunMagnetExtraItems
+	{
+		PlantID mPlantID;
+		MagnetItem mItems[SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS];
+	};
+
 	LawnApp*						mApp;
 	DataArray<Zombie>				mZombies;
 	DataArray<Plant>				mPlants;
@@ -144,6 +173,15 @@ public:
 	std::unique_ptr<ToolTipWidget>		mToolTip;
 	std::unique_ptr<CutScene>			mCutScene;
 	std::unique_ptr<Challenge>			mChallenge;
+	std::vector<PlantHealGlow>		mPlantHealGlows;
+	std::vector<PlantHealVisual>		mPlantHealVisuals;
+	std::vector<ChomperHealAura>		mChomperHealAuras;
+	std::vector<SunMagnetExtraItems>		mSunMagnetExtraItems;
+	bool							mChomperOverdriveActive = false;
+	bool							mKernelPultOverdriveActive = false;
+	bool							mSunMagnetOverdriveActive = false;
+	bool							mTwinSunflowerProductionOverdriveActive = false;
+	bool							mTwinSunflowerBombardmentOverdriveActive = false;
 	bool							mPaused;
 	GridSquareType					mGridSquareType[MAX_GRID_SIZE_X][MAX_GRID_SIZE_Y];
 	int32_t							mGridCelLook[MAX_GRID_SIZE_X][MAX_GRID_SIZE_Y];
@@ -309,6 +347,10 @@ public:
 	bool					StageIsNight();
 	bool					StageHasPool();
 	bool					StageHas6Rows();
+	int					GetNumPlayableRows();
+	int					GetNumPlayableColumns();
+	int					GetGridRowSpacing();
+	int					GetGridRowY(int theGridY);
 	bool					StageHasFog();
 	bool					StageIsDayWithoutPool();
 	bool					StageIsDayWithPool();
@@ -320,6 +362,15 @@ public:
 	int					PixelToGridXKeepOnBoard(int theX, int theY);
 	int					PixelToGridYKeepOnBoard(int theX, int theY);
 	void							UpdateGameObjects();
+	void							StartSunMagnetRegeneration();
+	void							StartChomperRegeneration(Plant* theChomper);
+	void							RefreshChomperRegeneration(Plant* theChomper);
+	void							UpdatePlantOverdrive();
+	MagnetItem*						GetSunMagnetExtraItems(PlantID thePlantID, bool theCreate);
+	bool							TryLaunchTwinSunflowerSunBomb();
+	void							ShowPlantHealGlow(Plant* thePlant);
+	void							UpdatePlantHealGlows();
+	void							RestorePlantHealGlowsAfterLoad();
 	bool							MouseHitTest(int x, int y, HitResult* theHitResult);
 	void							MouseDownWithPlant(int x, int y, int theClickCount);
 	void							MouseDownWithTool(int x, int y, int theClickCount, CursorType theCursorType);

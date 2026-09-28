@@ -69,8 +69,8 @@ public:
 	int32_t                 mDamageRangeFlags;
 	int32_t                 mHitTorchwoodGridX;
 	AttachmentID            mAttachmentID;
-	float                   mCobTargetX;
-	int32_t                 mCobTargetRow;
+	float                   mCobTargetX;          // Wintermelon bonus-volley X offset when not used by Cob Cannon
+	int32_t                 mCobTargetRow;        // Wintermelon bonus-volley Y offset when not used by Cob Cannon
 	ZombieID                mTargetZombieID;
 	int32_t                 mLastPortalX;
 

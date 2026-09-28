@@ -158,7 +158,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 
 	mFromWave = theFromWave;
 	mRow = theRow;
-	mPosX = 780 + Rand(ZOMBIE_START_RANDOM_OFFSET);
+	mPosX = mApp->mWidth - 20 + Rand(ZOMBIE_START_RANDOM_OFFSET);
 	mPosY = GetPosYBasedOnRow(theRow);
 	mVelX = 0.0f;
 	mVelZ = 0.0f;
@@ -380,7 +380,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		mZombiePhase = ZombiePhase::PHASE_POLEVAULTER_PRE_VAULT;
 		mHasObject = true;
 		mVariant = false;
-		mPosX = WIDE_BOARD_WIDTH + 70 + Rand(10);
+		mPosX = mApp->mWidth + 70 + Rand(10);
 		if (IsOnBoard())
 		{
 			PlayZombieReanim("anim_run", ReanimLoopType::REANIM_LOOP, 0, 0.0f);
@@ -418,7 +418,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		mBodyHealth = 3000;
 		mAnimFrames = 24;
 		mAnimTicksPerFrame = 8;
-		mPosX = WIDE_BOARD_WIDTH + 45 + Rand(10);
+		mPosX = mApp->mWidth + 45 + Rand(10);
 		mZombieRect = Rect(-17, -38, 125, 154);
 		mZombieAttackRect = Rect(-30, -38, 89, 154);
 		mVariant = false;
@@ -459,7 +459,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		mBodyHealth = 1350;
 		mAnimFrames = 2;
 		mAnimTicksPerFrame = 8;
-		mPosX = WIDE_BOARD_WIDTH + Rand(10);
+		mPosX = mApp->mWidth + Rand(10);
 		aRenderOffset = 8;
 		PlayZombieReanim("anim_drive", ReanimLoopType::REANIM_LOOP, 0, 12.0f);
 		mZombieRect = Rect(0, -13, 153, 140);
@@ -469,7 +469,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 
 	case ZombieType::ZOMBIE_CATAPULT:
 		mBodyHealth = 850;
-		mPosX = WIDE_BOARD_WIDTH + 25 + Rand(10);
+		mPosX = mApp->mWidth + 25 + Rand(10);
 		mSummonCounter = 20;
 		if (IsOnBoard())
 		{
@@ -552,7 +552,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		}
 		else
 		{
-			mPosX = WIDE_BOARD_WIDTH + 80;
+			mPosX = mApp->mWidth + 80;
 			mZombieRect = Rect(-50, 0, 275, 115);
 			mHelmType = HelmType::HELMTYPE_BOBSLED;
 			mHelmHealth = 300;
@@ -592,7 +592,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 		aBodyReanim->mFrameBasePose = 0;
 		SetupZombatarFlagReanim(aZombatarRecordIndex);
 
-		mPosX = WIDE_BOARD_WIDTH;
+			mPosX = mApp->mWidth;
 		break;
 	}
 
@@ -1093,7 +1093,7 @@ void Zombie::PickBungeeZombieTarget(int theColumn)
 	PvzpWeightedGridArray aPicks[MAX_GRID_SIZE_X * MAX_GRID_SIZE_Y];
 	int aPickCount = 0;
 
-	for (int x = 0; x < MAX_GRID_SIZE_X; x++)
+	for (int x = 0; x < mBoard->GetNumPlayableColumns(); x++)
 	{
 		if (theColumn == -1 || theColumn == x)
 		{
@@ -2100,10 +2100,10 @@ void Zombie::UpdateZombieGargantuar()
 				Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW);
 				if (aPlant)
 				{
-					if (aPlant->mSeedType == SeedType::SEED_SPIKEROCK)
+					if (aPlant->IsSpiky())
 					{
 						TakeDamage(20, 32U);
-						aPlant->SpikeRockTakeDamage();
+						aPlant->SpikyTakeDamage();
 						if (aPlant->mPlantHealth <= 0)
 						{
 							SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
@@ -4041,7 +4041,7 @@ void Zombie::UpdateZamboni()
 		anIceX = std::max(anIceX, 25);
 	}
 	mBoard->mIceMinX[mRow] = std::min(mBoard->mIceMinX[mRow], anIceX);
-	if (anIceX < 800)
+	if (anIceX < mApp->mWidth)
 	{
 		mBoard->mIceTimer[mRow] = 3000;
 		if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BOBSLED_BONANZA)
@@ -5876,7 +5876,7 @@ void Zombie::DrawBungeeCord(Graphics* g, int theOffsetX)
 
 		if (mTargetCol > aBoss->mTargetCol)
 		{
-			g->SetClipRect(Rect(-g->mTransX, aClipAmount - g->mTransY, BOARD_WIDTH, BOARD_HEIGHT));
+			g->SetClipRect(Rect(-g->mTransX, aClipAmount - g->mTransY, mApp->mWidth, mApp->mHeight));
 			aSetClip = true;
 		}
 	}
@@ -8148,7 +8148,7 @@ bool Zombie::EffectedByDamage(unsigned int theDamageRangeFlags)
 		return TestBit(theDamageRangeFlags, static_cast<int>(DamageRangeFlags::DAMAGES_OFF_GROUND));
 	}
 
-	if (mZombieType != ZombieType::ZOMBIE_BOBSLED && GetZombieRect().mX > WIDE_BOARD_WIDTH)
+	if (mZombieType != ZombieType::ZOMBIE_BOBSLED && GetZombieRect().mX > mApp->mWidth)
 	{
 		return false;  // off-board zombies cannot be hit, except the bobsled team
 	}
@@ -9345,11 +9345,11 @@ bool Zombie::SetupDrawZombieWon(Graphics* g)
 	{
 	case BackgroundType::BACKGROUND_1_DAY:
 	case BackgroundType::BACKGROUND_2_NIGHT:
-		g->ClipRect(-123 - mX, -mY, BOARD_WIDTH, BOARD_HEIGHT);
+		g->ClipRect(-123 - mX, -mY, mApp->mWidth, mApp->mHeight);
 		break;
 	case BackgroundType::BACKGROUND_3_POOL:
 	case BackgroundType::BACKGROUND_4_FOG:
-		g->ClipRect(-172 - mX, -mY, BOARD_WIDTH, BOARD_HEIGHT);
+		g->ClipRect(-172 - mX, -mY, mApp->mWidth, mApp->mHeight);
 		break;
 	case BackgroundType::BACKGROUND_5_ROOF:
 	case BackgroundType::BACKGROUND_6_BOSS:

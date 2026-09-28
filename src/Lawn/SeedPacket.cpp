@@ -19,6 +19,7 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <algorithm>
 #include <format>
 #include "Board.h"
 #include "Cutscene.h"
@@ -34,6 +35,23 @@
 
 constexpr const int SLOT_MACHINE_TIME = 400;
 constexpr const int CONVEYOR_SPEED = 4;
+
+static int GetInitialRefreshTime(SeedType theSeedType, SeedType theImitaterType, bool theSurvivalMode)
+{
+	SeedType aUseSeedType = theSeedType;
+	if (theSeedType == SeedType::SEED_IMITATER && theImitaterType != SeedType::SEED_NONE)
+		aUseSeedType = theImitaterType;
+
+	int aPlantRefreshTime = Plant::GetRefreshTime(theSeedType, theImitaterType);
+	bool anIsUpgrade = Plant::IsUpgrade(aUseSeedType);
+	if ((anIsUpgrade && !theSurvivalMode) || aPlantRefreshTime == 1667)
+		return 1167;
+	if (anIsUpgrade && theSurvivalMode)
+		return 2667;
+	if (aPlantRefreshTime == 1000)
+		return 667;
+	return 0;
+}
 
 SeedPacket::SeedPacket()
 {
@@ -171,6 +189,19 @@ void SeedPacket::Update()
 
 	if (!mActive && mRefreshing)
 	{
+		int aNewRefreshTime = mTimesUsed == 0
+			? GetInitialRefreshTime(mPacketType, mImitaterType, mApp->IsSurvivalMode())
+			: Plant::GetRefreshTime(mPacketType, mImitaterType);
+		if (aNewRefreshTime > 0 && aNewRefreshTime != mRefreshTime)
+		{
+			int aOldRefreshTime = mRefreshTime;
+			mRefreshCounter = aOldRefreshTime > 0
+				? (mRefreshCounter * aNewRefreshTime + aOldRefreshTime / 2) / aOldRefreshTime
+				: 0;
+			mRefreshCounter = std::clamp(mRefreshCounter, 0, aNewRefreshTime);
+			mRefreshTime = aNewRefreshTime;
+		}
+
 		mRefreshCounter++;
 		if (mRefreshCounter > mRefreshTime)
 		{
@@ -982,7 +1013,10 @@ void SeedBank::Draw(Graphics* g)
 			aMoneyColor = Color(255, 0, 0);
 		}
 
-		PvzpDrawString(g, aMoneyLabel, 34, 78, FONT_CONTINUUMBOLD14, aMoneyColor, DrawStringJustification::DS_ALIGN_CENTER);
+		Graphics aMoneyGraphics(*g);
+		float aMoneyScale = std::min(1.0f, 64.0f / static_cast<float>(FONT_CONTINUUMBOLD14->StringWidth(aMoneyLabel)));
+		aMoneyGraphics.SetScale(aMoneyScale, aMoneyScale, 34.0f, 78.0f);
+		PvzpDrawString(&aMoneyGraphics, aMoneyLabel, 34, 78, FONT_CONTINUUMBOLD14, aMoneyColor, DrawStringJustification::DS_ALIGN_CENTER);
 	}
 
 	if (mApp->mGameScene != GameScenes::SCENE_PLAYING)
@@ -1113,32 +1147,14 @@ void SeedPacket::SetPacketType(SeedType theSeedType, SeedType theImitaterType)
 	mRefreshing = false;
 	mActive = true;
 
-	SeedType aUseSeedType = theSeedType;
-	if (theSeedType == SeedType::SEED_IMITATER && theImitaterType != SeedType::SEED_NONE)
-	{
-		aUseSeedType = theImitaterType;
-	}
-
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED || mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM || mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_LAST_STAND ||
 		mApp->IsIZombieLevel() || mApp->IsScaryPotterLevel() || mApp->IsWhackAZombieLevel() || (mApp->IsSurvivalMode() && mBoard->mChallenge->mSurvivalStage > 0))
 		return;
 
-	if ((Plant::IsUpgrade(aUseSeedType) && !gLawnApp->IsSurvivalMode()) || Plant::GetRefreshTime(mPacketType, mImitaterType) == 5000)
+	mRefreshTime = GetInitialRefreshTime(mPacketType, mImitaterType, mApp->IsSurvivalMode());
+	if (mRefreshTime > 0)
 	{
-		mRefreshTime = 3500;
-		mRefreshing = true;
-		mActive = false;
-	}
-	else if (Plant::IsUpgrade(aUseSeedType) && gLawnApp->IsSurvivalMode())
-	{
-		mRefreshTime = 8000;
-		mRefreshing = true;
-		mActive = false;
-	}
-	else if (Plant::GetRefreshTime(mPacketType, mImitaterType) == 3000)
-	{
-		mRefreshTime = 2000;
 		mRefreshing = true;
 		mActive = false;
 	}

@@ -2929,6 +2929,49 @@ void SexyAppBase::PreTerminate()
 {
 }
 
+void SexyAppBase::SetLogicalSize(int theWidth, int theHeight)
+{
+	if (mWidth == theWidth && mHeight == theHeight)
+		return;
+
+	mWidth = theWidth;
+	mHeight = theHeight;
+#ifndef __EMSCRIPTEN__
+	if (mWindow != nullptr && mIsPhysWindowed)
+	{
+		int aWindowWidth = theWidth;
+		int aWindowHeight = theHeight;
+		if (theHeight > 600)
+		{
+			SDL_Rect aUsableBounds{};
+			const int aDisplayIndex = SDL_GetWindowDisplayIndex(static_cast<SDL_Window*>(mWindow));
+			if (aDisplayIndex >= 0 && SDL_GetDisplayUsableBounds(aDisplayIndex, &aUsableBounds) == 0)
+			{
+				const float aScale = std::min({1.0f,
+					static_cast<float>(aUsableBounds.w) / theWidth,
+					static_cast<float>(aUsableBounds.h) / theHeight});
+				aWindowWidth = std::max(1, static_cast<int>(theWidth * aScale));
+				aWindowHeight = std::max(1, static_cast<int>(theHeight * aScale));
+			}
+		}
+		SDL_SetWindowSize(static_cast<SDL_Window*>(mWindow), aWindowWidth, aWindowHeight);
+		SDL_SetWindowPosition(static_cast<SDL_Window*>(mWindow), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+	}
+#endif
+	if (mGLInterface)
+	{
+		mGLInterface->ResizeLogical(theWidth, theHeight);
+		mScreenBounds = Rect(0, 0, theWidth, theHeight);
+		if (mWidgetManager)
+		{
+			mWidgetManager->mImage = mGLInterface->GetScreenImage();
+			mGLInterface->UpdateViewport();
+			mWidgetManager->Resize(mScreenBounds, mGLInterface->mPresentationRect);
+			mWidgetManager->MarkAllDirty();
+		}
+	}
+}
+
 void SexyAppBase::LogPerfStats()
 {
 	Sexy::LogInfoLn("Seconds       = {:.6g}", (SDL_GetTicks() - mStartTick) / 1000.0);

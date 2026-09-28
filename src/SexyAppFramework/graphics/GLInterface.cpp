@@ -1168,20 +1168,35 @@ void GLInterface::UpdateViewport()
 
 	vw = width; vh = height;
 
-	// Letterbox to 4:3
-	if (width * 3 > height * 4)
+	// Fit the physical drawable to the current logical canvas aspect ratio.
+	if (static_cast<int64_t>(width) * mHeight > static_cast<int64_t>(height) * mWidth)
 	{
-		vw = height * 4 / 3;
+		vw = height * mWidth / mHeight;
 		vx = (width - vw) / 2;
 	}
-	else if (width * 3 < height * 4)
+	else if (static_cast<int64_t>(width) * mHeight < static_cast<int64_t>(height) * mWidth)
 	{
-		vh = width * 3 / 4;
+		vh = width * mHeight / mWidth;
 		vy = (height - vh) / 2;
 	}
 
 	glViewport(vx, vy, vw, vh);
 	mPresentationRect = Rect(vx, vy, vw, vh);
+}
+
+void GLInterface::ResizeLogical(int theWidth, int theHeight)
+{
+	if (mWidth == theWidth && mHeight == theHeight)
+		return;
+
+	Flush();
+	mWidth = theWidth;
+	mHeight = theHeight;
+	float ortho[16];
+	MakeOrthoMatrix(0, static_cast<float>(mWidth), static_cast<float>(mHeight), 0, -10, 10, ortho);
+	glUseProgram(gProgram);
+	glUniformMatrix4fv(gUfViewProjMtx, 1, GL_FALSE, ortho);
+	SetVideoOnlyDraw(false);
 }
 
 int GLInterface::Init(bool IsWindowed)

@@ -335,7 +335,10 @@ void Coin::CoinInitialize(int theX, int theY, CoinType theCoinType, CoinMotion t
 		mVelY = -3.0f - RandRangeFloat(0.0f, 2.0f);
 		mVelX = -0.5f + RandRangeFloat(0.0f, 1.0f);
 		mGroundY = mPosY + 45 + Rand(20);
-		mGroundY = std::clamp(mGroundY, 80, 521);
+		if (IsMoney() && mBoard && mBoard->GetNumPlayableRows() > 6)
+			mGroundY = std::max(mGroundY, 80);
+		else
+			mGroundY = std::clamp(mGroundY, 80, 521);
 		if (mType == CoinType::COIN_AWARD_SILVER_SUNFLOWER || mType == CoinType::COIN_AWARD_GOLD_SUNFLOWER)
 		{
 			mPosY -= 100.0f;
@@ -422,7 +425,8 @@ bool Coin::IsMoney()
 
 bool Coin::IsSun()
 {
-	return mType == CoinType::COIN_SUN || mType == CoinType::COIN_SMALLSUN || mType == CoinType::COIN_LARGESUN;
+	return mType == CoinType::COIN_SUN || mType == CoinType::COIN_SMALLSUN || mType == CoinType::COIN_LARGESUN ||
+		mType == CoinType::COIN_SUN_150 || mType == CoinType::COIN_SUN_500;
 }
 
 bool Coin::IsPresentWithAdvice()
@@ -504,9 +508,9 @@ void Coin::UpdateFall()
 		}
 
 		mPosX += mVelX;
-		if (mPosX > BOARD_WIDTH - mWidth && mCoinMotion != CoinMotion::COIN_MOTION_FROM_BOSS)
+		if (mPosX > mApp->mWidth - mWidth && mCoinMotion != CoinMotion::COIN_MOTION_FROM_BOSS)
 		{
-			mPosX = BOARD_WIDTH - mWidth;
+			mPosX = mApp->mWidth - mWidth;
 			mVelX = -0.4f - RandRangeFloat(0.0f, 0.4f);
 		}
 		else if (mPosX < 0.0f)
@@ -1269,7 +1273,7 @@ void Coin::Collect()
 		{
 			SeedPacket* aSeedPacket = &mBoard->mSeedBank->mSeedPackets[i];
 			int aCost = mBoard->GetCurrentPlantCost(aSeedPacket->mPacketType, aSeedPacket->mImitaterType);
-			int aSunProfit = mBoard->mSunMoney + mBoard->CountSunBeingCollected() - aCost;
+			int64_t aSunProfit = static_cast<int64_t>(mBoard->mSunMoney) + mBoard->CountSunBeingCollected() - aCost;
 			if (aSunProfit >= 0 && aSunProfit < GetSunValue())
 			{
 				aSeedPacket->FlashIfReady();
@@ -1296,7 +1300,8 @@ float Coin::GetSunScale()
 
 int Coin::GetSunValue()
 {
-	return mType == CoinType::COIN_SUN ? 25 : mType == CoinType::COIN_SMALLSUN ? 15 : mType == CoinType::COIN_LARGESUN ? 50 : 0;
+	return mType == CoinType::COIN_SUN ? 25 : mType == CoinType::COIN_SMALLSUN ? 15 : mType == CoinType::COIN_LARGESUN ? 50 :
+		mType == CoinType::COIN_SUN_150 ? 150 : mType == CoinType::COIN_SUN_500 ? 500 : 0;
 }
 
 int Coin::GetCoinValue(CoinType theCoinType)
@@ -1422,7 +1427,7 @@ bool Coin::MouseHitTest(int theX, int theY, HitResult* theHitResult)
 		aExtraClickHeight = 30;
 		aExtraClickSize = 15;
 	}
-	if (mType == CoinType::COIN_SUN)
+	if (mType == CoinType::COIN_SUN || mType == CoinType::COIN_SUN_150 || mType == CoinType::COIN_SUN_500)
 	{
 		aExtraClickSize = 15;
 	}

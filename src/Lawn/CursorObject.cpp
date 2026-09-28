@@ -248,7 +248,7 @@ void CursorPreview::Update()
 	int aMouseY = mApp->mWidgetManager->mLastMouseY;
 	mGridX = mBoard->PlantingPixelToGridX(aMouseX, aMouseY, aSeedType);
 	mGridY = mBoard->PlantingPixelToGridY(aMouseX, aMouseY, aSeedType);
-	if (mGridX >= 0 && mGridX < MAX_GRID_SIZE_X && mGridY >= 0 && mGridY <= MAX_GRID_SIZE_Y)
+	if (mGridX >= 0 && mGridX < mBoard->GetNumPlayableColumns() && mGridY >= 0 && mGridY <= MAX_GRID_SIZE_Y)
 	{
 		bool aShow = false;
 		if (mBoard->IsPlantInCursor() && mBoard->CanPlantAt(mGridX, mGridY, aSeedType) == PlantingReason::PLANTING_OK)

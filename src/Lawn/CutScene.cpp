@@ -94,7 +94,7 @@ static const int	TimeIntro_FadeOut				= 10890;
 static const int	TimeIntro_FadeOutEnd			= 11890;
 static const int	TimeIntro_End					= 13890;
 static const int	TimeLawnMowerDuration			= 250;
-static const int	TimeLawnMowerStart[6]			= { 6300, 6250, 6200, 6150, 6100, 6050 };
+static const int	TimeLawnMowerStart[MAX_GRID_SIZE_Y]	= { 6300, 6250, 6200, 6150, 6100, 6050, 6000, 5950, 5900, 5850 };
 
 CutScene::CutScene()
 {
@@ -1249,7 +1249,7 @@ void CutScene::AnimateBoard()
 	// Lawn mowers rolling in
 	if (!IsSurvivalRepick())
 	{
-		for (int aGridY = 0; aGridY < MAX_GRID_SIZE_Y; aGridY++)
+		for (int aGridY = 0; aGridY < mBoard->GetNumPlayableRows(); aGridY++)
 		{
 			int aTimeLawnMowerStart = TimeLawnMowerStart[aGridY] + mSodTime + mGraveStoneTime + mCrazyDaveTime;
 			if (mCutsceneTime > aTimeLawnMowerStart)
@@ -1969,12 +1969,10 @@ void CutScene::LoadUpsellBoardRoof()
 
 	mBoard->mBackground = BackgroundType::BACKGROUND_5_ROOF;
 	mBoard->LoadBackgroundImages();
-	mBoard->mPlantRow[0] = PlantRowType::PLANTROW_NORMAL;
-	mBoard->mPlantRow[1] = PlantRowType::PLANTROW_NORMAL;
-	mBoard->mPlantRow[2] = PlantRowType::PLANTROW_NORMAL;
-	mBoard->mPlantRow[3] = PlantRowType::PLANTROW_NORMAL;
-	mBoard->mPlantRow[4] = PlantRowType::PLANTROW_NORMAL;
-	mBoard->mPlantRow[5] = PlantRowType::PLANTROW_DIRT;
+	for (int y = 0; y < mBoard->GetNumPlayableRows(); y++)
+		mBoard->mPlantRow[y] = PlantRowType::PLANTROW_NORMAL;
+	for (int y = mBoard->GetNumPlayableRows(); y < MAX_GRID_SIZE_Y; y++)
+		mBoard->mPlantRow[y] = PlantRowType::PLANTROW_DIRT;
 	for (int x = 0; x < MAX_GRID_SIZE_X; x++)
 	{
 		for (int y = 0; y < MAX_GRID_SIZE_Y; y++)

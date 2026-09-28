@@ -20,6 +20,7 @@
  */
 
 #include <memory>
+#include <cmath>
 #include "PoolEffect.h"
 #include "../../LawnApp.h"
 #include "../../Resources.h"
@@ -127,32 +128,71 @@ void PoolEffect::UpdateWaterEffect()
 	++mCausticImage->mBitsChangedCount;
 }
 
-void PoolEffect::PoolEffectDraw(Sexy::Graphics* g, bool theIsNight)
+void PoolEffect::PoolEffectDraw(Sexy::Graphics* g, bool theIsNight, int theFirstPoolRow, int thePoolRowCount, int theRowSpacing)
 {
+	PVZP_ASSERT(thePoolRowCount == 2 || thePoolRowCount == 4);
+	const int aVerticalCellCount = 5;
+	constexpr int aClassicHorizontalCellCount = 15;
+	constexpr int aWideHorizontalCellCount = 20;
+	// Four gameplay lanes use the same original-height pool art so the basin's top and bottom stone edges stay intact.
+	const bool aFullHeightPool = thePoolRowCount == 4 && mApp->mHeight > BOARD_HEIGHT;
+	const bool aWidePool = aFullHeightPool && mApp->mWidth > BOARD_WIDTH;
+	const int aHorizontalCellCount = aWidePool ? aWideHorizontalCellCount : aClassicHorizontalCellCount;
+	const int aPoolTop = LAWN_YMIN + theFirstPoolRow * theRowSpacing + theRowSpacing / 3 + 1;
+	const int aPoolHeight = aFullHeightPool ? thePoolRowCount * theRowSpacing : IMAGE_POOL->GetHeight();
+	const int aPoolWidth = aWidePool ? mApp->mWidth - 96 : IMAGE_POOL->GetWidth();
 	if (!mApp->Is3DAccelerated())
 	{
 		//skip if using software rendering, never true in this port
+		Image* aPoolImage = theIsNight ? IMAGE_POOL_NIGHT : IMAGE_POOL;
+		if (aWidePool)
+		{
+			for (int aOffsetX = 0; aOffsetX < aPoolWidth;)
+			{
+				int aTileWidth = std::min(aPoolImage->GetWidth(), aPoolWidth - aOffsetX);
+				g->DrawImage(aPoolImage,
+					Rect(34 + aOffsetX, aPoolTop, aTileWidth, aPoolHeight),
+					Rect(0, 0, aTileWidth, aPoolImage->GetHeight()));
+				aOffsetX += aTileWidth;
+			}
+			return;
+		}
 		if (theIsNight)
 		{
-			g->DrawImage(IMAGE_POOL_NIGHT, 34, 278);
+			g->DrawImage(IMAGE_POOL_NIGHT, Rect(34, aPoolTop, IMAGE_POOL_NIGHT->GetWidth(), aPoolHeight),
+				Rect(0, 0, IMAGE_POOL_NIGHT->GetWidth(), IMAGE_POOL_NIGHT->GetHeight()));
 		}
 		else
 		{
-			g->DrawImage(IMAGE_POOL, 34, 278);
+			g->DrawImage(IMAGE_POOL, Rect(34, aPoolTop, IMAGE_POOL->GetWidth(), aPoolHeight),
+				Rect(0, 0, IMAGE_POOL->GetWidth(), IMAGE_POOL->GetHeight()));
 		}
 		return;
 	}
 	//pool background
-	float aGridSquareX = IMAGE_POOL->GetWidth() / 15.0f;
-	float aGridSquareY = IMAGE_POOL->GetHeight() / 5.0f;
-	float aOffsetArray[3][16][6][2] = {{{{ 0 }}}};
-	for (int x = 0; x <= 15; x++)
+	float aGridSquareX = static_cast<float>(aPoolWidth) / aHorizontalCellCount;
+	float aGridSquareY = static_cast<float>(aPoolHeight) / aVerticalCellCount;
+	auto PoolXAtIndex = [&](int theIndex)
 	{
-		for (int y = 0; y <= 5; y++) //handles the caustic effect
+		if (!aWidePool)
+			return static_cast<float>(theIndex) * aGridSquareX;
+
+		const float aOriginalWaterWidth = static_cast<float>(IMAGE_POOL->GetWidth());
+		if (theIndex <= aClassicHorizontalCellCount)
+			return theIndex * aOriginalWaterWidth / aClassicHorizontalCellCount;
+
+		const float aExtendedCellWidth = static_cast<float>(aPoolWidth - IMAGE_POOL->GetWidth()) /
+			(aHorizontalCellCount - aClassicHorizontalCellCount);
+		return aOriginalWaterWidth + (theIndex - aClassicHorizontalCellCount) * aExtendedCellWidth;
+	};
+	float aOffsetArray[3][aWideHorizontalCellCount + 1][11][2] = {{{{ 0 }}}};
+	for (int x = 0; x <= aHorizontalCellCount; x++)
+	{
+		for (int y = 0; y <= aVerticalCellCount; y++) //handles the caustic effect
 		{
-			aOffsetArray[2][x][y][0] = x / 15.0f;
-			aOffsetArray[2][x][y][1] = y / 5.0f;
-			if (x != 0 && x != 15 && y != 0 && y != 5)
+			aOffsetArray[2][x][y][0] = 0.0f;
+			aOffsetArray[2][x][y][1] = static_cast<float>(y) / aVerticalCellCount;
+			if (x != 0 && x != aHorizontalCellCount && y != 0 && y != aVerticalCellCount)
 			{
 				constexpr unsigned int POOL_PHASE_PERIOD = 316800u; // LCM of all sin wave effective periods (1600, 300, 1800, 220, 3200/3, 200, 720, 640, 88)
 				float aPoolPhase = (mPoolCounter % POOL_PHASE_PERIOD) * PI; //speed, * 2 is default
@@ -161,8 +201,8 @@ void PoolEffect::PoolEffectDraw(Sexy::Graphics* g, bool theIsNight)
 				float aWaveTime3 = aPoolPhase / 900.0;
 				float aWaveTime4 = aPoolPhase / 800.0;
 				float aWaveTime5 = aPoolPhase / 110.0;
-				float xPhase = x * 3.0f * 2 * PI / 15.0f; //15.0f
-				float yPhase = y * 3.0f * 2 * PI / 5.0f; //more speed options, 5.0f
+				float xPhase = x * 3.0f * 2 * PI / aHorizontalCellCount;
+				float yPhase = y * 3.0f * 2 * PI / aVerticalCellCount; //more speed options
 				//verticies for rendering, dividing by 1 gives interesting results
 				aOffsetArray[0][x][y][0] = sin(yPhase + aWaveTime2) * 0.002f + sin(yPhase + aWaveTime1) * 0.005f;
 				aOffsetArray[0][x][y][1] = sin(xPhase + aWaveTime5) * 0.01f + sin(xPhase + aWaveTime3) * 0.015f + sin(xPhase + aWaveTime4) * 0.005f;
@@ -184,31 +224,39 @@ void PoolEffect::PoolEffectDraw(Sexy::Graphics* g, bool theIsNight)
 
 	int aIndexOffsetX[6] = { 0, 0, 1, 0, 1, 1 };
 	int aIndexOffsetY[6] = { 0, 1, 1, 0, 1, 0 };
-	TriVertex aVertArray[3][150][3];
-
-	for (int x = 0; x < 15; x++)
+	TriVertex aVertArray[3][aWideHorizontalCellCount * aVerticalCellCount * 2][3];
+	auto aLaneToneAtY = [&](float theY)
 	{
-		for (int y = 0; y < 5; y++)
+		const float aRowAnchor = static_cast<float>(LAWN_YMIN + theFirstPoolRow * theRowSpacing);
+		const float aRowPhase = (theY - aRowAnchor) * (2.0f * PI / theRowSpacing);
+		return 0.5f + 0.5f * std::cos(aRowPhase);
+	};
+
+	for (int x = 0; x < aHorizontalCellCount; x++)
+	{
+		for (int y = 0; y < aVerticalCellCount; y++)
 		{
 			for (int aLayer = 0; aLayer < 3; aLayer++)
 			{
-				TriVertex* pVert = &aVertArray[aLayer][x * 10 + y * 2][0];
+				TriVertex* pVert = &aVertArray[aLayer][x * aVerticalCellCount * 2 + y * 2][0];
 				for (int aVertIndex = 0; aVertIndex < 6; aVertIndex++, pVert++)
 				{
 					int aIndexX = x + aIndexOffsetX[aVertIndex];
 					int aIndexY = y + aIndexOffsetY[aVertIndex];
+					int aTextureCellX = aIndexX - (x / aClassicHorizontalCellCount) * aClassicHorizontalCellCount;
 					if (aLayer == 2) //caustic effect
 					{
-						pVert->x = (704.0f / 15.0f) * aIndexX + 45.0f; //x-offset
-						pVert->y = 30.0f * aIndexY + 288.0f; //y-offset
-						pVert->u = aOffsetArray[2][aIndexX][aIndexY][0] + aIndexX / 15.0f;
-						pVert->v = aOffsetArray[2][aIndexX][aIndexY][1] + aIndexY / 5.0f;
+						pVert->x = PoolXAtIndex(aIndexX) + 45.0f;
+						pVert->y = aGridSquareY * aIndexY + aPoolTop + 9.0f; //caustics sit just inside the pool border
+						pVert->u = aOffsetArray[2][aIndexX][aIndexY][0] +
+							2.0f * static_cast<float>(aTextureCellX) / aClassicHorizontalCellCount;
+						pVert->v = aOffsetArray[2][aIndexX][aIndexY][1] + static_cast<float>(aIndexY) / aVerticalCellCount;
 						//use correct colors depending on the scene
 						if (!g->mClipRect.Contains(pVert->x, pVert->y))
 						{
 							pVert->color = 0x00FFFFFFUL;
 						}
-						else if (aIndexX == 0 || aIndexX == 15 || aIndexY == 0)
+						else if (aIndexX == 0 || aIndexX == aHorizontalCellCount || aIndexY == 0)
 						{
 							pVert->color = 0x20FFFFFFUL;
 						}
@@ -218,20 +266,37 @@ void PoolEffect::PoolEffectDraw(Sexy::Graphics* g, bool theIsNight)
 						}
 						else
 						{
-							pVert->color = aIndexX <= 7 ? 0xC0FFFFFFUL : 0x80FFFFFFUL;
+							pVert->color = aIndexX <= aHorizontalCellCount / 2 ? 0xC0FFFFFFUL : 0x80FFFFFFUL;
 						}
 					}
 					else
 					{
 						//update water outlines
 						pVert->color = 0xFFFFFFFFUL;
-						pVert->x = aIndexX * aGridSquareX + 35.0f;
-						pVert->y = aIndexY * aGridSquareY + 279.0f;
-						pVert->u = aOffsetArray[aLayer][aIndexX][aIndexY][0] + aIndexX / 15.0f;
-						pVert->v = aOffsetArray[aLayer][aIndexX][aIndexY][1] + aIndexY / 5.0f;
+						pVert->x = PoolXAtIndex(aIndexX) + 35.0f;
+						pVert->y = aIndexY * aGridSquareY + aPoolTop;
+						pVert->u = aOffsetArray[aLayer][aIndexX][aIndexY][0] + static_cast<float>(aTextureCellX) / aClassicHorizontalCellCount;
+						pVert->v = aOffsetArray[aLayer][aIndexX][aIndexY][1] + static_cast<float>(aIndexY) / aVerticalCellCount;
 						if (!g->mClipRect.Contains(pVert->x, pVert->y))
 						{
 							pVert->color = 0x00FFFFFFUL;
+						}
+					}
+					if (aFullHeightPool)
+					{
+						const float aLaneTone = aLaneToneAtY(pVert->y);
+						if (aLayer == 2)
+						{
+							const uint32_t aAlpha = (pVert->color >> 24) & 0xFF;
+							const uint32_t aShadedAlpha = static_cast<uint32_t>(aAlpha * (0.96f + 0.04f * aLaneTone) + 0.5f);
+							pVert->color = (pVert->color & 0x00FFFFFFUL) | (aShadedAlpha << 24);
+						}
+						else
+						{
+							const uint32_t aAlpha = (pVert->color >> 24) & 0xFF;
+							const uint32_t aRed = 247 + static_cast<uint32_t>(7 * aLaneTone);
+							const uint32_t aGreen = 251 + static_cast<uint32_t>(4 * aLaneTone);
+							pVert->color = (aAlpha << 24) | (aRed << 16) | (aGreen << 8) | 0xFF;
 						}
 					}
 				}
@@ -241,13 +306,13 @@ void PoolEffect::PoolEffectDraw(Sexy::Graphics* g, bool theIsNight)
 	//draw correct shading type depending on area.
 	if (theIsNight)
 	{
-		g->DrawTrianglesTex(IMAGE_POOL_BASE_NIGHT, aVertArray[0], 150);
-		g->DrawTrianglesTex(IMAGE_POOL_SHADING_NIGHT, aVertArray[1], 150);
+		g->DrawTrianglesTex(IMAGE_POOL_BASE_NIGHT, aVertArray[0], aHorizontalCellCount * aVerticalCellCount * 2);
+		g->DrawTrianglesTex(IMAGE_POOL_SHADING_NIGHT, aVertArray[1], aHorizontalCellCount * aVerticalCellCount * 2);
 	}
 	else
 	{
-		g->DrawTrianglesTex(IMAGE_POOL_BASE, aVertArray[0], 150);
-		g->DrawTrianglesTex(IMAGE_POOL_SHADING, aVertArray[1], 150);
+		g->DrawTrianglesTex(IMAGE_POOL_BASE, aVertArray[0], aHorizontalCellCount * aVerticalCellCount * 2);
+		g->DrawTrianglesTex(IMAGE_POOL_SHADING, aVertArray[1], aHorizontalCellCount * aVerticalCellCount * 2);
 	}
 	//update positions
 	UpdateWaterEffect();
@@ -255,7 +320,7 @@ void PoolEffect::PoolEffectDraw(Sexy::Graphics* g, bool theIsNight)
 	GLInterface* anInterface = ((GLImage*)g->mDestImage)->mGLInterface;
 
 	//Send caustic effect tris to OpenGL (tex, verts, tris)
-	g->DrawTrianglesTex(mCausticImage.get(), aVertArray[2], 150);
+	g->DrawTrianglesTex(mCausticImage.get(), aVertArray[2], aHorizontalCellCount * aVerticalCellCount * 2);
 }
 
 void PoolEffect::PoolEffectUpdate()

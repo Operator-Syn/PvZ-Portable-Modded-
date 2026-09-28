@@ -36,6 +36,11 @@
 #include "../../PvzpLib/PvzpStringFile.h"
 #include "widget/WidgetManager.h"
 
+static SeedType AlmanacSeedTypeAtIndex(int theIndex)
+{
+	return theIndex == NUM_ALMANAC_SEEDS - 1 ? SeedType::SEED_SUN_MAGNET : static_cast<SeedType>(theIndex);
+}
+
 bool gZombieDefeated[NUM_ZOMBIE_TYPES] = { false };
 
 AlmanacDialog::AlmanacDialog(LawnApp* theApp) : LawnDialog(theApp, DIALOG_ALMANAC, true, theApp->GetString("ALMANAC_HEADER", "Almanac"), "", "", BUTTONS_NONE)
@@ -279,8 +284,9 @@ void AlmanacDialog::DrawPlants(Graphics* g)
 	PvzpDrawString(g, "[SUBURBAN_ALMANAC_PLANTS]", BOARD_WIDTH / 2, 48, Sexy::FONT_HOUSEOFTERROR20, Color(213, 159, 43), DrawStringJustification::DS_ALIGN_CENTER);
 
 	SeedType aSeedMouseOn = SeedHitTest(mApp->mWidgetManager->mLastMouseX, mApp->mWidgetManager->mLastMouseY);
-	for (SeedType aSeedType = SeedType::SEED_PEASHOOTER; aSeedType < NUM_ALMANAC_SEEDS; aSeedType = (SeedType)(aSeedType + 1))
+	for (int aSeedIndex = 0; aSeedIndex < NUM_ALMANAC_SEEDS; aSeedIndex++)
 	{
+		SeedType aSeedType = AlmanacSeedTypeAtIndex(aSeedIndex);
 		int aPosX, aPosY;
 		GetSeedPosition(aSeedType, aPosX, aPosY);
 		if (mApp->HasSeedType(aSeedType))
@@ -342,11 +348,12 @@ void AlmanacDialog::DrawPlants(Graphics* g)
 	{
 		std::string aCostStr = PvzpReplaceString(std::format("{{KEYWORD}}{{COST}}:{{STAT}} {}", aPlantDef.mSeedCost), "{COST}", "[COST]");
 		PvzpDrawStringWrapped(g, aCostStr, Rect(485, 520, 134, 50), Sexy::FONT_BRIANNETOD12, Color::White, DS_ALIGN_LEFT);
+		int aRefreshTime = Plant::GetRefreshTime(mSelectedSeed, SeedType::SEED_NONE);
 
 		std::string aRechargeStr = PvzpReplaceString(
 			"{KEYWORD}{WAIT_TIME}: {STAT}{WAIT_TIME_LENGTH}",
 			"{WAIT_TIME_LENGTH}",
-			aPlantDef.mRefreshTime == 750 ? "[WAIT_TIME_SHORT]" : aPlantDef.mRefreshTime == 3000 ? "[WAIT_TIME_LONG]" : "[WAIT_TIME_VERY_LONG]"
+			aRefreshTime <= 250 ? "[WAIT_TIME_SHORT]" : aRefreshTime <= 1000 ? "[WAIT_TIME_LONG]" : "[WAIT_TIME_VERY_LONG]"
 		);
 		aRechargeStr = PvzpReplaceString(aRechargeStr, "{WAIT_TIME}", "[WAIT_TIME]");
 		PvzpDrawStringWrapped(g, aRechargeStr, Rect(600, 520, 139, 50), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_RIGHT);
@@ -521,7 +528,9 @@ void AlmanacDialog::Draw(Graphics* g)
 
 void AlmanacDialog::GetSeedPosition(SeedType theSeedType, int& x, int& y)
 {
-	if (theSeedType == SeedType::SEED_IMITATER)
+	if (theSeedType == SeedType::SEED_SUN_MAGNET)
+		x = 26, y = 540;
+	else if (theSeedType == SeedType::SEED_IMITATER)
 		x = 20, y = 23;
 	else
 	{
@@ -534,8 +543,9 @@ SeedType AlmanacDialog::SeedHitTest(int x, int y)
 {
 	if (mMouseVisible && mOpenPage == AlmanacPage::ALMANAC_PAGE_PLANTS)
 	{
-		for (SeedType aSeedType = SeedType::SEED_PEASHOOTER; aSeedType < NUM_ALMANAC_SEEDS; aSeedType = (SeedType)(aSeedType + 1))
+		for (int aSeedIndex = 0; aSeedIndex < NUM_ALMANAC_SEEDS; aSeedIndex++)
 		{
+			SeedType aSeedType = AlmanacSeedTypeAtIndex(aSeedIndex);
 			if (mApp->HasSeedType(aSeedType))
 			{
 				int aSeedX, aSeedY;

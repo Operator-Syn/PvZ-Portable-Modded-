@@ -21,6 +21,7 @@
 
 #include <time.h>
 #include <algorithm>
+#include <limits>
 #include <SDL.h>
 #include <format>
 #include "ZenGarden.h"
@@ -212,7 +213,7 @@ Board::Board(LawnApp* theApp)
 	else
 	{
 		mMenuButton->SetLabel("[MENU_BUTTON]");
-		mMenuButton->Resize(681, -10, 117, 46);
+		mMenuButton->Resize(mApp->mWidth - 119, -10, 117, 46);
 	}
 
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_LAST_STAND)
@@ -360,9 +361,19 @@ void Board::ResetFPSStats()
 
 bool Board::LoadGame(const std::string& theFileName)
 {
+	mPlantHealGlows.clear();
+	mPlantHealVisuals.clear();
+	mChomperHealAuras.clear();
+	mSunMagnetExtraItems.clear();
+	mChomperOverdriveActive = false;
+	mKernelPultOverdriveActive = false;
+	mSunMagnetOverdriveActive = false;
+	mTwinSunflowerProductionOverdriveActive = false;
+	mTwinSunflowerBombardmentOverdriveActive = false;
 	if (!LawnLoadGame(this, theFileName))
 		return false;
 
+	RestorePlantHealGlowsAfterLoad();
 	LoadBackgroundImages();
 	mApp->ClearUpdateBacklog();
 	ResetFPSStats();
@@ -984,15 +995,14 @@ void Board::PickBackground()
 	}
 	LoadBackgroundImages();
 
+	const int aPlayableRowCount = GetNumPlayableRows();
+	for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
+	{
+		mPlantRow[y] = y < aPlayableRowCount ? PlantRowType::PLANTROW_NORMAL : PlantRowType::PLANTROW_DIRT;
+	}
+
 	if (mBackground == BackgroundType::BACKGROUND_1_DAY || mBackground == BackgroundType::BACKGROUND_GREENHOUSE || mBackground == BackgroundType::BACKGROUND_TREEOFWISDOM)
 	{
-		mPlantRow[0] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[1] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[2] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[3] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[4] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[5] = PlantRowType::PLANTROW_DIRT;
-
 		if (mApp->IsAdventureMode() && mApp->IsFirstTimeAdventureMode())
 		{
 			if (mLevel == 1)
@@ -1014,32 +1024,22 @@ void Board::PickBackground()
 			mPlantRow[4] = PlantRowType::PLANTROW_DIRT;
 		}
 	}
-	else if (mBackground == BackgroundType::BACKGROUND_2_NIGHT)
-	{
-		mPlantRow[0] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[1] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[2] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[3] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[4] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[5] = PlantRowType::PLANTROW_DIRT;
-	}
 	else if (mBackground == BackgroundType::BACKGROUND_3_POOL || mBackground == BackgroundType::BACKGROUND_ZOMBIQUARIUM || mBackground == BackgroundType::BACKGROUND_4_FOG)
 	{
-		mPlantRow[0] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[1] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[2] = PlantRowType::PLANTROW_POOL;
-		mPlantRow[3] = PlantRowType::PLANTROW_POOL;
-		mPlantRow[4] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[5] = PlantRowType::PLANTROW_NORMAL;
+		if (StageHasPool() && LawnApp::IsSurvivalEndless(mApp->mGameMode))
+		{
+			for (int y = 3; y <= 6; y++)
+				mPlantRow[y] = PlantRowType::PLANTROW_POOL;
+		}
+		else
+		{
+			mPlantRow[2] = PlantRowType::PLANTROW_POOL;
+			mPlantRow[3] = PlantRowType::PLANTROW_POOL;
+		}
 	}
-	else if (mBackground == BackgroundType::BACKGROUND_5_ROOF || mBackground == BackgroundType::BACKGROUND_6_BOSS)
+	else if (mBackground == BackgroundType::BACKGROUND_2_NIGHT || mBackground == BackgroundType::BACKGROUND_5_ROOF ||
+		mBackground == BackgroundType::BACKGROUND_6_BOSS)
 	{
-		mPlantRow[0] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[1] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[2] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[3] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[4] = PlantRowType::PLANTROW_NORMAL;
-		mPlantRow[5] = PlantRowType::PLANTROW_DIRT;
 	}
 	else
 	{
@@ -1054,11 +1054,11 @@ void Board::PickBackground()
 			{
 				mGridSquareType[x][y] = GridSquareType::GRIDSQUARE_DIRT;
 			}
-			else if (mPlantRow[y] == PlantRowType::PLANTROW_POOL && x >= 0 && x <= 8)
+			else if (mPlantRow[y] == PlantRowType::PLANTROW_POOL && x < GetNumPlayableColumns())
 			{
 				mGridSquareType[x][y] = GridSquareType::GRIDSQUARE_POOL;
 			}
-			else if (mPlantRow[y] == PlantRowType::PLANTROW_HIGH_GROUND && x >= 4 && x <= 8)
+			else if (mPlantRow[y] == PlantRowType::PLANTROW_HIGH_GROUND && x >= 4 && x < CLASSIC_GRID_SIZE_X)
 			{
 				mGridSquareType[x][y] = GridSquareType::GRIDSQUARE_HIGH_GROUND;
 			}
@@ -1277,7 +1277,8 @@ void Board::InitSurvivalStage()
 
 Rect Board::GetShovelButtonRect()
 {
-	Rect aRect(GetSeedBankExtraWidth() + 456, 0, Sexy::IMAGE_SHOVELBANK->GetWidth(), Sexy::IMAGE_SHOVELBANK->GetHeight());
+	Rect aRect(GetSeedBankExtraWidth() + 456 + mApp->mWidth - BOARD_WIDTH, 0,
+		Sexy::IMAGE_SHOVELBANK->GetWidth(), Sexy::IMAGE_SHOVELBANK->GetHeight());
 	if (mApp->IsSlotMachineLevel() || mApp->IsSquirrelLevel())
 	{
 		aRect.mX = 600;
@@ -1562,7 +1563,9 @@ void Board::PlaceRake()
 	PvzpWeightedArray aPickArray[MAX_GRID_SIZE_Y];
 	for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
 	{
-		if (aRow != 5 && mPlantRow[aRow] == PlantRowType::PLANTROW_NORMAL)
+		const int aFirstExpandedRow = StageHasPool() ? 6 : 5;
+		const bool aIsNewEndlessRow = mApp->IsSurvivalEndless(mApp->mGameMode) && aRow >= aFirstExpandedRow;
+		if ((aRow != 5 || aIsNewEndlessRow) && mPlantRow[aRow] == PlantRowType::PLANTROW_NORMAL)
 		{
 			aPickArray[aPickCount].mWeight = 1;
 			aPickArray[aPickCount].mItem = aRow;
@@ -1598,8 +1601,9 @@ void Board::InitLawnMowers()
 	for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
 	{
 		if ((aGameMode == GameMode::GAMEMODE_CHALLENGE_RESODDED && aRow <= 4) ||
-			(mApp->IsAdventureMode() && mLevel == 35) ||   // no row check here, so adventure 4-5 gets mowers on all 6 rows
-			(!mApp->IsScaryPotterLevel() && mPlantRow[aRow] != PlantRowType::PLANTROW_DIRT))  // Scary Potter levels only have dirt rows, so they get no mowers
+			((mApp->IsAdventureMode() && mLevel == 35) &&
+				(aRow < 6 || (mApp->IsSurvivalEndless(mApp->mGameMode) && aRow < GetNumPlayableRows()))) ||
+			(!mApp->IsScaryPotterLevel() && mPlantRow[aRow] != PlantRowType::PLANTROW_DIRT))
 		{
 			LawnMower* aLawnMower = mLawnMowers.DataArrayAlloc();
 			aLawnMower->LawnMowerInitialize(aRow);
@@ -2008,9 +2012,8 @@ void Board::RefreshSeedPacketFromCursor()
 
 bool Board::IsPoolSquare(int theGridX, int theGridY)
 {
-	if (theGridX >= 0 && theGridY >= 0)
+	if (theGridX >= 0 && theGridX < GetNumPlayableColumns() && theGridY >= 0 && theGridY < MAX_GRID_SIZE_Y)
 	{
-		PVZP_ASSERT(theGridX < MAX_GRID_SIZE_X && theGridY < MAX_GRID_SIZE_Y);
 		return mGridSquareType[theGridX][theGridY] == GridSquareType::GRIDSQUARE_POOL;
 	}
 	return false;
@@ -2143,7 +2146,7 @@ void Board::GetPlantsOnLawn(int theGridX, int theGridY, PlantsOnLawn* thePlantOn
 	thePlantOnLawn->mFlyingPlant = nullptr;
 	thePlantOnLawn->mNormalPlant = nullptr;
 
-	if (theGridX < 0 || theGridX >= MAX_GRID_SIZE_X || theGridY < 0 || theGridY >= MAX_GRID_SIZE_Y)
+	if (theGridX < 0 || theGridX >= GetNumPlayableColumns() || theGridY < 0 || theGridY >= MAX_GRID_SIZE_Y)
 		return;
 
 	if (mApp->IsWallnutBowlingLevel() && !mCutScene->IsInShovelTutorial())
@@ -2207,7 +2210,7 @@ void Board::GetPlantsOnLawn(int theGridX, int theGridY, PlantsOnLawn* thePlantOn
 
 Plant* Board::GetTopPlantAt(int theGridX, int theGridY, PlantPriority thePriority)
 {
-	if (theGridX < 0 || theGridX >= MAX_GRID_SIZE_X || theGridY < 0 || theGridY >= MAX_GRID_SIZE_Y)
+	if (theGridX < 0 || theGridX >= GetNumPlayableColumns() || theGridY < 0 || theGridY >= MAX_GRID_SIZE_Y)
 		return nullptr;
 
 	if (mApp->IsWallnutBowlingLevel() && !mCutScene->IsInShovelTutorial())
@@ -2331,6 +2334,61 @@ Projectile* Board::AddProjectile(int theX, int theY, int theRenderOrder, int the
 	Projectile* aProjectile = mProjectiles.DataArrayAlloc();
 	aProjectile->ProjectileInitialize(theX, theY, theRenderOrder, theRow, theProjectileType);
 	return aProjectile;
+}
+
+MagnetItem* Board::GetSunMagnetExtraItems(PlantID thePlantID, bool theCreate)
+{
+	auto anEntry = std::find_if(mSunMagnetExtraItems.begin(), mSunMagnetExtraItems.end(),
+		[thePlantID](const SunMagnetExtraItems& theItems){ return theItems.mPlantID == thePlantID; });
+	if (anEntry != mSunMagnetExtraItems.end())
+		return anEntry->mItems;
+	if (!theCreate)
+		return nullptr;
+
+	SunMagnetExtraItems aNewEntry{};
+	aNewEntry.mPlantID = thePlantID;
+	mSunMagnetExtraItems.push_back(aNewEntry);
+	return mSunMagnetExtraItems.back().mItems;
+}
+
+bool Board::TryLaunchTwinSunflowerSunBomb()
+{
+	std::vector<Zombie*> aTargets;
+	for (Zombie* aZombie : mZombies)
+	{
+		if (!aZombie->mDead && !aZombie->IsDeadOrDying() && aZombie->EffectedByDamage(127U))
+			aTargets.push_back(aZombie);
+	}
+	if (aTargets.empty() || !TakeSunMoney(300))
+		return false;
+
+	Zombie* aTarget = aTargets[RandRangeInt(0, static_cast<int>(aTargets.size()) - 1)];
+	int aTargetRow = aTarget->mRow;
+	float aTargetX = aTarget->ZombieTargetLeadX(50.0f) - 40.0f;
+	Rect aTargetRect = aTarget->GetZombieRect();
+	float aTargetY = aTargetRect.mY + aTargetRect.mHeight / 2.0f - 5.0f;
+	Projectile* aProjectile = AddProjectile(static_cast<int>(aTargetX), static_cast<int>(aTargetY),
+		MakeRenderOrder(RenderLayer::RENDER_LAYER_PROJECTILE, aTargetRow, 0), aTargetRow,
+		ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB);
+	aProjectile->mMotionType = ProjectileMotion::MOTION_LOBBED;
+	aProjectile->mPosX = aTargetX;
+	aProjectile->mPosY = aTargetY;
+	aProjectile->mPosZ = -240.0f;
+	aProjectile->mVelX = 0.0f;
+	aProjectile->mVelY = 0.0f;
+	aProjectile->mVelZ = 4.0f;
+	aProjectile->mAccZ = 0.0f;
+	aProjectile->mShadowY = aTargetY + 67.0f;
+	aProjectile->mDamageRangeFlags = 127;
+	aProjectile->mWidth = 80;
+	aProjectile->mHeight = 80;
+
+	Reanimation* aSunReanim = mApp->AddReanimation(0.0f, 0.0f, aProjectile->mRenderOrder, ReanimationType::REANIM_SUN);
+	aSunReanim->SetPosition(aProjectile->mPosX + 40.0f, aProjectile->mPosY + 40.0f);
+	aSunReanim->mLoopType = ReanimLoopType::REANIM_LOOP;
+	aSunReanim->mAnimRate = 6.0f;
+	AttachReanim(aProjectile->mAttachmentID, aSunReanim, 40.0f, 40.0f);
+	return true;
 }
 
 bool Board::CanZombieSpawnOnLevel(ZombieType theZombieType, int theLevel)
@@ -2687,7 +2745,7 @@ bool Board::IsIceAt(int theGridX, int theGridY)
 
 PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedType)
 {
-	if (theGridX < 0 || theGridX >= MAX_GRID_SIZE_X || theGridY < 0 || theGridY >= MAX_GRID_SIZE_Y)
+	if (theGridX < 0 || theGridX >= GetNumPlayableColumns() || theGridY < 0 || theGridY >= MAX_GRID_SIZE_Y)
 	{
 		return PlantingReason::PLANTING_NOT_HERE;
 	}
@@ -3278,7 +3336,7 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 	}
 
 	mToolTip->mMinLeft = 0;
-	mToolTip->mMaxBottom = BOARD_HEIGHT;
+	mToolTip->mMaxBottom = mApp->mHeight;
 	mToolTip->SetTitle("");
 	mToolTip->SetLabel("");
 	mToolTip->SetWarningText("");
@@ -3346,6 +3404,83 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 	case GameObjectType::OBJECT_TYPE_TREE_FOOD:
 		mToolTip->SetLabel("[TREE_FERTILIZER_TOOLTIP]");
 		break;
+	case GameObjectType::OBJECT_TYPE_PLANT:
+	{
+		Plant* aHoveredPlant = static_cast<Plant*>(theHitResult->mObject);
+		if (aHoveredPlant == nullptr || aHoveredPlant->mDead || !aHoveredPlant->IsOnBoard())
+		{
+			mToolTip->mVisible = false;
+			return;
+		}
+
+		std::string aPlantDetails;
+		for (Plant* aPlant : mPlants)
+		{
+			if (aPlant->mDead || !aPlant->IsOnBoard() || aPlant->mPlantCol != aHoveredPlant->mPlantCol || aPlant->mRow != aHoveredPlant->mRow)
+				continue;
+
+			if (!aPlantDetails.empty())
+				aPlantDetails += '\n';
+
+			int aHealthPercent = 0;
+			if (aPlant->mPlantMaxHealth > 0)
+			{
+				int64_t aPercent = static_cast<int64_t>(aPlant->mPlantHealth) * 100 / aPlant->mPlantMaxHealth;
+				aHealthPercent = static_cast<int>(std::clamp<int64_t>(aPercent, 0, 100));
+			}
+			aPlantDetails += std::format("{}: {}/{} HP ({}%)", Plant::GetNameString(aPlant->mSeedType, aPlant->mImitaterType),
+				aPlant->mPlantHealth, aPlant->mPlantMaxHealth, aHealthPercent);
+
+			PlantID aPlantID = static_cast<PlantID>(mPlants.DataArrayGetID(aPlant));
+			bool aSunMagnetIsHealing = std::any_of(mPlantHealGlows.begin(), mPlantHealGlows.end(),
+				[aPlantID](const PlantHealGlow& theGlow){ return theGlow.mPlantID == aPlantID; });
+			bool aChomperIsHealing = std::any_of(mChomperHealAuras.begin(), mChomperHealAuras.end(),
+				[aPlantID](const ChomperHealAura& theAura){ return theAura.mPlantID == aPlantID; });
+			aPlantDetails += " | Healing: ";
+			if (!aSunMagnetIsHealing && !aChomperIsHealing)
+			{
+				aPlantDetails += "No";
+			}
+			else
+			{
+				if (aSunMagnetIsHealing)
+					aPlantDetails += Plant::GetNameString(SeedType::SEED_SUN_MAGNET);
+				if (aSunMagnetIsHealing && aChomperIsHealing)
+					aPlantDetails += ", ";
+				if (aChomperIsHealing)
+					aPlantDetails += Plant::GetNameString(SeedType::SEED_CHOMPER);
+			}
+
+			if (aPlant->mSeedType == SeedType::SEED_CHOMPER)
+			{
+				aPlantDetails += std::format("\nOverdrive: {} (requires >15,000 sun; drains 100 sun/s while active)",
+					mChomperOverdriveActive ? "Active" : "Inactive");
+			}
+			else if (aPlant->mSeedType == SeedType::SEED_KERNELPULT)
+			{
+				aPlantDetails += std::format("\nOverdrive: {} (requires >20,000 sun; drains 150 sun/s while active)",
+					mKernelPultOverdriveActive ? "Active" : "Inactive");
+			}
+			else if (aPlant->mSeedType == SeedType::SEED_TWINSUNFLOWER)
+			{
+				aPlantDetails += std::format("\nOverdrive: Production {} (>1,000 sun); Sun Bomb {} (>=10,000 sun; 10% per production event, costs 300 sun)",
+					mTwinSunflowerProductionOverdriveActive ? "Active" : "Inactive",
+					mTwinSunflowerBombardmentOverdriveActive ? "Active" : "Inactive");
+			}
+			else if (aPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
+			{
+				aPlantDetails += std::format("\nOverdrive: {} (requires >=5,000 sun; pickup value 6x, up to 15 per batch; costs 1 HP/s to a 1 HP floor)",
+					mSunMagnetOverdriveActive ? "Active" : "Inactive");
+			}
+		}
+
+		mToolTip->SetLabel(aPlantDetails);
+		mToolTip->mX = aHoveredPlant->mX + 40;
+		mToolTip->mY = aHoveredPlant->mY - 8;
+		mToolTip->mCenter = true;
+		mToolTip->mVisible = true;
+		return;
+	}
 	case GameObjectType::OBJECT_TYPE_SEEDPACKET:
 		break;
 	default:
@@ -3601,7 +3736,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	int aGridX = PlantingPixelToGridX(x, y, aPlantingSeedType);
 	int aGridY = PlantingPixelToGridY(x, y, aPlantingSeedType);
 
-	if (aGridX < 0 || aGridX >= MAX_GRID_SIZE_X || aGridY < 0 || aGridY > MAX_GRID_SIZE_Y)
+	if (aGridX < 0 || aGridX >= GetNumPlayableColumns() || aGridY < 0 || aGridY > MAX_GRID_SIZE_Y)
 	{
 		RefreshSeedPacketFromCursor();
 		mApp->PlayFoley(FoleyType::FOLEY_DROP);
@@ -4730,16 +4865,18 @@ void Board::SpawnZombiesFromPool()
 	}
 
 	int aGridArrayCount = 0;
-	PvzpWeightedGridArray aGridArray[MAX_POOL_GRID_SIZE];
-	for (int aGridX = 5; aGridX < MAX_GRID_SIZE_X; aGridX++)
+	PvzpWeightedGridArray aGridArray[MAX_GRID_SIZE_X * MAX_GRID_SIZE_Y];
+	for (int aGridX = 5; aGridX < GetNumPlayableColumns(); aGridX++)
 	{
-		for (int aGridY = 2; aGridY <= 3; aGridY++)
+		for (int aGridY = 0; aGridY < GetNumPlayableRows(); aGridY++)
 		{
+			if (mPlantRow[aGridY] != PlantRowType::PLANTROW_POOL)
+				continue;
 			aGridArray[aGridArrayCount].mX = aGridX;
 			aGridArray[aGridArrayCount].mY = aGridY;
 			aGridArray[aGridArrayCount].mWeight = 10000;
 			aGridArrayCount++;
-			PVZP_ASSERT(aGridArrayCount <= MAX_POOL_GRID_SIZE);
+			PVZP_ASSERT(aGridArrayCount <= MAX_GRID_SIZE_X * MAX_GRID_SIZE_Y);
 		}
 	}
 
@@ -4765,7 +4902,7 @@ void Board::SpawnZombiesFromPool()
 void Board::SetupBungeeDrop(BungeeDropGrid* theBungeeDropGrid)
 {
 	theBungeeDropGrid->mGridArrayCount = 0;
-	for (int aGridX = 4; aGridX < MAX_GRID_SIZE_X; aGridX++)
+	for (int aGridX = 4; aGridX < GetNumPlayableColumns(); aGridX++)
 	{
 		for (int aGridY = 0; aGridY <= 4; aGridY++)
 		{
@@ -4952,6 +5089,9 @@ void Board::SpawnZombieWave()
 
 void Board::UpdateGameObjects()
 {
+	UpdatePlantOverdrive();
+	UpdatePlantHealGlows();
+
 	for (Plant* aPlant : mPlants)
 	{
 		if (aPlant->mDead)
@@ -4994,6 +5134,483 @@ void Board::UpdateGameObjects()
 	{
 		mSeedBank->mSeedPackets[i].Update();
 	}
+
+}
+
+static bool PlantHealthRatioLess(Board* theBoard, Plant* thePlantA, Plant* thePlantB)
+{
+	int64_t aLeft = static_cast<int64_t>(thePlantA->mPlantHealth) * thePlantB->mPlantMaxHealth;
+	int64_t aRight = static_cast<int64_t>(thePlantB->mPlantHealth) * thePlantA->mPlantMaxHealth;
+	if (aLeft != aRight)
+		return aLeft < aRight;
+	if (thePlantA->mRow != thePlantB->mRow)
+		return thePlantA->mRow < thePlantB->mRow;
+	if (thePlantA->mPlantCol != thePlantB->mPlantCol)
+		return thePlantA->mPlantCol < thePlantB->mPlantCol;
+	return theBoard->mPlants.DataArrayGetID(thePlantA) < theBoard->mPlants.DataArrayGetID(thePlantB);
+}
+
+static bool PlantCanRegenerate(Plant* thePlant)
+{
+	return !thePlant->mDead && thePlant->IsOnBoard() && thePlant->mPlantHealth > 0 && thePlant->mPlantMaxHealth > 0;
+}
+
+static bool ApplySunMagnetRegenerationPulse(Board* theBoard, Plant* thePlant)
+{
+	constexpr int aSunReserve = 5000;
+	constexpr int aSunCost = 250;
+	constexpr int aHealthRestored = 25;
+	if (!PlantCanRegenerate(thePlant) || thePlant->mPlantHealth >= thePlant->mPlantMaxHealth ||
+		theBoard->mSunMoney < aSunReserve + aSunCost || !theBoard->TakeSunMoney(aSunCost))
+	{
+		return false;
+	}
+
+	thePlant->mPlantHealth = static_cast<int32_t>(std::min<int64_t>(
+		static_cast<int64_t>(thePlant->mPlantHealth) + aHealthRestored, thePlant->mPlantMaxHealth));
+	PlantID aPlantID = static_cast<PlantID>(theBoard->mPlants.DataArrayGetID(thePlant));
+	auto aVisual = std::find_if(theBoard->mPlantHealVisuals.begin(), theBoard->mPlantHealVisuals.end(),
+		[aPlantID](const Board::PlantHealVisual& theVisual){ return theVisual.mPlantID == aPlantID; });
+	if (thePlant->mPlantHealth >= thePlant->mPlantMaxHealth)
+	{
+		if (aVisual != theBoard->mPlantHealVisuals.end())
+		{
+			PvzpParticleSystem* aParticle = theBoard->mApp->ParticleTryToGet(aVisual->mParticleID);
+			if (aParticle != nullptr)
+				aParticle->ParticleSystemDie();
+			aVisual->mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
+		}
+		for (Board::PlantHealGlow& aGlow : theBoard->mPlantHealGlows)
+			if (aGlow.mPlantID == aPlantID)
+				aGlow.mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
+	}
+	else
+	{
+		if (aVisual != theBoard->mPlantHealVisuals.end())
+			aVisual->mElapsedTicks = 0;
+		theBoard->ShowPlantHealGlow(thePlant);
+	}
+	return true;
+}
+
+void Board::StartSunMagnetRegeneration()
+{
+	constexpr int aSunReserve = 5000;
+	if (mSunMoney <= aSunReserve)
+		return;
+
+	std::vector<Plant*> aAnchors;
+	for (Plant* aPlant : mPlants)
+	{
+		if (PlantCanRegenerate(aPlant) && aPlant->mPlantHealth < aPlant->mPlantMaxHealth)
+			aAnchors.push_back(aPlant);
+	}
+	if (aAnchors.empty())
+		return;
+
+	std::sort(aAnchors.begin(), aAnchors.end(), [this](Plant* thePlantA, Plant* thePlantB)
+		{ return PlantHealthRatioLess(this, thePlantA, thePlantB); });
+	int aAnchorCount = std::min(RandRangeInt(10, 20), static_cast<int>(aAnchors.size()));
+	std::vector<Plant*> aRecipients;
+	for (int i = 0; i < aAnchorCount; i++)
+	{
+		Plant* aAnchor = aAnchors[i];
+		for (Plant* aPlant : mPlants)
+		{
+			if (!PlantCanRegenerate(aPlant) || std::abs(aPlant->mPlantCol - aAnchor->mPlantCol) > 1 ||
+				std::abs(aPlant->mRow - aAnchor->mRow) > 1)
+			{
+				continue;
+			}
+			if (std::find(aRecipients.begin(), aRecipients.end(), aPlant) == aRecipients.end())
+				aRecipients.push_back(aPlant);
+		}
+	}
+	std::sort(aRecipients.begin(), aRecipients.end(), [this](Plant* thePlantA, Plant* thePlantB)
+		{ return PlantHealthRatioLess(this, thePlantA, thePlantB); });
+
+	std::vector<Plant*> aNewRecipients;
+	for (Plant* aPlant : aRecipients)
+	{
+		PlantID aPlantID = static_cast<PlantID>(mPlants.DataArrayGetID(aPlant));
+		auto aEffect = std::find_if(mPlantHealGlows.begin(), mPlantHealGlows.end(),
+			[aPlantID](const PlantHealGlow& theGlow){ return theGlow.mPlantID == aPlantID; });
+		if (aEffect != mPlantHealGlows.end())
+		{
+			aEffect->mElapsedTicks = 0;
+			if (aEffect->mTicksUntilPulse <= 0 || aEffect->mTicksUntilPulse > 100)
+				aEffect->mTicksUntilPulse = 100;
+			aEffect->mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
+			PlantHealVisual* aVisual = nullptr;
+			for (PlantHealVisual& aCandidate : mPlantHealVisuals)
+				if (aCandidate.mPlantID == aPlantID) { aVisual = &aCandidate; break; }
+			if (aVisual != nullptr)
+				aVisual->mElapsedTicks = 0;
+			ShowPlantHealGlow(aPlant);
+		}
+		else
+		{
+			mPlantHealGlows.push_back({ aPlantID, ParticleSystemID::PARTICLESYSTEMID_NULL, 0, 100 });
+			aNewRecipients.push_back(aPlant);
+		}
+	}
+	for (Plant* aPlant : aNewRecipients)
+		ApplySunMagnetRegenerationPulse(this, aPlant);
+}
+
+void Board::RestorePlantHealGlowsAfterLoad()
+{
+	for (auto aEffect = mPlantHealGlows.begin(); aEffect != mPlantHealGlows.end();)
+	{
+		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aEffect->mPlantID));
+		PvzpParticleSystem* aParticle = mApp->ParticleTryToGet(aEffect->mParticleID);
+		if (aPlant == nullptr || !PlantCanRegenerate(aPlant) || aEffect->mElapsedTicks < 0 || aEffect->mElapsedTicks >= 300 ||
+			aEffect->mTicksUntilPulse < 1 || aEffect->mTicksUntilPulse > 100)
+		{
+			bool aHasChomperSource = std::any_of(mChomperHealAuras.begin(), mChomperHealAuras.end(),
+				[&](const ChomperHealAura& theAura){ return theAura.mPlantID == aEffect->mPlantID; });
+			if (aParticle != nullptr && !aHasChomperSource)
+				aParticle->ParticleSystemDie();
+			aEffect = mPlantHealGlows.erase(aEffect);
+			continue;
+		}
+
+		if (aParticle != nullptr && (aParticle->mDead || aParticle->mEffectType != ParticleEffect::PARTICLE_POTTED_WATER_PLANT_GLOW))
+		{
+			if (!aParticle->mDead)
+				aParticle->ParticleSystemDie();
+			aParticle = nullptr;
+			aEffect->mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
+		}
+
+		PlantID aPlantID = aEffect->mPlantID;
+		aEffect->mParticleID = aParticle != nullptr ? mApp->ParticleGetID(aParticle) : ParticleSystemID::PARTICLESYSTEMID_NULL;
+		PlantHealVisual* aVisual = nullptr;
+		for (PlantHealVisual& aCandidate : mPlantHealVisuals)
+			if (aCandidate.mPlantID == aPlantID) { aVisual = &aCandidate; break; }
+		if (aVisual == nullptr)
+		{
+			mPlantHealVisuals.push_back({ aPlantID, aEffect->mParticleID, aEffect->mElapsedTicks, 0 });
+			aVisual = &mPlantHealVisuals.back();
+		}
+		else if (aEffect->mParticleID != ParticleSystemID::PARTICLESYSTEMID_NULL)
+			aVisual->mParticleID = aEffect->mParticleID;
+		if (aVisual->mParticleID != ParticleSystemID::PARTICLESYSTEMID_NULL)
+		{
+			PvzpParticleSystem* aVisualParticle = mApp->ParticleTryToGet(aVisual->mParticleID);
+			if (aVisualParticle == nullptr || aVisualParticle->mDead ||
+				aVisualParticle->mEffectType != ParticleEffect::PARTICLE_POTTED_WATER_PLANT_GLOW)
+			{
+				aVisual->mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
+				aVisual->mCreationRetryTicks = 0;
+			}
+		}
+		if (aPlant->mPlantHealth < aPlant->mPlantMaxHealth)
+			ShowPlantHealGlow(aPlant);
+		++aEffect;
+	}
+
+	for (auto anAura = mChomperHealAuras.begin(); anAura != mChomperHealAuras.end();)
+	{
+		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(anAura->mPlantID));
+		Plant* aChomper = mPlants.DataArrayTryToGet(static_cast<unsigned int>(anAura->mChomperID));
+		bool aChomperIsDevouring = aChomper != nullptr && aChomper->mSeedType == SeedType::SEED_CHOMPER &&
+			(aChomper->mState == PlantState::STATE_CHOMPER_BITING_GOT_ONE ||
+			 aChomper->mState == PlantState::STATE_CHOMPER_DIGESTING ||
+			 aChomper->mState == PlantState::STATE_CHOMPER_SWALLOWING);
+		if (aPlant == nullptr || !PlantCanRegenerate(aPlant) || !aChomperIsDevouring ||
+			anAura->mTicksUntilPulse < 1 || anAura->mTicksUntilPulse > 100)
+		{
+			anAura = mChomperHealAuras.erase(anAura);
+			continue;
+		}
+		--anAura->mTicksUntilPulse;
+		if (anAura->mTicksUntilPulse <= 0)
+		{
+			anAura->mTicksUntilPulse = 100;
+			int aHealAmount = mChomperOverdriveActive ? 50 : 25;
+			aPlant->mPlantHealth = static_cast<int32_t>(std::min<int64_t>(
+				static_cast<int64_t>(aPlant->mPlantHealth) + aHealAmount, aPlant->mPlantMaxHealth));
+			PlantID aPlantID = anAura->mPlantID;
+			for (PlantHealVisual& aVisual : mPlantHealVisuals)
+				if (aVisual.mPlantID == aPlantID) aVisual.mElapsedTicks = 0;
+		}
+		++anAura;
+	}
+
+	for (auto aVisual = mPlantHealVisuals.begin(); aVisual != mPlantHealVisuals.end();)
+	{
+		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aVisual->mPlantID));
+		bool aHasAura = std::any_of(mPlantHealGlows.begin(), mPlantHealGlows.end(),
+			[&](const PlantHealGlow& theGlow){ return theGlow.mPlantID == aVisual->mPlantID; }) ||
+			std::any_of(mChomperHealAuras.begin(), mChomperHealAuras.end(),
+				[&](const ChomperHealAura& theAura){ return theAura.mPlantID == aVisual->mPlantID; });
+		PvzpParticleSystem* aParticle = mApp->ParticleTryToGet(aVisual->mParticleID);
+		if (!aHasAura || aPlant == nullptr || !PlantCanRegenerate(aPlant) ||
+			(aVisual->mParticleID != ParticleSystemID::PARTICLESYSTEMID_NULL &&
+			 (aParticle == nullptr || aParticle->mDead || aParticle->mEffectType != ParticleEffect::PARTICLE_POTTED_WATER_PLANT_GLOW)))
+		{
+			if (aParticle != nullptr)
+				aParticle->ParticleSystemDie();
+			aVisual = mPlantHealVisuals.erase(aVisual);
+			continue;
+		}
+		if (aPlant->mPlantHealth >= aPlant->mPlantMaxHealth)
+		{
+			if (aParticle != nullptr)
+				aParticle->ParticleSystemDie();
+			aVisual->mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
+		}
+		else
+			ShowPlantHealGlow(aPlant);
+		++aVisual;
+	}
+
+	for (PvzpParticleSystem* aParticle : mApp->mEffectSystem->mParticleHolder->mParticleSystems)
+	{
+		if (aParticle->mDead || aParticle->mEffectType != ParticleEffect::PARTICLE_POTTED_WATER_PLANT_GLOW)
+			continue;
+		ParticleSystemID aParticleID = static_cast<ParticleSystemID>(mApp->ParticleGetID(aParticle));
+		bool aPlantOwnsParticle = false;
+		for (Plant* aPlant : mPlants)
+		{
+			if (aPlant->mParticleID == aParticleID)
+			{
+				aPlantOwnsParticle = true;
+				break;
+			}
+		}
+		bool aRegenerationOwnsParticle = std::any_of(mPlantHealVisuals.begin(), mPlantHealVisuals.end(),
+			[aParticleID](const PlantHealVisual& theVisual){ return theVisual.mParticleID == aParticleID; });
+		if (!aPlantOwnsParticle && !aRegenerationOwnsParticle)
+			aParticle->ParticleSystemDie();
+	}
+}
+
+void Board::ShowPlantHealGlow(Plant* thePlant)
+{
+	if (thePlant == nullptr || !PlantCanRegenerate(thePlant))
+		return;
+
+	PlantID aPlantID = static_cast<PlantID>(mPlants.DataArrayGetID(thePlant));
+	if (thePlant->mPlantHealth >= thePlant->mPlantMaxHealth)
+		return;
+	auto aVisual = std::find_if(mPlantHealVisuals.begin(), mPlantHealVisuals.end(),
+		[aPlantID](const PlantHealVisual& theVisual){ return theVisual.mPlantID == aPlantID; });
+	if (aVisual == mPlantHealVisuals.end())
+	{
+		mPlantHealVisuals.push_back({ aPlantID, ParticleSystemID::PARTICLESYSTEMID_NULL, 0, 0 });
+		aVisual = std::prev(mPlantHealVisuals.end());
+	}
+	if (aVisual->mCreationRetryTicks > 0)
+		return;
+
+	PvzpParticleSystem* aParticle = mApp->ParticleTryToGet(aVisual->mParticleID);
+	if (aVisual->mParticleID == ParticleSystemID::PARTICLESYSTEMID_NULL)
+	{
+		aParticle = mApp->AddPvzpParticle(thePlant->mX + 40, thePlant->mY + 60, thePlant->mRenderOrder - 1,
+			ParticleEffect::PARTICLE_POTTED_WATER_PLANT_GLOW);
+		if (aParticle == nullptr)
+		{
+			aVisual->mCreationRetryTicks = 100;
+			return;
+		}
+		aVisual->mParticleID = mApp->ParticleGetID(aParticle);
+		aVisual->mCreationRetryTicks = 0;
+	}
+	else if (aParticle == nullptr || aParticle->mDead)
+		return;
+	for (PlantHealGlow& aGlow : mPlantHealGlows)
+		if (aGlow.mPlantID == aPlantID) aGlow.mParticleID = aVisual->mParticleID;
+	aParticle->mRenderOrder = thePlant->mRenderOrder - 1;
+	for (PvzpListNode<ParticleEmitterID>* aNode = aParticle->mEmitterList.mHead; aNode != nullptr; aNode = aNode->mNext)
+	{
+		PvzpParticleEmitter* aEmitter = mApp->mEffectSystem->mParticleHolder->mEmitters.DataArrayTryToGet(static_cast<unsigned int>(aNode->mValue));
+		if (aEmitter != nullptr)
+		{
+			aEmitter->SystemMove(thePlant->mX + 40, thePlant->mY + 60);
+			aEmitter->mColorOverride.mAlpha = static_cast<int32_t>(255.0f * (1.0f - std::clamp(aVisual->mElapsedTicks, 0, 300) / 300.0f));
+		}
+	}
+}
+
+void Board::UpdatePlantHealGlows()
+{
+	constexpr int aRegenerationDuration = 300;
+	constexpr int aTicksPerPulse = 100;
+	std::vector<Plant*> aDueForPulse;
+	for (auto aGlowIt = mPlantHealGlows.begin(); aGlowIt != mPlantHealGlows.end();)
+	{
+		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aGlowIt->mPlantID));
+		if (aPlant == nullptr || !PlantCanRegenerate(aPlant))
+		{
+			aGlowIt = mPlantHealGlows.erase(aGlowIt);
+			continue;
+		}
+
+		++aGlowIt->mElapsedTicks;
+		if (aGlowIt->mElapsedTicks >= aRegenerationDuration)
+		{
+			aGlowIt = mPlantHealGlows.erase(aGlowIt);
+			continue;
+		}
+
+		if (aPlant->mPlantHealth >= aPlant->mPlantMaxHealth)
+		{
+			for (PlantHealVisual& aVisual : mPlantHealVisuals)
+			{
+				if (aVisual.mPlantID == aGlowIt->mPlantID)
+				{
+					PvzpParticleSystem* aParticle = mApp->ParticleTryToGet(aVisual.mParticleID);
+					if (aParticle != nullptr) aParticle->ParticleSystemDie();
+					aVisual.mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
+				}
+			}
+			aGlowIt->mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
+		}
+		else
+			ShowPlantHealGlow(aPlant);
+
+		--aGlowIt->mTicksUntilPulse;
+		if (aGlowIt->mTicksUntilPulse <= 0)
+		{
+			aGlowIt->mTicksUntilPulse = aTicksPerPulse;
+			aDueForPulse.push_back(aPlant);
+		}
+		++aGlowIt;
+	}
+
+	std::sort(aDueForPulse.begin(), aDueForPulse.end(), [this](Plant* thePlantA, Plant* thePlantB)
+		{ return PlantHealthRatioLess(this, thePlantA, thePlantB); });
+	for (Plant* aPlant : aDueForPulse)
+		ApplySunMagnetRegenerationPulse(this, aPlant);
+
+	for (auto aVisual = mPlantHealVisuals.begin(); aVisual != mPlantHealVisuals.end();)
+	{
+		bool aHasAura = std::any_of(mPlantHealGlows.begin(), mPlantHealGlows.end(),
+			[&](const PlantHealGlow& theGlow){ return theGlow.mPlantID == aVisual->mPlantID; });
+		aHasAura = aHasAura || std::any_of(mChomperHealAuras.begin(), mChomperHealAuras.end(),
+			[&](const ChomperHealAura& theAura){ return theAura.mPlantID == aVisual->mPlantID; });
+		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aVisual->mPlantID));
+		if (!aHasAura || aPlant == nullptr || !PlantCanRegenerate(aPlant))
+		{
+			PvzpParticleSystem* aParticle = mApp->ParticleTryToGet(aVisual->mParticleID);
+			if (aParticle != nullptr) aParticle->ParticleSystemDie();
+			aVisual = mPlantHealVisuals.erase(aVisual);
+			continue;
+		}
+		if (aPlant->mPlantHealth >= aPlant->mPlantMaxHealth)
+		{
+			PvzpParticleSystem* aParticle = mApp->ParticleTryToGet(aVisual->mParticleID);
+			if (aParticle != nullptr) aParticle->ParticleSystemDie();
+			aVisual->mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
+		}
+		else
+		{
+			if (aVisual->mCreationRetryTicks > 0)
+				--aVisual->mCreationRetryTicks;
+			PvzpParticleSystem* aParticle = mApp->ParticleTryToGet(aVisual->mParticleID);
+			if (aVisual->mParticleID != ParticleSystemID::PARTICLESYSTEMID_NULL && (aParticle == nullptr || aParticle->mDead))
+			{
+				aVisual->mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
+				aVisual->mCreationRetryTicks = 100;
+			}
+			++aVisual->mElapsedTicks;
+			if (aVisual->mElapsedTicks >= aRegenerationDuration)
+			{
+				PvzpParticleSystem* aParticle = mApp->ParticleTryToGet(aVisual->mParticleID);
+				if (aParticle != nullptr) aParticle->ParticleSystemDie();
+				aVisual->mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
+			}
+			else
+				ShowPlantHealGlow(aPlant);
+		}
+		++aVisual;
+	}
+}
+
+void Board::StartChomperRegeneration(Plant* theChomper)
+{
+	std::vector<Plant*> aTargets;
+	for (Plant* aPlant : mPlants)
+	{
+		if (PlantCanRegenerate(aPlant) && aPlant->mRow == theChomper->mRow && aPlant->mPlantCol > theChomper->mPlantCol &&
+			aPlant->mPlantHealth < aPlant->mPlantMaxHealth)
+			aTargets.push_back(aPlant);
+	}
+	std::sort(aTargets.begin(), aTargets.end(), [this, theChomper](Plant* thePlantA, Plant* thePlantB)
+	{
+		int aDistanceA = thePlantA->mPlantCol - theChomper->mPlantCol;
+		int aDistanceB = thePlantB->mPlantCol - theChomper->mPlantCol;
+		if (aDistanceA != aDistanceB) return aDistanceA < aDistanceB;
+		return PlantHealthRatioLess(this, thePlantA, thePlantB);
+	});
+	PlantID aChomperID = static_cast<PlantID>(mPlants.DataArrayGetID(theChomper));
+	for (size_t i = 0; i < std::min<size_t>(2, aTargets.size()); i++)
+	{
+		Plant* aPlant = aTargets[i];
+		PlantID aPlantID = static_cast<PlantID>(mPlants.DataArrayGetID(aPlant));
+		auto aAura = std::find_if(mChomperHealAuras.begin(), mChomperHealAuras.end(),
+			[aPlantID, aChomperID](const ChomperHealAura& theAura)
+			{ return theAura.mPlantID == aPlantID && theAura.mChomperID == aChomperID; });
+		if (aAura == mChomperHealAuras.end())
+			mChomperHealAuras.push_back({ aPlantID, aChomperID, 100 });
+		int aHealAmount = mChomperOverdriveActive ? 50 : 25;
+		aPlant->mPlantHealth = static_cast<int32_t>(std::min<int64_t>(
+			static_cast<int64_t>(aPlant->mPlantHealth) + aHealAmount, aPlant->mPlantMaxHealth));
+		for (PlantHealVisual& aVisual : mPlantHealVisuals)
+			if (aVisual.mPlantID == aPlantID) aVisual.mElapsedTicks = 0;
+		ShowPlantHealGlow(aPlant);
+	}
+}
+
+void Board::RefreshChomperRegeneration(Plant* theChomper)
+{
+	PlantID aChomperID = static_cast<PlantID>(mPlants.DataArrayGetID(theChomper));
+	for (ChomperHealAura& anAura : mChomperHealAuras)
+	{
+		if (anAura.mChomperID == aChomperID)
+		{
+			Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(anAura.mPlantID));
+			if (aPlant != nullptr && aPlant->mPlantHealth < aPlant->mPlantMaxHealth)
+				ShowPlantHealGlow(aPlant);
+		}
+	}
+}
+
+void Board::UpdatePlantOverdrive()
+{
+	if (mMainCounter % 100 != 99)
+		return;
+
+	int aSunAtSecondStart = mSunMoney;
+	mChomperOverdriveActive = aSunAtSecondStart > 15000;
+	mKernelPultOverdriveActive = aSunAtSecondStart > 20000;
+	mSunMagnetOverdriveActive = aSunAtSecondStart >= 5000;
+	mTwinSunflowerProductionOverdriveActive = aSunAtSecondStart > 1000;
+	mTwinSunflowerBombardmentOverdriveActive = aSunAtSecondStart >= 10000;
+	int64_t aSunCost = 0;
+	for (auto anItems = mSunMagnetExtraItems.begin(); anItems != mSunMagnetExtraItems.end();)
+	{
+		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(anItems->mPlantID));
+		if (aPlant == nullptr || aPlant->mDead || aPlant->mSeedType != SeedType::SEED_SUN_MAGNET)
+			anItems = mSunMagnetExtraItems.erase(anItems);
+		else
+			++anItems;
+	}
+	for (Plant* aPlant : mPlants)
+	{
+		if (aPlant->mDead || !aPlant->IsOnBoard() || aPlant->mSquished)
+			continue;
+		if (mSunMagnetOverdriveActive && aPlant->mSeedType == SeedType::SEED_SUN_MAGNET && aPlant->mPlantHealth > 1)
+			aPlant->mPlantHealth--;
+		if (mChomperOverdriveActive && aPlant->mSeedType == SeedType::SEED_CHOMPER)
+			aSunCost += 100;
+		if (mKernelPultOverdriveActive && aPlant->mSeedType == SeedType::SEED_KERNELPULT)
+			aSunCost += 150;
+	}
+	if (aSunCost > 0)
+		TakeSunMoney(static_cast<int>(std::min<int64_t>(aSunCost, std::numeric_limits<int>::max())));
 }
 
 void Board::StopAllZombieSounds()
@@ -5831,11 +6448,11 @@ void Board::DrawIce(Graphics* g, int theGridY)
 	}
 
 	int aBeginningX = mIceMinX[theGridY] + 13, aDeltaX;
-	for (int aPosX = aBeginningX; aPosX < BOARD_WIDTH; aPosX += aDeltaX)
+	for (int aPosX = aBeginningX; aPosX < mApp->mWidth; aPosX += aDeltaX)
 	{
 		if (aPosX == aBeginningX)
 		{
-			aDeltaX = (BOARD_WIDTH - aBeginningX) % aWidth;
+			aDeltaX = (mApp->mWidth - aBeginningX) % aWidth;
 			if (!aDeltaX) aDeltaX = aWidth;
 		}
 		else aDeltaX = aWidth;
@@ -5899,6 +6516,99 @@ void Board::DrawBackdrop(Graphics* g)
 			g->DrawImage(aBgImage, -BOARD_OFFSET, 0);
 		}
 	}
+	const bool aTallWideEndlessPool = LawnApp::IsSurvivalEndless(mApp->mGameMode) && StageHasPool() &&
+		mApp->mWidth > BOARD_WIDTH && mApp->mHeight > BOARD_HEIGHT;
+	if (aTallWideEndlessPool && aBgImage)
+	{
+		constexpr int aAddedColumnCount = MAX_GRID_SIZE_X - CLASSIC_GRID_SIZE_X;
+		constexpr int aAddedColumnWidth = 80;
+		constexpr int aAddedColumnsWidth = aAddedColumnCount * aAddedColumnWidth;
+		constexpr int aBackgroundExtensionStart = LAWN_XMIN + CLASSIC_GRID_SIZE_X * aAddedColumnWidth;
+		constexpr int aExtensionSourceX = BOARD_OFFSET + aBackgroundExtensionStart - aAddedColumnsWidth;
+		constexpr int aBorderSourceX = BOARD_OFFSET + BOARD_WIDTH;
+		const int aRightBorderStart = aBackgroundExtensionStart + aAddedColumnsWidth;
+		const int aRightBorderWidth = mApp->mWidth - aRightBorderStart;
+		const int aBaseHeight = std::min(aBgImage->GetHeight(), mApp->mHeight);
+
+		auto DrawExtendedBackgroundStrip = [&](Graphics& theGraphics, int theDestY, int theSourceY, int theHeight)
+		{
+			theGraphics.DrawImage(aBgImage,
+				Rect(aBackgroundExtensionStart, theDestY, aAddedColumnsWidth, theHeight),
+				Rect(aExtensionSourceX, theSourceY, aAddedColumnsWidth, theHeight));
+			if (aRightBorderWidth > 0)
+			{
+				theGraphics.DrawImage(aBgImage,
+					Rect(aRightBorderStart, theDestY, aRightBorderWidth, theHeight),
+					Rect(aBorderSourceX, theSourceY, aRightBorderWidth, theHeight));
+			}
+		};
+
+		constexpr int aJoinBlendWidth = 8;
+		constexpr int aJoinBlendBandWidth = 2;
+		Graphics aColumnBlendGraphics(*g);
+		aColumnBlendGraphics.SetColorizeImages(true);
+		auto BlendColumnJoin = [&](int theDestY, int theSourceY, int theHeight)
+		{
+			for (int aBand = 0; aBand < aJoinBlendWidth / aJoinBlendBandWidth; aBand++)
+			{
+				int anAlpha = (aBand + 1) * 255 / (aJoinBlendWidth / aJoinBlendBandWidth);
+				aColumnBlendGraphics.SetColor(Color(255, 255, 255, anAlpha));
+				aColumnBlendGraphics.DrawImage(aBgImage,
+					Rect(aBackgroundExtensionStart - aJoinBlendWidth + aBand * aJoinBlendBandWidth,
+						theDestY, aJoinBlendBandWidth, theHeight),
+					Rect(aExtensionSourceX + aBand * aJoinBlendBandWidth, theSourceY,
+						aJoinBlendBandWidth, theHeight));
+			}
+		};
+		BlendColumnJoin(0, 0, aBaseHeight);
+		DrawExtendedBackgroundStrip(*g, 0, 0, aBaseHeight);
+
+		// The upper lawn is a clean background strip above the original pool rim. Repeat two lane heights
+		// below the original viewport and blend the joins over a wider strip.
+		const int aRowSpacing = GetGridRowSpacing();
+		const int aLawnTileHeight = 2 * aRowSpacing;
+		const int aSourcePoolTop = LAWN_YMIN + 199;
+		const int aLawnSourceY = std::max(0, aSourcePoolTop - aLawnTileHeight - 8);
+		constexpr int aBlendHeight = 24;
+		constexpr int aBlendBandHeight = 2;
+		Graphics aBlendGraphics(*g);
+		aBlendGraphics.SetColorizeImages(true);
+		auto DrawLawnBackgroundStrip = [&](Graphics& theGraphics, int theDestY, int theSourceY, int theHeight)
+		{
+			theGraphics.DrawImage(aBgImage,
+				Rect(-BOARD_OFFSET, theDestY, aBgImage->GetWidth(), theHeight),
+				Rect(0, theSourceY, aBgImage->GetWidth(), theHeight));
+			DrawExtendedBackgroundStrip(theGraphics, theDestY, theSourceY, theHeight);
+		};
+		auto BlendLawnSeam = [&](int theDestY)
+		{
+			for (int aBand = 0; aBand < aBlendHeight / aBlendBandHeight; aBand++)
+			{
+				const int aSourceY = aLawnSourceY + aBand * aBlendBandHeight;
+				const int aBandDestY = theDestY + aBand * aBlendBandHeight;
+				const int anAlpha = (aBand + 1) * 255 / (aBlendHeight / aBlendBandHeight);
+				aBlendGraphics.SetColor(Color(255, 255, 255, anAlpha));
+				DrawLawnBackgroundStrip(aBlendGraphics, aBandDestY, aSourceY, aBlendBandHeight);
+			}
+		};
+		auto DrawLawnTile = [&](int theDestY, int theSourceY, int theHeight)
+		{
+			g->DrawImage(aBgImage,
+				Rect(-BOARD_OFFSET, theDestY, aBgImage->GetWidth(), theHeight),
+				Rect(0, theSourceY, aBgImage->GetWidth(), theHeight));
+			BlendColumnJoin(theDestY, theSourceY, theHeight);
+			DrawExtendedBackgroundStrip(*g, theDestY, theSourceY, theHeight);
+		};
+
+		BlendLawnSeam(BOARD_HEIGHT - aBlendHeight);
+		DrawLawnTile(BOARD_HEIGHT, aLawnSourceY, std::min(aLawnTileHeight, mApp->mHeight - BOARD_HEIGHT));
+		for (int aDestY = BOARD_HEIGHT + aLawnTileHeight; aDestY < mApp->mHeight; aDestY += aLawnTileHeight)
+		{
+			BlendLawnSeam(aDestY - aBlendHeight);
+			DrawLawnTile(aDestY, aLawnSourceY + aBlendHeight,
+				std::min(aLawnTileHeight - aBlendHeight, mApp->mHeight - aDestY));
+		}
+	}
 
 	if (mApp->mGameScene == GameScenes::SCENE_ZOMBIES_WON)
 	{
@@ -5906,7 +6616,127 @@ void Board::DrawBackdrop(Graphics* g)
 	}
 	if (StageHasPool())
 	{
-		mApp->mPoolEffect->PoolEffectDraw(g, StageIsNight());
+		int aFirstPoolRow = 0;
+		int aPoolRowCount = 0;
+		for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
+		{
+			if (mPlantRow[y] == PlantRowType::PLANTROW_POOL)
+			{
+				if (aPoolRowCount == 0)
+					aFirstPoolRow = y;
+				++aPoolRowCount;
+			}
+		}
+		mApp->mPoolEffect->PoolEffectDraw(g, StageIsNight(), aFirstPoolRow, aPoolRowCount, GetGridRowSpacing());
+		if (aTallWideEndlessPool && aPoolRowCount == 4 && aBgImage)
+		{
+			constexpr int aPoolFrameLeft = 20;
+			constexpr int aPoolWaterLeft = 35;
+			constexpr int aPoolEdgeHeight = 18;
+			constexpr int aOriginalPoolWaterWidth = 704;
+			constexpr int aRightRailWidth = 41;
+			const int aPoolFrameRight = mApp->mWidth - aPoolFrameLeft;
+			const int aPoolWaterWidth = aPoolFrameRight - aPoolWaterLeft - aRightRailWidth;
+			const int aOriginalFrameWidth = BOARD_WIDTH - 2 * aPoolFrameLeft;
+			const int aRowSpacing = GetGridRowSpacing();
+			const int aPoolTop = LAWN_YMIN + aFirstPoolRow * aRowSpacing + aRowSpacing / 3 + 1;
+			constexpr int aSourcePoolTop = LAWN_YMIN + 199;
+			const int aSourcePoolBottom = aSourcePoolTop + Sexy::IMAGE_POOL->GetHeight();
+			const int aExtendedPoolBottom = aPoolTop + aPoolRowCount * aRowSpacing;
+			const int aSideTileHeight = std::min(aRowSpacing, std::max(0, Sexy::IMAGE_POOL->GetHeight() - aPoolEdgeHeight * 2));
+			const int aSideSourceY = aSourcePoolBottom - aPoolEdgeHeight - aSideTileHeight;
+			const int aLeftSourceX = BOARD_OFFSET + aPoolFrameLeft;
+			const int aLeftRailWidth = aPoolWaterLeft - aPoolFrameLeft;
+			const int aPoolFrameWidth = aPoolFrameRight - aPoolFrameLeft;
+			const int aLowerEdgeSourceY = std::clamp(aSourcePoolBottom, 0,
+				aBgImage->GetHeight() - aPoolEdgeHeight);
+			const int aPoolTopDelta = aPoolTop - aSourcePoolTop;
+			const int aSourceFrameX = BOARD_OFFSET + aPoolFrameLeft;
+			const int aRightSourceX = BOARD_OFFSET + aPoolWaterLeft + aOriginalPoolWaterWidth;
+				auto DrawHorizontalFrameStrip = [&](int theDestY, int theSourceY, int theHeight)
+			{
+				constexpr int aFrameJoinBlendWidth = 8;
+				constexpr int aFrameJoinBlendBandWidth = 2;
+				const int aBaseWidth = std::min(aOriginalFrameWidth, aPoolFrameWidth);
+				g->DrawImage(aBgImage,
+					Rect(aPoolFrameLeft, theDestY, aBaseWidth, theHeight),
+					Rect(aSourceFrameX, theSourceY, aBaseWidth, theHeight));
+				const int aDestX = aPoolFrameLeft + aBaseWidth;
+				const int aExtensionWidth = aPoolFrameRight - aDestX;
+				if (aExtensionWidth > 0)
+				{
+					const int aExtensionSourceX = aSourceFrameX + aBaseWidth - aExtensionWidth;
+					Graphics aFrameBlendGraphics(*g);
+					aFrameBlendGraphics.SetColorizeImages(true);
+					for (int aBand = 0; aBand < aFrameJoinBlendWidth / aFrameJoinBlendBandWidth; aBand++)
+					{
+						const int anAlpha = (aBand + 1) * 255 / (aFrameJoinBlendWidth / aFrameJoinBlendBandWidth);
+						aFrameBlendGraphics.SetColor(Color(255, 255, 255, anAlpha));
+						aFrameBlendGraphics.DrawImage(aBgImage,
+							Rect(aDestX - aFrameJoinBlendWidth + aBand * aFrameJoinBlendBandWidth, theDestY,
+								aFrameJoinBlendBandWidth, theHeight),
+							Rect(aExtensionSourceX + aBand * aFrameJoinBlendBandWidth, theSourceY,
+								aFrameJoinBlendBandWidth, theHeight));
+					}
+					g->DrawImage(aBgImage,
+						Rect(aDestX, theDestY, aExtensionWidth, theHeight),
+						Rect(aExtensionSourceX, theSourceY, aExtensionWidth, theHeight));
+				}
+			};
+
+			// The original background has its pool rim one lane higher. Restore that strip to lawn,
+			// then reuse its original upper rim at the new four-row basin position.
+			if (aPoolTopDelta > 0)
+			{
+				const int aLawnSourceY = std::clamp(aSourcePoolTop - aPoolEdgeHeight - aPoolTopDelta, 0,
+					aBgImage->GetHeight() - aPoolTopDelta);
+				DrawHorizontalFrameStrip(aSourcePoolTop - aPoolEdgeHeight, aLawnSourceY, aPoolTopDelta);
+				DrawHorizontalFrameStrip(aPoolTop - aPoolEdgeHeight,
+					aSourcePoolTop - aPoolEdgeHeight, aPoolEdgeHeight);
+			}
+
+			// Continue the existing vertical stone rails down to the relocated lower lip.
+			if (aPoolTop < aExtendedPoolBottom + aPoolEdgeHeight && aSideTileHeight > 0)
+			{
+				constexpr int aRailBlendHeight = 8;
+				constexpr int aRailBlendBandHeight = 2;
+				Graphics aRailBlendGraphics(*g);
+				aRailBlendGraphics.SetColorizeImages(true);
+				auto DrawRailStrip = [&](Graphics& theGraphics, int theDestY, int theSourceY, int theHeight)
+				{
+					theGraphics.DrawImage(aBgImage,
+						Rect(aPoolFrameLeft, theDestY, aLeftRailWidth, theHeight),
+						Rect(aLeftSourceX, theSourceY, aLeftRailWidth, theHeight));
+					theGraphics.DrawImage(aBgImage,
+						Rect(aPoolFrameRight - aRightRailWidth, theDestY, aRightRailWidth, theHeight),
+						Rect(aRightSourceX, theSourceY, aRightRailWidth, theHeight));
+				};
+				auto BlendRailSeam = [&](int theDestY)
+				{
+					for (int aBand = 0; aBand < aRailBlendHeight / aRailBlendBandHeight; aBand++)
+					{
+						int aSourceY = aSideSourceY + aBand * aRailBlendBandHeight;
+						int aBandDestY = theDestY + aBand * aRailBlendBandHeight;
+						int anAlpha = (aBand + 1) * 255 / (aRailBlendHeight / aRailBlendBandHeight);
+						aRailBlendGraphics.SetColor(Color(255, 255, 255, anAlpha));
+						DrawRailStrip(aRailBlendGraphics, aBandDestY, aSourceY, aRailBlendBandHeight);
+					}
+				};
+
+				const int aRailEnd = aExtendedPoolBottom + aPoolEdgeHeight;
+				DrawRailStrip(*g, aPoolTop, aSideSourceY, std::min(aSideTileHeight, aRailEnd - aPoolTop));
+				for (int aRailY = aPoolTop + aSideTileHeight; aRailY < aRailEnd; aRailY += aSideTileHeight)
+				{
+					BlendRailSeam(aRailY - aRailBlendHeight);
+					const int aRailHeight = std::min(aSideTileHeight - aRailBlendHeight, aRailEnd - aRailY);
+					if (aRailHeight > 0)
+						DrawRailStrip(*g, aRailY, aSideSourceY + aRailBlendHeight, aRailHeight);
+				}
+			}
+
+			// Place the lower stone lip just below the water and use the same matched edge tile pattern.
+			DrawHorizontalFrameStrip(aExtendedPoolBottom, aLowerEdgeSourceY, aPoolEdgeHeight);
+		}
 	}
 	if (mTutorialState == TutorialState::TUTORIAL_LEVEL_1_PLANT_PEASHOOTER)
 	{
@@ -6094,7 +6924,8 @@ void Board::DrawGameObjects(Graphics* g)
 					aRenderItemCount++;
 				}
 
-				if ((aPlant->mSeedType == SeedType::SEED_MAGNETSHROOM || aPlant->mSeedType == SeedType::SEED_GOLD_MAGNET) && aPlant->DrawMagnetItemsOnTop())
+				if ((aPlant->mSeedType == SeedType::SEED_MAGNETSHROOM || aPlant->mSeedType == SeedType::SEED_GOLD_MAGNET ||
+					aPlant->mSeedType == SeedType::SEED_SUN_MAGNET) && aPlant->DrawMagnetItemsOnTop())
 				{
 					RenderItem& aRenderItem = aRenderList[aRenderItemCount];
 					aRenderItem.mRenderObjectType = RenderObjectType::RENDER_ITEM_PLANT_MAGNET_ITEMS;
@@ -6529,49 +7360,51 @@ void Board::DrawProgressMeter(Graphics* g)
 	if (!HasProgressMeter())
 		return;
 
-	g->DrawImageCel(Sexy::IMAGE_FLAGMETER, 600, 575, 0);
+	const int aBottomOffset = mApp->mHeight - BOARD_HEIGHT;
+	const int aRightOffset = mApp->mWidth - BOARD_WIDTH;
+	g->DrawImageCel(Sexy::IMAGE_FLAGMETER, 600 + aRightOffset, 575 + aBottomOffset, 0);
 	int aCelWidth = Sexy::IMAGE_FLAGMETER->GetCelWidth();
 	int aCelHeight = Sexy::IMAGE_FLAGMETER->GetCelHeight();
 	int aClipWidth = PvzpAnimateCurve(0, PROGRESS_METER_COUNTER, mProgressMeterWidth, 0, 143, PvzpCurves::CURVE_LINEAR);
 	Rect aSrcRect(aCelWidth - aClipWidth - 7, aCelHeight, aClipWidth, aCelHeight);
-	Rect aDstRect(aCelWidth - aClipWidth + 593, 575, aClipWidth, aCelHeight);
+	Rect aDstRect(aCelWidth - aClipWidth + 593 + aRightOffset, 575 + aBottomOffset, aClipWidth, aCelHeight);
 	g->DrawImage(Sexy::IMAGE_FLAGMETER, aDstRect, aSrcRect);
 
 	// Draw mode-specific text or flags on the meter
-	int aPosX = aCelWidth / 2 + 600;
+	int aPosX = aCelWidth / 2 + 600 + aRightOffset;
 	Color aColor(224, 187, 98);
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED || mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST)
 	{
 		std::string aMatchStr = std::format("{}/{} {}", mChallenge->mChallengeScore, 75, PvzpStringTranslate("[MATCHES]"));
-		PvzpDrawString(g, aMatchStr, aPosX, 589, Sexy::FONT_DWARVENTODCRAFT12, aColor, DrawStringJustification::DS_ALIGN_CENTER);
+		PvzpDrawString(g, aMatchStr, aPosX, 589 + aBottomOffset, Sexy::FONT_DWARVENTODCRAFT12, aColor, DrawStringJustification::DS_ALIGN_CENTER);
 	}
 	else if (mApp->IsSquirrelLevel())
 	{
 		std::string aMatchStr = std::format("{}/{} {}", mChallenge->mChallengeScore, 7, PvzpStringTranslate("[SQUIRRELS]"));
-		PvzpDrawString(g, aMatchStr, aPosX, 589, Sexy::FONT_DWARVENTODCRAFT12, aColor, DrawStringJustification::DS_ALIGN_CENTER);
+		PvzpDrawString(g, aMatchStr, aPosX, 589 + aBottomOffset, Sexy::FONT_DWARVENTODCRAFT12, aColor, DrawStringJustification::DS_ALIGN_CENTER);
 	}
 	else if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_SLOT_MACHINE)
 	{
 		int aSunMoney = std::clamp(mSunMoney, 0, 2000);
 		std::string aMatchStr = std::format("{}/{} {}", aSunMoney, 2000, PvzpStringTranslate("[SUN]"));
-		PvzpDrawString(g, aMatchStr, aPosX, 589, Sexy::FONT_DWARVENTODCRAFT12, aColor, DrawStringJustification::DS_ALIGN_CENTER);
+		PvzpDrawString(g, aMatchStr, aPosX, 589 + aBottomOffset, Sexy::FONT_DWARVENTODCRAFT12, aColor, DrawStringJustification::DS_ALIGN_CENTER);
 	}
 	else if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM)
 	{
 		int aSunMoney = std::clamp(mSunMoney, 0, 1000);
 		std::string aMatchStr = std::format("{}/{} {}", aSunMoney, 1000, PvzpStringTranslate("[SUN]"));
-		PvzpDrawString(g, aMatchStr, aPosX, 589, Sexy::FONT_DWARVENTODCRAFT12, aColor, DrawStringJustification::DS_ALIGN_CENTER);
+		PvzpDrawString(g, aMatchStr, aPosX, 589 + aBottomOffset, Sexy::FONT_DWARVENTODCRAFT12, aColor, DrawStringJustification::DS_ALIGN_CENTER);
 	}
 	else if (mApp->IsIZombieLevel())
 	{
 		std::string aMatchStr = std::format("{}/{} {}", mChallenge->mChallengeScore, 5, PvzpStringTranslate("[BRAINS]"));
-		PvzpDrawString(g, aMatchStr, aPosX, 589, Sexy::FONT_DWARVENTODCRAFT12, aColor, DrawStringJustification::DS_ALIGN_CENTER);
+		PvzpDrawString(g, aMatchStr, aPosX, 589 + aBottomOffset, Sexy::FONT_DWARVENTODCRAFT12, aColor, DrawStringJustification::DS_ALIGN_CENTER);
 	}
 	else if (ProgressMeterHasFlags())
 	{
 		int aNumWavesPerFlag = GetNumWavesPerFlag();
 		int aNumFlagWaves = mNumWaves / aNumWavesPerFlag;
-		int aFlagsPosEnd = 590 + aCelWidth;
+		int aFlagsPosEnd = 590 + aCelWidth + aRightOffset;
 		for (int aFlagWave = 1; aFlagWave <= aNumFlagWaves; aFlagWave++)
 		{
 			int aHeight = 0;
@@ -6584,13 +7417,13 @@ void Board::DrawProgressMeter(Graphics* g)
 			{
 				aHeight = PvzpAnimateCurve(100, 0, mFlagRaiseCounter, 0, 14, PvzpCurves::CURVE_LINEAR);
 			}
-			int aPosX = PvzpAnimateCurve(0, mNumWaves, aTotalWavesAtFlag, aFlagsPosEnd, 606, PvzpCurves::CURVE_LINEAR);
-			g->DrawImageCel(Sexy::IMAGE_FLAGMETERPARTS, aPosX, 571, 1, 0);
-			g->DrawImageCel(Sexy::IMAGE_FLAGMETERPARTS, aPosX, 572 - aHeight, 2, 0);
+			int aPosX = PvzpAnimateCurve(0, mNumWaves, aTotalWavesAtFlag, aFlagsPosEnd, 606 + aRightOffset, PvzpCurves::CURVE_LINEAR);
+			g->DrawImageCel(Sexy::IMAGE_FLAGMETERPARTS, aPosX, 571 + aBottomOffset, 1, 0);
+			g->DrawImageCel(Sexy::IMAGE_FLAGMETERPARTS, aPosX, 572 - aHeight + aBottomOffset, 2, 0);
 		}
 	}
 
-	g->DrawImage(Sexy::IMAGE_FLAGMETERLEVELPROGRESS, 638, 589);
+	g->DrawImage(Sexy::IMAGE_FLAGMETERLEVELPROGRESS, 638 + aRightOffset, 589 + aBottomOffset);
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM ||
@@ -6600,7 +7433,7 @@ void Board::DrawProgressMeter(Graphics* g)
 		mApp->IsFinalBossLevel())
 		return;
 	int aHeadProgress = PvzpAnimateCurve(0, 150, mProgressMeterWidth, 0, 135, CURVE_LINEAR);
-	g->DrawImageCel(Sexy::IMAGE_FLAGMETERPARTS, aCelWidth - aHeadProgress + 580, 572, 0, 0);
+	g->DrawImageCel(Sexy::IMAGE_FLAGMETERPARTS, aCelWidth - aHeadProgress + 580 + aRightOffset, 572 + aBottomOffset, 0, 0);
 }
 
 void Board::DrawHouseDoorBottom(Graphics* g)
@@ -6664,11 +7497,12 @@ void Board::DrawLevel(Graphics* g)
 		}
 	}
 
-	int aPosX = 780;
-	int aPosY = 595;
+	const int aRightOffset = mApp->mWidth - BOARD_WIDTH;
+	int aPosX = 780 + aRightOffset;
+	int aPosY = 595 + mApp->mHeight - BOARD_HEIGHT;
 	if (HasProgressMeter())
 	{
-		aPosX = 593;
+		aPosX = 593 + aRightOffset;
 	}
 	if (mChallenge->mChallengeState == ChallengeState::STATECHALLENGE_ZEN_FADING)
 	{
@@ -7038,14 +7872,14 @@ void Board::DrawDebugObjectRects(Graphics* g)
 			g->DrawRect(aRect);
 
 			Rect aAttackRect = aPlant->GetPlantAttackRect(PlantWeapon::WEAPON_PRIMARY);
-			if (aAttackRect.mWidth < BOARD_WIDTH)
+			if (aAttackRect.mWidth < mApp->mWidth)
 			{
 				g->SetColor(Color(255, 0, 0));
 				g->DrawRect(aAttackRect);
 			}
 
 			Rect aSecondaryRect = aPlant->GetPlantAttackRect(PlantWeapon::WEAPON_SECONDARY);
-			if (aSecondaryRect.mWidth < BOARD_WIDTH)
+			if (aSecondaryRect.mWidth < mApp->mWidth)
 			{
 				g->SetColor(Color(255, 0, 128));
 				g->DrawRect(aSecondaryRect);
@@ -7203,7 +8037,7 @@ void Board::DrawUICoinBank(Graphics* g)
 		return;
 
 	int aPosX = 57;
-	int aPosY = 599 - Sexy::IMAGE_COINBANK->GetHeight();
+	int aPosY = mApp->mHeight - 1 - Sexy::IMAGE_COINBANK->GetHeight();
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN || mApp->mCrazyDaveState != CrazyDaveState::CRAZY_DAVE_OFF)
 	{
 		aPosX = 450 - mX;
@@ -7239,7 +8073,7 @@ void Board::ClearFogAroundPlant(Plant* thePlant, int theSize)
 	int aStartX = thePlant->mPlantCol - theSize - aFogOffsetX;
 	int aEndX = thePlant->mPlantCol + theSize - aFogOffsetX;
 	aStartX = std::max(aStartX, aLeft);
-	aEndX = std::min(aEndX, MAX_GRID_SIZE_X - 1);
+	aEndX = std::min(aEndX, GetNumPlayableColumns() - 1);
 
 	int aStartY = thePlant->mRow - theSize;
 	int aEndY = thePlant->mRow + theSize;
@@ -7290,7 +8124,7 @@ void Board::UpdateFog()
 	}
 
 	int aLeft = LeftFogColumn();
-	for (int x = aLeft; x < MAX_GRID_SIZE_X; x++)
+	for (int x = aLeft; x < GetNumPlayableColumns(); x++)
 	{
 		for (int y = 0; y < MAX_GRID_SIZE_Y + 1; y++)
 		{
@@ -7325,7 +8159,7 @@ void Board::DrawFog(Graphics* g)
 	constexpr uint32_t FOG_ANIM_PERIOD = 4500;
 	float aTime = static_cast<float>(mMainCounter % FOG_ANIM_PERIOD) * PI * 2;
 	g->SetColorizeImages(true);
-	for (int x = 0; x < MAX_GRID_SIZE_X; x++)
+	for (int x = 0; x < GetNumPlayableColumns(); x++)
 	{
 		for (int y = 0; y < MAX_GRID_SIZE_Y + 1; y++)
 		{
@@ -7337,8 +8171,8 @@ void Board::DrawFog(Graphics* g)
 			int aCelLook = mGridCelLook[x][y % MAX_GRID_SIZE_Y];
 			int aCelCol = aCelLook % 8;
 			float aPosX = x * 80 + mFogOffset - 15;
-			float aPosY = y * 85 + 20;
-			float aPhaseX = 6 * PI * x / MAX_GRID_SIZE_X;
+			float aPosY = GetGridRowY(std::min(y, MAX_GRID_SIZE_Y - 1)) + 20;
+			float aPhaseX = 6 * PI * x / GetNumPlayableColumns();
 			float aPhaseY = 6 * PI * y / (MAX_GRID_SIZE_Y + 1);
 			float aMotion = 13 + 4 * sin(aTime / 900 + aPhaseY) + 8 * sin(aTime / 500 + aPhaseX);
 
@@ -7356,7 +8190,7 @@ void Board::DrawFog(Graphics* g)
 			g->SetColor(Color(aColorVariant, aColorVariant, aLightnessVariant, aFadeAmount));
 			g->DrawImageCel(aImageFog, aPosX, aPosY, aCelCol, 0);
 
-			if (x == MAX_GRID_SIZE_X - 1)
+			if (x == GetNumPlayableColumns() - 1)
 			{
 				g->DrawImageCel(aImageFog, aPosX + 80, aPosY, aCelCol, 0);
 			}
@@ -7380,7 +8214,7 @@ void Board::DrawUITop(Graphics* g)
 	if (mTimeStopCounter > 0)
 	{
 		g->SetColor(Color(200, 200, 200, 210));
-		g->FillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+		g->FillRect(0, 0, mApp->mWidth, mApp->mHeight);
 	}
 
 	if (mApp->mGameScene == GameScenes::SCENE_PLAYING || mApp->mGameMode == GameMode::GAMEMODE_TREE_OF_WISDOM)
@@ -7396,7 +8230,7 @@ void Board::DrawUITop(Graphics* g)
 	if ((mApp->mGameMode == GameMode::GAMEMODE_UPSELL || mApp->mGameMode == GameMode::GAMEMODE_INTRO) && mCutScene->mUpsellHideBoard)
 	{
 		g->SetColor(Color(0, 0, 0));
-		g->FillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+		g->FillRect(0, 0, mApp->mWidth, mApp->mHeight);
 	}
 
 	if (mApp->mGameMode == GameMode::GAMEMODE_UPSELL)
@@ -8092,7 +8926,7 @@ void Board::KeyChar(char theChar)
 		if (mApp->IsSurvivalEndless(mApp->mGameMode))
 		{
 			mApp->mEasyPlantingCheat = true;
-			for (int y = 0; y < MAX_GRID_SIZE_X; y++)
+			for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
 			{
 				for (int x = 0; x < MAX_GRID_SIZE_Y; x++)
 				{
@@ -8121,7 +8955,7 @@ void Board::KeyChar(char theChar)
 						{
 							AddPlant(x, y, SeedType::SEED_SPLITPEA, SeedType::SEED_NONE);
 						}
-						else if (y == 2 || y == 3)
+						else if (IsPoolSquare(x, y))
 						{
 							AddPlant(x, y, SeedType::SEED_GLOOMSHROOM, SeedType::SEED_NONE);
 							if (CanPlantAt(x, y, SeedType::SEED_INSTANT_COFFEE) == PlantingReason::PLANTING_OK)
@@ -8146,7 +8980,7 @@ void Board::KeyChar(char theChar)
 			mApp->mEasyPlantingCheat = true;
 			for (int y = 0; y < MAX_GRID_SIZE_Y; ++y)
 			{
-				for (int x = 0; x < MAX_GRID_SIZE_X; ++x)
+				for (int x = 0; x < GetNumPlayableColumns(); ++x)
 				{
 					if (StageHasRoof() && CanPlantAt(x, y, SeedType::SEED_FLOWERPOT) == PlantingReason::PLANTING_OK)
 					{
@@ -8432,8 +9266,8 @@ void Board::KeyChar(char theChar)
 
 void Board::AddSunMoney(int theAmount)
 {
-	mSunMoney += theAmount;
-	mSunMoney = std::min(mSunMoney, 9990);
+	int64_t aNewSunMoney = static_cast<int64_t>(mSunMoney) + theAmount;
+	mSunMoney = static_cast<int32_t>(std::clamp<int64_t>(aNewSunMoney, 0, std::numeric_limits<int32_t>::max()));
 	if (mSunMoney >= 8000)
 		ReportAchievement::GiveAchievement(mApp, SunnyDays, true);
 }
@@ -8483,7 +9317,8 @@ bool Board::TakeSunMoney(int theAmount)
 
 bool Board::CanTakeSunMoney(int theAmount)
 {
-	return theAmount <= mSunMoney + CountSunBeingCollected();
+	return theAmount >= 0 && static_cast<int64_t>(theAmount) <=
+		static_cast<int64_t>(mSunMoney) + CountSunBeingCollected();
 }
 
 void Board::ProcessDeleteQueue()
@@ -8661,6 +9496,44 @@ bool Board::StageHas6Rows()
 	return (mBackground == BackgroundType::BACKGROUND_3_POOL || mBackground == BackgroundType::BACKGROUND_4_FOG);
 }
 
+int Board::GetNumPlayableRows()
+{
+	const bool aHasPoolRows = StageHasPool() || mBackground == BackgroundType::BACKGROUND_ZOMBIQUARIUM;
+	const bool aIsEndless = LawnApp::IsSurvivalEndless(mApp->mGameMode);
+	return (aHasPoolRows ? 6 : 5) + (aIsEndless ? (StageHasPool() ? 4 : 2) : 0);
+}
+
+int Board::GetNumPlayableColumns()
+{
+	const bool aWideEndlessPool = LawnApp::IsSurvivalEndless(mApp->mGameMode) && StageHasPool() && mApp->mWidth > BOARD_WIDTH;
+	return aWideEndlessPool ? MAX_GRID_SIZE_X : CLASSIC_GRID_SIZE_X;
+}
+
+int Board::GetGridRowSpacing()
+{
+	const bool aIsEndless = LawnApp::IsSurvivalEndless(mApp->mGameMode);
+	if (aIsEndless)
+	{
+		if (StageHasRoof())
+			return 57;
+		if (StageHasPool())
+			return mApp->mHeight > BOARD_HEIGHT ? 85 : 50;
+		if (mBackground == BackgroundType::BACKGROUND_ZOMBIQUARIUM)
+			return 60;
+		return 67;
+	}
+	return StageHasRoof() || StageHasPool() ? 85 : 100;
+}
+
+int Board::GetGridRowY(int theGridY)
+{
+	if (LawnApp::IsSurvivalEndless(mApp->mGameMode) && StageHasPool())
+	{
+		return LAWN_YMIN + theGridY * 85;
+	}
+	return LAWN_YMIN + theGridY * GetGridRowSpacing();
+}
+
 bool Board::StageHasZombieWalkInFromRight()
 {
 	if (mApp->IsWhackAZombieLevel() ||
@@ -8794,7 +9667,7 @@ int Board::PixelToGridX(int theX, int theY)
 	if (theX < LAWN_XMIN)
 		return -1;
 
-	return std::clamp((theX - LAWN_XMIN) / 80, 0, MAX_GRID_SIZE_X - 1);
+	return std::clamp((theX - LAWN_XMIN) / 80, 0, GetNumPlayableColumns() - 1);
 }
 
 int Board::PixelToGridXKeepOnBoard(int theX, int theY)
@@ -8825,16 +9698,24 @@ int Board::PixelToGridY(int theX, int theY)
 		{
 			theY -= (4 - aGridX) * 20;
 		}
-		return std::clamp((theY - LAWN_YMIN) / 85, 0, MAX_GRID_SIZE_Y - 2);
 	}
-	else if (StageHasPool())
+	const int aLastGridRow = LawnApp::IsSurvivalEndless(mApp->mGameMode) ? GetNumPlayableRows() - 1 : StageHasPool() ? 5 : 4;
+	if (LawnApp::IsSurvivalEndless(mApp->mGameMode) && StageHasPool())
 	{
-		return std::clamp((theY - LAWN_YMIN) / 85, 0, MAX_GRID_SIZE_Y - 1);
+		int aClosestRow = 0;
+		int aClosestDistance = std::abs(theY - GetGridRowY(0));
+		for (int aRow = 1; aRow <= aLastGridRow; aRow++)
+		{
+			int aDistance = std::abs(theY - GetGridRowY(aRow));
+			if (aDistance < aClosestDistance)
+			{
+				aClosestRow = aRow;
+				aClosestDistance = aDistance;
+			}
+		}
+		return aClosestRow;
 	}
-	else
-	{
-		return std::clamp((theY - LAWN_YMIN) / 100, 0, MAX_GRID_SIZE_Y - 2);
-	}
+	return std::clamp((theY - LAWN_YMIN) / GetGridRowSpacing(), 0, aLastGridRow);
 }
 
 int Board::PixelToGridYKeepOnBoard(int theX, int theY)
@@ -8902,15 +9783,11 @@ int Board::GridToPixelY(int theGridX, int theGridY)
 		{
 			aSlopeOffset = 0;
 		}
-		aY = theGridY * 85 + aSlopeOffset + LAWN_YMIN - 10;
-	}
-	else if (StageHasPool())
-	{
-		aY = theGridY * 85 + LAWN_YMIN;
+		aY = GetGridRowY(theGridY) + aSlopeOffset - 10;
 	}
 	else
 	{
-		aY = theGridY * 100 + LAWN_YMIN;
+		aY = GetGridRowY(theGridY);
 	}
 
 	if (theGridX != -1 && mGridSquareType[theGridX][theGridY] == GridSquareType::GRIDSQUARE_HIGH_GROUND)

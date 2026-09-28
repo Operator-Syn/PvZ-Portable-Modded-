@@ -23,6 +23,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 #include "GameObject.h"
 
 constexpr const int MAX_MAGNET_ITEMS = 5;
@@ -143,7 +144,12 @@ enum MagnetItemType : int32_t
 	MAGNET_ITEM_SILVER_COIN,
 	MAGNET_ITEM_GOLD_COIN,
 	MAGNET_ITEM_DIAMOND,
-	MAGNET_ITEM_PICK_AXE
+	MAGNET_ITEM_PICK_AXE,
+	MAGNET_ITEM_SUN_15,
+	MAGNET_ITEM_SUN_25,
+	MAGNET_ITEM_SUN_50,
+	MAGNET_ITEM_SUN_150,
+	MAGNET_ITEM_SUN_500
 };
 
 class MagnetItem
@@ -221,8 +227,10 @@ public:
 	void                    Draw(Graphics* g);
 	void                    MouseDown(int x, int y, int theClickCount);
 	void                    DoSpecial();
-	void                    Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY);
-	Zombie*                 FindTargetZombie(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY);
+	void                    Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY,
+		int theWintermelonVolleyIndex = -1, bool theFireWintermelonCherryBomb = false);
+	Zombie*                 FindTargetZombie(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY,
+		const std::vector<Zombie*>* theExcludedZombies = nullptr);
 	void                    Die();
 	void                    UpdateProductionPlant();
 	void                    UpdateShooter();
@@ -294,6 +302,7 @@ public:
 	void                    UpdateCobCannon();
 	void                    CobCannonFire(int theTargetX, int theTargetY);
 	void                    UpdateGoldMagnetShroom();
+	void                    HealPlantsWithSun();
 	bool         IsOnBoard();
 	void                    RemoveEffects();
 	void                    UpdateCoffeeBean();
@@ -305,7 +314,7 @@ public:
 	void                    ImitaterMorph();
 	void                    UpdateImitater();
 	void                    UpdateReanim();
-	void                    SpikeRockTakeDamage();
+	void                    SpikyTakeDamage();
 	bool                    IsSpiky();
 	static void  PreloadPlantResources(SeedType theSeedType);
 	bool         IsInPlay();
@@ -313,7 +322,7 @@ public:
 	void                    PlayIdleAnim(float theRate);
 	void                    UpdateFlowerPot();
 	void                    UpdateLilypad();
-	void                    GoldMagnetFindTargets();
+	bool                    GoldMagnetFindTargets();
 	bool                    IsAGoldMagnetAboutToSuck();
 	bool                    DrawMagnetItemsOnTop();
 };

@@ -362,6 +362,7 @@ protected:
 	virtual bool			DoUpdateFrames();
 	virtual void			DoUpdateFramesF(float theFrac);
 	virtual void			MakeWindow();
+	void					SetLogicalSize(int theWidth, int theHeight);
 	virtual void			EnforceCursor();
 	void					ResetCustomCursorCache();
 	virtual void			ReInitImages();

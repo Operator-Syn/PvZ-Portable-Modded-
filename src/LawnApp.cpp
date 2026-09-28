@@ -343,6 +343,10 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
 	//}
 
 	mGameMode = theGameMode;
+	const bool aWideEndlessPool = theGameMode == GameMode::GAMEMODE_SURVIVAL_ENDLESS_STAGE_3 ||
+		theGameMode == GameMode::GAMEMODE_SURVIVAL_ENDLESS_STAGE_4;
+	SetLogicalSize(aWideEndlessPool ? BOARD_WIDTH + 3 * 80 : BOARD_WIDTH,
+		aWideEndlessPool ? 1000 : BOARD_HEIGHT);
 	if (theLookForSavedGame && TryLoadGame())
 		return;
 
@@ -437,6 +441,7 @@ void LawnApp::NewGame()
 void LawnApp::ShowGameSelector()
 {
 	KillBoard();
+	SetLogicalSize(BOARD_WIDTH, BOARD_HEIGHT);
 	//UpdateRegisterInfo();
 	if (mGameSelector)
 	{
@@ -1948,7 +1953,7 @@ void LawnApp::ButtonDepress(int theId)
 
 void LawnApp::CenterDialog(Dialog* theDialog, int theWidth, int theHeight)
 {
-	theDialog->Resize((BOARD_WIDTH - theWidth) / 2, (BOARD_HEIGHT - theHeight) / 2, theWidth, theHeight);
+	theDialog->Resize((gLawnApp->mWidth - theWidth) / 2, (gLawnApp->mHeight - theHeight) / 2, theWidth, theHeight);
 }
 
 void LawnApp::PlayFoley(FoleyType theFoleyType)
@@ -2295,6 +2300,8 @@ bool LawnApp::HasSeedType(SeedType theSeedType)
 		return mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_PLANT_COBCANNON] > 0;
 	case SeedType::SEED_IMITATER:
 		return mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_PLANT_IMITATER] > 0;
+	case SeedType::SEED_SUN_MAGNET:
+		return true;
 	default:
 		return theSeedType < GetSeedsAvailable();
 	}

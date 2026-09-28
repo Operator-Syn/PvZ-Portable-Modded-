@@ -456,3 +456,9 @@ build-*/
 
 # Game recordings
 *.dmo
+
+# User-provided game resources
+/properties/
+
+# direnv local state
+.direnv/

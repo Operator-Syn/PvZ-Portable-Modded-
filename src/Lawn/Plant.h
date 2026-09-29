@@ -153,7 +153,8 @@ enum MagnetItemType : int32_t
 	MAGNET_ITEM_SUN_100,
 	MAGNET_ITEM_SUN_600,
 	MAGNET_ITEM_SUN_RANDOM_MIN = 1000,
-	MAGNET_ITEM_SUN_RANDOM_MAX = 1100
+	MAGNET_ITEM_SUN_RANDOM_MAX = 1100,
+	MAGNET_ITEM_SUN_DYNAMIC_BASE = 1000000
 };
 
 class MagnetItem
@@ -222,8 +223,11 @@ public:
 	bool                    mIsOnBoard;
 	bool                    mHighlighted;
 	ProjectileType          mGatlingPeaVolleyProjectileType;
+	float                   mGatlingPeaVisualBlend = 0.0f;
+	ZombieID                mCattailTargetZombieID = ZombieID::ZOMBIEID_NULL;
 	int32_t                 mSunMagnetCoffeeTicksRemaining = 0;
 	int32_t                 mSunMagnetCoffeeTicksUntilDamage = 0;
+	bool                    mSunMagnetHasPendingPickup = false;
 
 public:
 	Plant();

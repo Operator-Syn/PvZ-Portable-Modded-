@@ -1160,12 +1160,11 @@ ReanimationHolder::~ReanimationHolder()
 
 void ReanimationHolder::InitializeHolder()
 {
-	mReanimations.DataArrayInitialize(1024U, "reanims");
+	mReanimations.DataArrayInitialize(8192U, "reanims");
 }
 
 Reanimation* ReanimationHolder::AllocReanimation(float theX, float theY, int theRenderOrder, ReanimationType theReanimationType)
 {
-	PVZP_ASSERT(mReanimations.mSize != mReanimations.mMaxSize);
 	Reanimation* aReanim = mReanimations.DataArrayAlloc();
 	aReanim->mRenderOrder = theRenderOrder;
 	aReanim->mReanimationHolder = this;

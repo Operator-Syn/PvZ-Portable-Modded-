@@ -149,7 +149,11 @@ enum MagnetItemType : int32_t
 	MAGNET_ITEM_SUN_25,
 	MAGNET_ITEM_SUN_50,
 	MAGNET_ITEM_SUN_150,
-	MAGNET_ITEM_SUN_500
+	MAGNET_ITEM_SUN_500,
+	MAGNET_ITEM_SUN_100,
+	MAGNET_ITEM_SUN_600,
+	MAGNET_ITEM_SUN_RANDOM_MIN = 1000,
+	MAGNET_ITEM_SUN_RANDOM_MAX = 1100
 };
 
 class MagnetItem
@@ -217,6 +221,7 @@ public:
 	bool                    mIsAsleep;
 	bool                    mIsOnBoard;
 	bool                    mHighlighted;
+	ProjectileType          mGatlingPeaVolleyProjectileType;
 
 public:
 	Plant();
@@ -228,11 +233,16 @@ public:
 	void                    MouseDown(int x, int y, int theClickCount);
 	void                    DoSpecial();
 	void                    Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY,
-		int theWintermelonVolleyIndex = -1, bool theFireWintermelonCherryBomb = false);
+		int theWintermelonVolleyIndex = -1, bool theFireWintermelonCherryBomb = false, bool theSkipCatTailOverdriveVolley = false);
 	Zombie*                 FindTargetZombie(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY,
 		const std::vector<Zombie*>* theExcludedZombies = nullptr);
 	void                    Die();
 	void                    UpdateProductionPlant();
+	void                    UpdatePlanternAttack();
+	bool                    HasPlanternTarget();
+	bool                    PlanternCoffeeBeanVolley();
+	void                    FirePlanternBomb(Zombie* theTarget);
+	bool                    FirePlanternCobBomb(Zombie* theTarget);
 	void                    UpdateShooter();
 	bool                    FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY);
 	void                    LaunchThreepeater();
@@ -323,6 +333,7 @@ public:
 	void                    UpdateFlowerPot();
 	void                    UpdateLilypad();
 	bool                    GoldMagnetFindTargets();
+	bool                    CollectSunMagnetCoin(Coin* theCoin);
 	bool                    IsAGoldMagnetAboutToSuck();
 	bool                    DrawMagnetItemsOnTop();
 };

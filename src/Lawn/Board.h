@@ -23,6 +23,7 @@
 #define __BOARD_H__
 
 #include <cstdint>
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -43,6 +44,7 @@ using namespace Sexy;
 constexpr const int CLASSIC_GRID_SIZE_X = 9;
 constexpr const int MAX_GRID_SIZE_X = 12;
 constexpr const int MAX_GRID_SIZE_Y = 10;
+constexpr const int MAX_ACTIVE_ZOMBIES = 4096;
 constexpr const int MAX_ZOMBIES_IN_WAVE = 50;
 constexpr const int MAX_ZOMBIE_WAVES = 100;
 constexpr const int MAX_GRAVE_STONES = MAX_GRID_SIZE_X * MAX_GRID_SIZE_Y;
@@ -119,6 +121,7 @@ struct PlantsOnLawn
 	Plant*							mPumpkinPlant;
 	Plant*							mFlyingPlant;
 	Plant*							mNormalPlant;
+	int								mSunflowerCount;
 };
 
 struct BungeeDropGrid
@@ -150,6 +153,14 @@ public:
 		PlantID mChomperID;
 		int32_t mTicksUntilPulse;
 	};
+	struct SunMagnetHealStack
+	{
+		PlantID mPlantID;
+		PlantID mMagnetID;
+		int32_t mStackCount;
+		int32_t mElapsedTicks;
+		int32_t mTicksUntilPulse;
+	};
 	struct SunMagnetExtraItems
 	{
 		PlantID mPlantID;
@@ -176,12 +187,27 @@ public:
 	std::vector<PlantHealGlow>		mPlantHealGlows;
 	std::vector<PlantHealVisual>		mPlantHealVisuals;
 	std::vector<ChomperHealAura>		mChomperHealAuras;
+	std::vector<SunMagnetHealStack>		mSunMagnetHealStacks;
 	std::vector<SunMagnetExtraItems>		mSunMagnetExtraItems;
 	bool							mChomperOverdriveActive = false;
 	bool							mKernelPultOverdriveActive = false;
 	bool							mSunMagnetOverdriveActive = false;
+	bool							mGoldMagnetOverdriveActive = false;
+	bool							mCatTailOverdriveActive = false;
+	bool							mSpikeweedOverdriveActive = false;
+	std::array<int32_t, MAX_GRID_SIZE_Y> mPlanternFlameCountdown{};
+	std::array<int32_t, MAX_GRID_SIZE_Y> mPlanternFlameTick{};
+	bool							mGatlingPeaOverdriveActive = false;
 	bool							mTwinSunflowerProductionOverdriveActive = false;
 	bool							mTwinSunflowerBombardmentOverdriveActive = false;
+	bool							mTwinSunflowerHighOverdriveActive = false;
+	bool							mPumpkinOverdriveActive = false;
+	bool							mTallNutOverdriveActive = false;
+	int32_t							mZombieStrengthTier = 0;
+	bool							mAutoReuseEndlessSeeds = false;
+	bool							mZombieRainActive = false;
+	int32_t							mZombieRainCountdown = 0;
+	int32_t							mZombieRainPendingCount = 0;
 	bool							mPaused;
 	GridSquareType					mGridSquareType[MAX_GRID_SIZE_X][MAX_GRID_SIZE_Y];
 	int32_t							mGridCelLook[MAX_GRID_SIZE_X][MAX_GRID_SIZE_Y];
@@ -362,15 +388,21 @@ public:
 	int					PixelToGridXKeepOnBoard(int theX, int theY);
 	int					PixelToGridYKeepOnBoard(int theX, int theY);
 	void							UpdateGameObjects();
-	void							StartSunMagnetRegeneration();
+	void							StartSunMagnetRegeneration(Plant* theMagnet);
 	void							StartChomperRegeneration(Plant* theChomper);
 	void							RefreshChomperRegeneration(Plant* theChomper);
 	void							UpdatePlantOverdrive();
+	void							UpdateZombieRain();
+	void							ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier, int theToTier);
+	int							GetZombieExplosiveDamage() const;
 	MagnetItem*						GetSunMagnetExtraItems(PlantID thePlantID, bool theCreate);
 	bool							TryLaunchTwinSunflowerSunBomb();
 	void							ShowPlantHealGlow(Plant* thePlant);
 	void							UpdatePlantHealGlows();
 	void							RestorePlantHealGlowsAfterLoad();
+	void							UpdateSunMagnetCollection();
+	void							StartPlanternFlame(int theRow);
+	void							UpdatePlanternFlames();
 	bool							MouseHitTest(int x, int y, HitResult* theHitResult);
 	void							MouseDownWithPlant(int x, int y, int theClickCount);
 	void							MouseDownWithTool(int x, int y, int theClickCount, CursorType theCursorType);

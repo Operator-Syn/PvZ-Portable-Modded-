@@ -275,7 +275,11 @@ void AlmanacDialog::Update()
 
 ZombieType AlmanacDialog::GetZombieType(int theIndex)
 {
-	return theIndex < NUM_ZOMBIE_TYPES ? (ZombieType)theIndex : ZOMBIE_INVALID;
+	if (theIndex == 26)
+		return ZombieType::ZOMBIE_BULWARK_GARGANTUAR;
+	if (theIndex == 27)
+		return ZombieType::ZOMBIE_BULWARK_BUCKET;
+	return theIndex >= 0 && theIndex < 26 ? static_cast<ZombieType>(theIndex) : ZombieType::ZOMBIE_INVALID;
 }
 
 void AlmanacDialog::DrawIndex(Graphics* g)
@@ -381,29 +385,35 @@ void AlmanacDialog::DrawPlants(Graphics* g)
 
 void AlmanacDialog::DrawOverdrives(Graphics* g)
 {
-	static constexpr std::array<SeedType, 10> aOverdrivePlants = {
+	static constexpr std::array<SeedType, 13> aOverdrivePlants = {
 		SeedType::SEED_CHOMPER,
 		SeedType::SEED_KERNELPULT,
+		SeedType::SEED_WINTERMELON,
 		SeedType::SEED_TWINSUNFLOWER,
 		SeedType::SEED_PLANTERN,
 		SeedType::SEED_SUN_MAGNET,
 		SeedType::SEED_GOLD_MAGNET,
 		SeedType::SEED_CATTAIL,
 		SeedType::SEED_GATLINGPEA,
+		SeedType::SEED_SPIKEWEED,
+		SeedType::SEED_SPIKEROCK,
 		SeedType::SEED_PUMPKINSHELL,
 		SeedType::SEED_TALLNUT
 	};
 	static constexpr std::array<const char*, aOverdrivePlants.size()> aRequirements = {
-		">15,000 sun: digestion is 10x faster; healing doubles to 50 HP/s for two nearby plants; costs 100 sun/second",
-		">20,000 sun: 4x attack speed and 50% butter chance; costs 150 sun/second",
-		">1,000 sun: faster production; >=10,000: 10% bomb chance (300 sun); >=100,000: 30% (600 sun)",
-		">1,000 sun: faster production; attacks need >=1,000 sun and cost 150/shot; >=50,000: bombs ignite lane flames",
-		">=5,000 sun: pickup value 6x and 15 slots; costs 1 HP/s to a 1 HP floor. Each pickup heals 10-20 plants; 25 sun per recipient/pulse, keeps 5,000 reserve",
-		">=50,000 sun: 3x gold/diamond odds; costs 250 sun/second and 25 HP/second to a 1 HP floor",
-		">=25,000 sun: 2x attack speed; up to 6 shots per cycle at 25 sun per shot",
-		">=200,000 sun: obsidian tint; 5% chance per shot for butter, Cherry Bomb, or melon ammo",
-		">=5,000 sun: restores 50 HP/second, gains 25% max HP, and boosts adjacent healing",
-		">=10,000 sun: restores 50 HP/second, gains 25% max HP, costs 200 sun/second"
+		">15,000 sun: digests 2x faster; heals up to 2 nearest forward plants with quadratic group scaling (each gets base heal x recipient count); costs 100 sun/s",
+		">20,000 sun: 4x attack rate, 50% butter chance, costs 150 sun/s per plant. >=500,000: 90% butter chance, 2-5 butter volley, 200-tick stun; Giants immune; costs 175 sun/s per plant",
+		">=1,000,000 sun: each impact scales direct/splash damage by affected targets, costs 200 sun/s per plant. From 900,000 sun, quadratic attacks use ceil(sqrt(targets)), capped at 4x; the cap rises by 2x per doubling of zombie HP. Bungees are exempt.",
+		">1,000 sun: 2x production; >=10,000: 10% bomb chance per production event (300 sun); >=100,000: 30% (600 sun); >=1,000,000: production is 7x slower and fires every 225 ticks (600 sun)",
+		">1,000 sun: 2x sun production; sun value compounds x1.2 per completed flag; shoots Cherry Bombs every 2,500 ticks for 150 sun when bank >=1,000; >=50,000: blasts burn the lane. Coffee Bean fires one Cob/lane (500 sun) and starts 5s flames (300 sun/lane/s)",
+		">=5,000 sun: collected sun compounds x1.2 per completed flag, then pays 2x or 6x; 15 item slots (35 at 150,000), loses 1 HP/s to 1 HP. Each pickup assigns 10-20 heal stacks; per-stack healing scales with distinct recipients for quadratic group healing (25 sun/stack, keeps 5,000 reserve). Coffee Bean gives an aura/growth and 5s collection, loses 4 HP/s",
+		">=50,000 sun: triples gold/diamond odds; costs 250 sun/s board-wide and 25 HP/s to a 1 HP floor",
+		">=25,000 sun: about 4x attack rate, 6 shots/cycle, 125 sun per projectile; seed cost 75",
+		">=200,000 sun: 15% chance per four-shot burst for matching smoky butter, Cherry Bomb, or melon peas; Cherry has AoE; no penetration",
+		">=1,000 sun: 7x attack speed; loses 1 HP per completed attack",
+		">=1,000 sun: 7x attack speed; loses 2 HP per completed attack",
+		">=5,000 sun: restores 50 HP/s, gains 25% max HP; nearby Pumpkin healing bonus scales quadratically with adjacent Pumpkin count",
+		">=10,000 sun: restores 50 HP/s, gains 25% max HP, costs 200 sun/s"
 	};
 
 	g->DrawImage(Sexy::IMAGE_ALMANAC_PLANTBACK, 0, 0);
@@ -412,13 +422,15 @@ void AlmanacDialog::DrawOverdrives(Graphics* g)
 
 	for (size_t i = 0; i < aOverdrivePlants.size(); i++)
 	{
-		int aColumn = static_cast<int>(i / 5);
-		int aRow = static_cast<int>(i % 5);
+		int aColumn = static_cast<int>(i / 7);
+		int aRow = static_cast<int>(i % 7);
 		int aX = aColumn == 0 ? 38 : 421;
-		int aY = 105 + aRow * 88;
+		int aY = 88 + aRow * 70;
 		std::string aEntry = std::format("{}: {}", Plant::GetNameString(aOverdrivePlants[i], SeedType::SEED_NONE), aRequirements[i]);
-		PvzpDrawStringWrapped(g, aEntry, Rect(aX, aY, 360, 76), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_LEFT);
+		PvzpDrawStringWrapped(g, aEntry, Rect(aX, aY, 360, 66), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_LEFT);
 	}
+	PvzpDrawStringWrapped(g, "Zombie tiers: 1,000,000 sun = 18x base HP/armor; 2,000,000 = 27x. Imp/Ladder keep +50%; explosive reduction caps at 75%.",
+		Rect(28, 578, 705, 20), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_CENTER);
 }
 
 void AlmanacDialog::DrawZombies(Graphics* g)
@@ -463,11 +475,13 @@ void AlmanacDialog::DrawZombies(Graphics* g)
 				case ZombieType::ZOMBIE_FLAG:			aZombieGraphics.TranslateF(2, 10);	break;
 				case ZombieType::ZOMBIE_TRAFFIC_CONE:	aZombieGraphics.TranslateF(0, 12);	break;
 				case ZombieType::ZOMBIE_PAIL:			aZombieGraphics.TranslateF(0, 9);		break;
+				case ZombieType::ZOMBIE_BULWARK_BUCKET: aZombieGraphics.TranslateF(0, 9); break;
 				case ZombieType::ZOMBIE_FOOTBALL:		aZombieGraphics.TranslateF(-15, -1);	break;
 				case ZombieType::ZOMBIE_ZAMBONI:		aZombieGraphics.TranslateF(0, 3);		break;
 				case ZombieType::ZOMBIE_DOLPHIN_RIDER:	aZombieGraphics.TranslateF(-2, -10);	break;
 				case ZombieType::ZOMBIE_POGO:			aZombieGraphics.TranslateF(0, -3);	break;
 				case ZombieType::ZOMBIE_GARGANTUAR:		aZombieGraphics.TranslateF(15, 17);	break;
+				case ZombieType::ZOMBIE_BULWARK_GARGANTUAR: aZombieGraphics.TranslateF(15, 17); break;
 				case ZombieType::ZOMBIE_IMP:			aZombieGraphics.TranslateF(-8, -7);	break;
 				case ZombieType::ZOMBIE_BUNGEE:			aZombieGraphics.TranslateF(-4, 3);	break;
 				case ZombieType::ZOMBIE_DANCER:			aZombieGraphics.TranslateF(0, 15);	break;
@@ -512,6 +526,7 @@ void AlmanacDialog::DrawZombies(Graphics* g)
 		{
 		case ZombieType::ZOMBIE_ZAMBONI:		aZombieGraphics.TranslateF(-30, 5);		break;
 		case ZombieType::ZOMBIE_GARGANTUAR:		aZombieGraphics.TranslateF(0, 40);		break;
+		case ZombieType::ZOMBIE_BULWARK_GARGANTUAR: aZombieGraphics.TranslateF(0, 40); break;
 		case ZombieType::ZOMBIE_FOOTBALL:		aZombieGraphics.TranslateF(-10, 0);		break;
 		case ZombieType::ZOMBIE_BALLOON:		aZombieGraphics.TranslateF(0, -20);		break;
 		case ZombieType::ZOMBIE_BUNGEE:			aZombieGraphics.TranslateF(15, 0);		break;
@@ -527,7 +542,9 @@ void AlmanacDialog::DrawZombies(Graphics* g)
 	g->DrawImage(Sexy::IMAGE_ALMANAC_ZOMBIECARD, 455, 78);
 
 	const ZombieDefinition& aZombieDef = GetZombieDefinition(mSelectedZombie);
-	std::string aName = ZombieHasSilhouette(mSelectedZombie) ? "???" : std::format("[{}]", aZombieDef.mZombieName);
+	std::string aName = ZombieHasSilhouette(mSelectedZombie) ? "???" :
+		mSelectedZombie == ZombieType::ZOMBIE_BULWARK_GARGANTUAR ? "BULWARK GARGANTUAR" :
+		mSelectedZombie == ZombieType::ZOMBIE_BULWARK_BUCKET ? "BULWARK BUCKET ZOMBIE" : std::format("[{}]", aZombieDef.mZombieName);
 	PvzpDrawString(g, aName, 613, 362, Sexy::FONT_DWARVENTODCRAFT18GREENINSET, Color(190, 255, 235, 255), DS_ALIGN_CENTER);
 
 	std::string aDescription;
@@ -541,6 +558,16 @@ void AlmanacDialog::DrawZombies(Graphics* g)
 	{
 		aDescription = "[NOT_ENCOUNTERED_YET]";
 		aAlign = DS_ALIGN_CENTER_VERTICAL_MIDDLE;
+	}
+	if (mSelectedZombie == ZombieType::ZOMBIE_BULWARK_GARGANTUAR)
+	{
+		aDescription = "A towering meat shield that walks through plants without attacking or eating them. Projectiles, area damage, and slows still affect it. It cannot be butter-stunned.";
+		aAlign = DS_ALIGN_LEFT;
+	}
+	else if (mSelectedZombie == ZombieType::ZOMBIE_BULWARK_BUCKET)
+	{
+		aDescription = "A buckethead bulwark that walks through plants without attacking or eating them. It has the same health, bucket armor, and speed as a Buckethead Zombie.";
+		aAlign = DS_ALIGN_LEFT;
 	}
 	for (PvzpStringListFormat& aFormat : gLawnStringFormats)
 	{
@@ -640,6 +667,10 @@ bool AlmanacDialog::ZombieIsShown(ZombieType theZombieType)
 	// the Yeti is shown once it can spawn, or earlier as a silhouette
 	if (theZombieType == ZombieType::ZOMBIE_YETI)
 		return mApp->CanSpawnYetis() || ZombieHasSilhouette(ZombieType::ZOMBIE_YETI);
+	if (theZombieType == ZombieType::ZOMBIE_BULWARK_GARGANTUAR)
+		return mApp->HasFinishedAdventure() || gZombieDefeated[theZombieType];
+	if (theZombieType == ZombieType::ZOMBIE_BULWARK_BUCKET)
+		return mApp->HasFinishedAdventure() || gZombieDefeated[theZombieType];
 
 	// zombies encountered in adventure mode
 	if (theZombieType <= ZombieType::ZOMBIE_BOSS)
@@ -683,6 +714,10 @@ void AlmanacDialog::GetZombiePosition(ZombieType theZombieType, int& x, int& y)
 {
 	if (theZombieType == ZombieType::ZOMBIE_BOSS)
 		x = 192, y = 486;
+	else if (theZombieType == ZombieType::ZOMBIE_BULWARK_GARGANTUAR)
+		x = 107, y = 486;
+	else if (theZombieType == ZombieType::ZOMBIE_BULWARK_BUCKET)
+		x = 277, y = 486;
 	else
 	{
 		x = theZombieType % 5 * 85 + 22;

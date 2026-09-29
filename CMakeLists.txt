@@ -200,6 +200,11 @@ target_compile_definitions(pvz-portable PRIVATE
 target_compile_features(pvz-portable PRIVATE cxx_std_20)
 set_target_properties(pvz-portable PROPERTIES CXX_EXTENSIONS OFF)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	target_compile_options(pvz-portable PRIVATE -fno-omit-frame-pointer)
+	target_link_options(pvz-portable PRIVATE -rdynamic)
+endif()
+
 if (LOW_MEMORY)
 	target_compile_definitions(pvz-portable PRIVATE LOW_MEMORY)
 endif()

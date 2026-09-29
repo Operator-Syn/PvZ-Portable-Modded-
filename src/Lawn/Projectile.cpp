@@ -33,6 +33,7 @@
 #include "../PvzpLib/Attachment.h"
 #include "Widget/AchievementsScreen.h"
 #include <algorithm>
+#include <array>
 
 constinit const ProjectileDefinition gProjectileDefinition[] = {
 	{ .mProjectileType = ProjectileType::PROJECTILE_PEA, .mImageRow = 0, .mDamage = 20 },
@@ -54,12 +55,20 @@ constinit const ProjectileDefinition gProjectileDefinition[] = {
 	{ .mProjectileType = ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB, .mImageRow = 0, .mDamage = 1800 }
 };
 
+static bool IsPultProjectile(ProjectileType theProjectileType)
+{
+	return theProjectileType == ProjectileType::PROJECTILE_CABBAGE || theProjectileType == ProjectileType::PROJECTILE_KERNEL ||
+		theProjectileType == ProjectileType::PROJECTILE_BUTTER || theProjectileType == ProjectileType::PROJECTILE_MELON ||
+		theProjectileType == ProjectileType::PROJECTILE_WINTERMELON;
+}
+
 Projectile::Projectile()
 {
 	mPiercesZombies = false;
 	mPiercedZombieCount = 0;
 	mPlanternCob = false;
 	mTargetTrackingEnded = false;
+	mCattailRedirectionCount = 0;
 	std::fill_n(mPiercedZombieIDs, MAX_PIERCING_HITS, ZombieID::ZOMBIEID_NULL);
 }
 
@@ -92,6 +101,7 @@ void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, in
 	mCobTargetRow = 0;
 	mTargetZombieID = ZombieID::ZOMBIEID_NULL;
 	mTargetTrackingEnded = false;
+	mCattailRedirectionCount = 0;
 	mPiercesZombies = false;
 	mPiercedZombieCount = 0;
 	mPlanternCob = false;
@@ -554,7 +564,7 @@ void Projectile::UpdateLobMotion()
 		mRotation = -PI / 2;
 	}
 
-	if ((mProjectileType == ProjectileType::PROJECTILE_WINTERMELON || mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB) &&
+	if ((IsPultProjectile(mProjectileType) || mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB) &&
 		mTargetZombieID != ZombieID::ZOMBIEID_NULL)
 	{
 		Zombie* aTargetZombie = mBoard->ZombieTryToGet(mTargetZombieID);
@@ -577,9 +587,11 @@ void Projectile::UpdateLobMotion()
 	}
 	mPosX += mVelX;
 	mPosY += mVelY;
-	if ((mProjectileType == ProjectileType::PROJECTILE_WINTERMELON || mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB) &&
+	if ((IsPultProjectile(mProjectileType) || mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB) &&
 		mTargetZombieID != ZombieID::ZOMBIEID_NULL)
 		mShadowY += mVelY;
+	if (IsPultProjectile(mProjectileType) && mTargetZombieID != ZombieID::ZOMBIEID_NULL)
+		mRow = mBoard->PixelToGridYKeepOnBoard(mPosX, mShadowY);
 	mPosZ += mVelZ;
 
 	bool isRising = mVelZ < 0.0f;
@@ -644,6 +656,25 @@ void Projectile::UpdateLobMotion()
 		aGroundZ = -40.0f;
 	}
 	bool hitGround = mPosZ > aGroundZ;
+	if (hitGround &&
+		(mProjectileType == ProjectileType::PROJECTILE_CABBAGE || mProjectileType == ProjectileType::PROJECTILE_KERNEL ||
+			mProjectileType == ProjectileType::PROJECTILE_BUTTER) &&
+		mTargetZombieID != ZombieID::ZOMBIEID_NULL)
+	{
+		Zombie* aTrackedTarget = mBoard->ZombieTryToGet(mTargetZombieID);
+		// A cross-lane lob tracks its intended target through the flight. The projectile's
+		// sampled row can be off by one at lane boundaries, so row equality must not veto
+		// a valid direct hit when the shell reaches that target's horizontal position.
+		if (aTrackedTarget != nullptr && !aTrackedTarget->IsDeadOrDying() &&
+			aTrackedTarget->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
+		{
+			Rect aTargetRect = aTrackedTarget->GetZombieRect();
+			float aImpactCenterX = mPosX + mWidth * 0.5f;
+			if (aImpactCenterX >= aTargetRect.mX - 20.0f &&
+				aImpactCenterX <= aTargetRect.mX + aTargetRect.mWidth + 20.0f)
+				aZombie = aTrackedTarget;
+		}
+	}
 	if (aZombie == nullptr && aPlant == nullptr && !hitGround)
 	{
 		return;
@@ -678,7 +709,11 @@ void Projectile::UpdateLobMotion()
 	else if (mProjectileType == ProjectileType::PROJECTILE_COBBIG)
 	{
 		int aBeforeGargantuarCount = mBoard->GetLiveGargantuarCount();
-		mBoard->KillAllZombiesInRadius(mRow, mPosX + 80, mPosY + 40, 115, 1, true, mDamageRangeFlags);
+		if (mPlanternCob)
+			mBoard->KillAllZombiesInRadius(mRow, mPosX + 80, mPosY + 40, 115, 1, false, mDamageRangeFlags,
+				std::max(1, mBoard->GetZombieExplosiveDamage() / 2));
+		else
+			mBoard->KillAllZombiesInRadius(mRow, mPosX + 80, mPosY + 40, 115, 1, true, mDamageRangeFlags);
 		int aAfterGargantuarCount = mBoard->GetLiveGargantuarCount();
 		mBoard->mGargantuarsKillsByCornCob += aBeforeGargantuarCount - aAfterGargantuarCount;
 		if (mBoard->mGargantuarsKillsByCornCob >= 2)
@@ -707,42 +742,37 @@ void Projectile::UpdateNormalMotion()
 			(!aZombie || aZombie->IsDeadOrDying() || !aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags))))
 		{
 			Zombie* aClosestTarget = nullptr;
-			Zombie* aFlyingBalloon = nullptr;
 			float aClosestDistance = 0.0f;
-			float aClosestBalloonDistance = 0.0f;
-			for (Zombie* aCandidate : mBoard->mZombies)
+			if (mCattailRedirectionCount < 1)
 			{
-				if (aCandidate->mDead || aCandidate->IsDeadOrDying() ||
-					!aCandidate->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
-					continue;
-
-				Rect aCandidateRect = aCandidate->GetZombieRect();
-				float aDistance = Distance2D(mPosX + mWidth / 2.0f, mPosY + mHeight / 2.0f,
-					aCandidateRect.mX + aCandidateRect.mWidth / 2.0f, aCandidateRect.mY + aCandidateRect.mHeight / 2.0f);
-				if (aClosestTarget == nullptr || aDistance < aClosestDistance)
+				for (Zombie* aCandidate : mBoard->mZombies)
 				{
-					aClosestTarget = aCandidate;
-					aClosestDistance = aDistance;
-				}
+					if (aCandidate->mDead || aCandidate->IsDeadOrDying() ||
+						!aCandidate->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
+						continue;
 
-				if (aCandidate->mZombieType == ZombieType::ZOMBIE_BALLOON && aCandidate->IsFlying() &&
-					(aFlyingBalloon == nullptr || aDistance < aClosestBalloonDistance))
-				{
-					aFlyingBalloon = aCandidate;
-					aClosestBalloonDistance = aDistance;
+					Rect aCandidateRect = aCandidate->GetZombieRect();
+					float aDistance = Distance2D(mPosX + mWidth / 2.0f, mPosY + mHeight / 2.0f,
+						aCandidateRect.mX + aCandidateRect.mWidth / 2.0f, aCandidateRect.mY + aCandidateRect.mHeight / 2.0f);
+					if (aClosestTarget == nullptr || aDistance < aClosestDistance)
+					{
+						aClosestTarget = aCandidate;
+						aClosestDistance = aDistance;
+					}
 				}
 			}
 
-			aZombie = aFlyingBalloon ? aFlyingBalloon : aClosestTarget;
-			if (aZombie == nullptr)
+			if (aClosestTarget != nullptr)
 			{
-				// Once no target exists, coast on the last velocity without tracking future waves.
-				mTargetZombieID = ZombieID::ZOMBIEID_NULL;
-				mTargetTrackingEnded = true;
+				aZombie = aClosestTarget;
+				mTargetZombieID = mBoard->ZombieGetID(aClosestTarget);
+				++mCattailRedirectionCount;
 			}
 			else
 			{
-				mTargetZombieID = mBoard->ZombieGetID(aZombie);
+				// Once no redirect remains available, coast on the last velocity without tracking future waves.
+				mTargetZombieID = ZombieID::ZOMBIEID_NULL;
+				mTargetTrackingEnded = true;
 			}
 		}
 
@@ -877,7 +907,7 @@ void Projectile::UpdateMotion()
 		mPosZ -= aSlopeHeightChange;
 	}
 	mShadowY += aSlopeHeightChange;
-	if ((mProjectileType == ProjectileType::PROJECTILE_WINTERMELON || mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB) &&
+	if ((IsPultProjectile(mProjectileType) || mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB) &&
 		mTargetZombieID != ZombieID::ZOMBIEID_NULL)
 		mRow = mBoard->PixelToGridYKeepOnBoard(mPosX, mShadowY);
 	mX = static_cast<int>(mPosX);

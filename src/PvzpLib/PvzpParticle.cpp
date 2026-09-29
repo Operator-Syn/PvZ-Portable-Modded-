@@ -291,6 +291,18 @@ void PvzpParticleEmitter::PvzpEmitterInitialize(float theX, float theY, PvzpPart
 	mImageOverride = nullptr;
 	mSystemDuration = 0;
 	mEmitterDef = theEmitterDef;
+	if (mEmitterDef->mParticleFields.count < 0 || mEmitterDef->mParticleFields.count > MAX_PARTICLE_FIELDS)
+	{
+		PvzpLogLn("Emitter '{}' has {} particle fields; limiting to {}",
+			mEmitterDef->mName, mEmitterDef->mParticleFields.count, MAX_PARTICLE_FIELDS);
+		mEmitterDef->mParticleFields.count = std::clamp(mEmitterDef->mParticleFields.count, 0, MAX_PARTICLE_FIELDS);
+	}
+	if (mEmitterDef->mSystemFields.count < 0 || mEmitterDef->mSystemFields.count > MAX_PARTICLE_FIELDS)
+	{
+		PvzpLogLn("Emitter '{}' has {} system fields; limiting to {}",
+			mEmitterDef->mName, mEmitterDef->mSystemFields.count, MAX_PARTICLE_FIELDS);
+		mEmitterDef->mSystemFields.count = std::clamp(mEmitterDef->mSystemFields.count, 0, MAX_PARTICLE_FIELDS);
+	}
 	mParticleList.SetAllocator(&theSystem->mParticleHolder->mParticleListNodeAllocator);
 
 	if (FloatTrackIsSet(mEmitterDef->mSystemDuration))
@@ -325,11 +337,22 @@ void PvzpParticleSystem::ParticleSystemDie()
 PvzpParticle* PvzpParticleEmitter::SpawnParticle(int theIndex, int theSpawnCount)
 {
 	DataArray<PvzpParticle>& aDataArray = mParticleSystem->mParticleHolder->mParticles;
-	if (aDataArray.mSize == aDataArray.mMaxSize)
+	PvzpParticleHolder* aParticleHolder = mParticleSystem->mParticleHolder;
+	if (aDataArray.mSize >= aDataArray.mMaxSize)
 	{
-		PvzpTraceWithoutSpamming("Too many particles '{}'", mEmitterDef->mName);
+		if (!aParticleHolder->mParticleCapacityWarningLogged)
+		{
+			int anEffectIndex = static_cast<int>(mParticleSystem->mEffectType);
+			const char* anEffectName = anEffectIndex >= 0 && anEffectIndex < gParticleDefCount
+				? gLawnParticleArray[anEffectIndex].mParticleFileName : "unknown";
+			PvzpLogLn("Particle pool exhausted for effect '{}' emitter '{}': live {}/{}, high-water slots {}",
+				anEffectName, mEmitterDef->mName, aDataArray.mSize, aDataArray.mMaxSize, aDataArray.mMaxUsedCount);
+			aParticleHolder->mParticleCapacityWarningLogged = true;
+		}
 		return nullptr;
 	}
+	if (aDataArray.mSize < aDataArray.mMaxSize * 3U / 4U)
+		aParticleHolder->mParticleCapacityWarningLogged = false;
 
 	PvzpParticle* aParticle = aDataArray.DataArrayAlloc();
 	PVZP_ASSERT(mEmitterDef->mParticleFields.count <= MAX_PARTICLE_FIELDS);
@@ -686,6 +709,8 @@ void PvzpParticleEmitter::UpdateSpawning()
 	for (int i = 0; i < aSpawnCount; i++)
 	{
 		PvzpParticle* aParticle = SpawnParticle(i, aSpawnCount);
+		if (aParticle == nullptr)
+			break;
 		if (aCrossFadeEmitter != nullptr)
 			CrossFadeParticle(aParticle, aCrossFadeEmitter);
 	}
@@ -732,6 +757,8 @@ void PvzpParticleSystem::Update()
 
 bool PvzpParticleEmitter::CrossFadeParticle(PvzpParticle* theParticle, PvzpParticleEmitter* theToEmitter)
 {
+	if (theParticle == nullptr || theToEmitter == nullptr)
+		return false;
 	if (theParticle->mCrossFadeDuration > 0)
 	{
 		PvzpLogLn("We don't support cross fading more than one at a time");
@@ -1228,9 +1255,20 @@ PvzpParticleHolder::~PvzpParticleHolder()
 
 void PvzpParticleHolder::InitializeHolder()
 {
+	mParticleCapacityWarningLogged = false;
+	mParticleSystemCapacityWarningLogged = false;
+	mEmitterCapacityWarningLogged = false;
+	mSuppressedParticleSystemFailures = 0;
+	mSuppressedEmitterFailures = 0;
+#ifdef LOW_MEMORY
 	mParticleSystems.DataArrayInitialize(1024U, "particle systems");
 	mEmitters.DataArrayInitialize(1024U, "emitters");
-	mParticles.DataArrayInitialize(1024U, "particles");
+	mParticles.DataArrayInitialize(8192U, "particles");
+#else
+	mParticleSystems.DataArrayInitialize(4096U, "particle systems");
+	mEmitters.DataArrayInitialize(8192U, "emitters");
+	mParticles.DataArrayInitialize(32768U, "particles");
+#endif
 	mParticleListNodeAllocator.Initialize(1024, sizeof(PvzpListNode<ParticleID>));
 	mEmitterListNodeAllocator.Initialize(1024, sizeof(PvzpListNode<ParticleEmitterID>));
 }
@@ -1242,26 +1280,66 @@ void PvzpParticleHolder::DisposeHolder()
 	mParticles.DataArrayDispose();
 	mParticleListNodeAllocator.FreeAll();
 	mEmitterListNodeAllocator.FreeAll();
+	mParticleCapacityWarningLogged = false;
+	mParticleSystemCapacityWarningLogged = false;
+	mEmitterCapacityWarningLogged = false;
+	mSuppressedParticleSystemFailures = 0;
+	mSuppressedEmitterFailures = 0;
+}
+
+bool PvzpParticleHolder::IsAtUsageThreshold(uint32_t thePercent) const
+{
+	return (mParticleSystems.mMaxSize > 0 && static_cast<uint64_t>(mParticleSystems.mSize) * 100U >= static_cast<uint64_t>(mParticleSystems.mMaxSize) * thePercent) ||
+		(mEmitters.mMaxSize > 0 && static_cast<uint64_t>(mEmitters.mSize) * 100U >= static_cast<uint64_t>(mEmitters.mMaxSize) * thePercent) ||
+		(mParticles.mMaxSize > 0 && static_cast<uint64_t>(mParticles.mSize) * 100U >= static_cast<uint64_t>(mParticles.mMaxSize) * thePercent);
 }
 
 bool PvzpParticleHolder::IsOverLoaded()
 {
-	return mParticleSystems.mSize > MAX_PARTICLES_SIZE || mEmitters.mSize > MAX_PARTICLES_SIZE || mParticles.mSize > MAX_PARTICLES_SIZE;
+	return IsAtUsageThreshold(90U);
 }
 
 PvzpParticleSystem* PvzpParticleHolder::AllocParticleSystemFromDef(float theX, float theY, int theRenderOrder, PvzpParticleDefinition* theDefinition, ParticleEffect theParticleEffect)
 {
+	int anEffectIndex = static_cast<int>(theParticleEffect);
+	const char* anEffectName = anEffectIndex >= 0 && anEffectIndex < gParticleDefCount
+		? gLawnParticleArray[anEffectIndex].mParticleFileName : "unknown";
+	if (mParticleSystems.mSize < mParticleSystems.mMaxSize * 3U / 4U)
+		mParticleSystemCapacityWarningLogged = false;
+	if (mEmitters.mSize < mEmitters.mMaxSize * 3U / 4U)
+		mEmitterCapacityWarningLogged = false;
 	if (mParticleSystems.mSize == mParticleSystems.mMaxSize)
 	{
-		PvzpLogLn("Too many particle systems");
+		if (!mParticleSystemCapacityWarningLogged)
+		{
+			PvzpLogLn("Particle system allocation refused: effect '{}', live {}/{}, high-water {}, suppressed failures {}",
+				anEffectName, mParticleSystems.mSize, mParticleSystems.mMaxSize, mParticleSystems.mMaxUsedCount,
+				mSuppressedParticleSystemFailures);
+			mParticleSystemCapacityWarningLogged = true;
+			mSuppressedParticleSystemFailures = 0;
+		}
+		else
+		{
+			++mSuppressedParticleSystemFailures;
+		}
 		return nullptr;
 	}
 	if (theDefinition->mEmitterDefCount + mEmitters.mSize > mEmitters.mMaxSize)
 	{
-		PvzpLogLn("Too many particle emitters");
+		if (!mEmitterCapacityWarningLogged)
+		{
+			PvzpLogLn("Particle emitter allocation refused: effect '{}', needs {}, live {}/{}, high-water {}, suppressed failures {}",
+				anEffectName, theDefinition->mEmitterDefCount, mEmitters.mSize, mEmitters.mMaxSize,
+				mEmitters.mMaxUsedCount, mSuppressedEmitterFailures);
+			mEmitterCapacityWarningLogged = true;
+			mSuppressedEmitterFailures = 0;
+		}
+		else
+		{
+			++mSuppressedEmitterFailures;
+		}
 		return nullptr;
 	}
-
 	PvzpParticleSystem* aPvzpParticle = mParticleSystems.DataArrayAlloc();
 	aPvzpParticle->mParticleHolder = this;
 	aPvzpParticle->PvzpParticleInitializeFromDef(theX, theY, theRenderOrder, theDefinition, theParticleEffect);

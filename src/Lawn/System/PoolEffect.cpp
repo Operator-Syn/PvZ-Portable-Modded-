@@ -141,6 +141,11 @@ void PoolEffect::PoolEffectDraw(Sexy::Graphics* g, bool theIsNight, int theFirst
 	const int aPoolTop = LAWN_YMIN + theFirstPoolRow * theRowSpacing + theRowSpacing / 3 + 1;
 	const int aPoolHeight = aFullHeightPool ? thePoolRowCount * theRowSpacing : IMAGE_POOL->GetHeight();
 	const int aPoolWidth = aWidePool ? mApp->mWidth - 96 : IMAGE_POOL->GetWidth();
+	// The source water texture includes a dark pool edge on both sides. Skip that edge
+	// when repeating it across the wider basin so the original right edge is not drawn
+	// as an interior divider.
+	const float aWideTextureInset = aWidePool ? 0.25f / aClassicHorizontalCellCount : 0.0f;
+	const float aWideTextureRange = 1.0f - 2.0f * aWideTextureInset;
 	if (!mApp->Is3DAccelerated())
 	{
 		//skip if using software rendering, never true in this port
@@ -275,7 +280,12 @@ void PoolEffect::PoolEffectDraw(Sexy::Graphics* g, bool theIsNight, int theFirst
 						pVert->color = 0xFFFFFFFFUL;
 						pVert->x = PoolXAtIndex(aIndexX) + 35.0f;
 						pVert->y = aIndexY * aGridSquareY + aPoolTop;
-						pVert->u = aOffsetArray[aLayer][aIndexX][aIndexY][0] + static_cast<float>(aTextureCellX) / aClassicHorizontalCellCount;
+						const float aTextureU = aWideTextureInset + aWideTextureRange *
+							static_cast<float>(aTextureCellX) / aClassicHorizontalCellCount +
+							aOffsetArray[aLayer][aIndexX][aIndexY][0];
+						pVert->u = aWidePool
+							? std::clamp(aTextureU, aWideTextureInset, 1.0f - aWideTextureInset)
+							: aTextureU;
 						pVert->v = aOffsetArray[aLayer][aIndexX][aIndexY][1] + static_cast<float>(aIndexY) / aVerticalCellCount;
 						if (!g->mClipRect.Contains(pVert->x, pVert->y))
 						{

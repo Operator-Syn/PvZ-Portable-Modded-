@@ -222,6 +222,8 @@ public:
 	bool                    mIsOnBoard;
 	bool                    mHighlighted;
 	ProjectileType          mGatlingPeaVolleyProjectileType;
+	int32_t                 mSunMagnetCoffeeTicksRemaining = 0;
+	int32_t                 mSunMagnetCoffeeTicksUntilDamage = 0;
 
 public:
 	Plant();
@@ -312,6 +314,7 @@ public:
 	void                    UpdateCobCannon();
 	void                    CobCannonFire(int theTargetX, int theTargetY);
 	void                    UpdateGoldMagnetShroom();
+	void                    StartSunMagnetCoffeeBoost();
 	void                    HealPlantsWithSun();
 	bool         IsOnBoard();
 	void                    RemoveEffects();

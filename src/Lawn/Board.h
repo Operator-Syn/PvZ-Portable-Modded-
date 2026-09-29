@@ -52,6 +52,19 @@ constexpr const int MAX_POOL_GRID_SIZE = 10;
 constexpr const size_t INITIAL_RENDER_ITEM_CAPACITY = 2048;
 constexpr const int PROGRESS_METER_COUNTER = 150;
 constexpr const int SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS = 10;
+constexpr const int SUN_MAGNET_HIGH_OVERDRIVE_EXTRA_ITEMS = 30;
+constexpr const int SUN_MAGNET_HIGH_OVERDRIVE_SUN_THRESHOLD = 150000;
+constexpr const int TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD = 1000000;
+constexpr const int TWO_MILLION_SUN_THRESHOLD = 2000000;
+constexpr const int TWIN_SUNFLOWER_ASSAULT_INTERVAL = 225;
+constexpr const int KERNEL_PULT_BUTTER_BARRAGE_SUN_THRESHOLD = 500000;
+constexpr const int WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD = 1000000;
+
+constexpr int GetSunMagnetExtraItemCapacity(int theSunMoney)
+{
+	return theSunMoney >= SUN_MAGNET_HIGH_OVERDRIVE_SUN_THRESHOLD
+		? SUN_MAGNET_HIGH_OVERDRIVE_EXTRA_ITEMS : SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS;
+}
 
 class LawnApp;
 class CursorObject;
@@ -122,7 +135,9 @@ struct PlantsOnLawn
 	Plant*							mFlyingPlant;
 	Plant*							mNormalPlant;
 	int								mSunflowerCount;
-	int								mSunMagnetCount;
+	int								mFumeGloomCount;
+	Plant*							mSunMagnetPlant;
+	int								mMagnetCount;
 };
 
 struct BungeeDropGrid
@@ -165,11 +180,12 @@ public:
 	struct SunMagnetExtraItems
 	{
 		PlantID mPlantID;
-		MagnetItem mItems[SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS];
+		MagnetItem mItems[SUN_MAGNET_HIGH_OVERDRIVE_EXTRA_ITEMS];
 	};
 
 	LawnApp*						mApp;
 	DataArray<Zombie>				mZombies;
+	std::vector<Zombie*>			mSplashDamageTargets;
 	DataArray<Plant>				mPlants;
 	DataArray<Projectile>			mProjectiles;
 	DataArray<Coin>					mCoins;
@@ -401,6 +417,7 @@ public:
 	void							UpdateZombieRain();
 	void							ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier, int theToTier);
 	int							GetZombieExplosiveDamage() const;
+	int							GetQuadraticZombieDamageMultiplier(const Zombie* theZombie, int theTargetCount) const;
 	MagnetItem*						GetSunMagnetExtraItems(PlantID thePlantID, bool theCreate);
 	bool							TryLaunchTwinSunflowerSunBomb();
 	void							ShowPlantHealGlow(Plant* thePlant);
@@ -496,6 +513,8 @@ public:
 	void							UpdateGridItems();
 	GridItem*			AddAGraveStone(int theGridX, int theGridY);
 	int								GetSurvivalFlagsCompleted();
+	int								GetFlagsCompletedForSunScaling();
+	int								ScaleSunValueForCompletedFlags(int theSunValue);
 	bool							HasProgressMeter();
 	void							UpdateCursor(const HitResult* theHitResult = nullptr);
 	void							UpdateTutorial();
@@ -506,7 +525,7 @@ public:
 	bool							IsValidCobCannonSpot(int theGridX, int theGridY);
 	bool							IsValidCobCannonSpotHelper(int theGridX, int theGridY);
 	void							MouseDownCobcannonFire(int x, int y, int theClickCount);
-	int								KillAllZombiesInRadius(int theRow, int theX, int theY, int theRadius, int theRowRange, bool theBurn, int theDamageRangeFlags, int theExplosiveDamage = 0);
+	int								KillAllZombiesInRadius(int theRow, int theX, int theY, int theRadius, int theRowRange, bool theBurn, int theDamageRangeFlags, int theExplosiveDamage = 0, bool theQuadraticDamageByTargetCount = false);
 	int					GetSeedBankExtraWidth();
 	bool							IsFlagWave(int theWaveNumber);
 	void							DrawHouseDoorTop(Graphics* g);

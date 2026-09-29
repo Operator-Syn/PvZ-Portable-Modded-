@@ -103,6 +103,20 @@ AlmanacDialog::AlmanacDialog(LawnApp* theApp) : LawnDialog(theApp, DIALOG_ALMANA
 	mZombieButton->mDrawStoneButton = true;
 	mZombieButton->mParentWidget = this;
 
+	mOverdriveButton = std::make_unique<GameButton>(AlmanacDialog::ALMANAC_BUTTON_OVERDRIVES);
+	mOverdriveButton->SetLabel(mApp->GetString("ALMANAC_OVERDRIVES", "OVERDRIVES"));
+	mOverdriveButton->mButtonImage = Sexy::IMAGE_SEEDCHOOSER_BUTTON;
+	mOverdriveButton->mOverImage = nullptr;
+	mOverdriveButton->mDownImage = nullptr;
+	mOverdriveButton->mDisabledImage = Sexy::IMAGE_SEEDCHOOSER_BUTTON_DISABLED;
+	mOverdriveButton->mOverOverlayImage = Sexy::IMAGE_SEEDCHOOSER_BUTTON_GLOW;
+	mOverdriveButton->SetFont(Sexy::FONT_DWARVENTODCRAFT18YELLOW);
+	mOverdriveButton->SetLabelColor(Color::White);
+	mOverdriveButton->SetLabelHiliteColor(Color::White);
+	mOverdriveButton->Resize(310, 345, 164, 42);
+	mOverdriveButton->mTextOffsetY = -1;
+	mOverdriveButton->mParentWidget = this;
+
 	SetPage(ALMANAC_PAGE_INDEX);
 	if (!mApp->mBoard || !mApp->mBoard->mPaused)
 		mApp->mMusic->MakeSureMusicIsPlaying(MUSIC_TUNE_CHOOSE_YOUR_SEEDS);
@@ -195,6 +209,7 @@ void AlmanacDialog::SetPage(AlmanacPage thePage)
 		mIndexButton->mBtnNoDraw = true;
 		mPlantButton->mBtnNoDraw = false;
 		mZombieButton->mBtnNoDraw = false;
+		mOverdriveButton->mBtnNoDraw = false;
 	}
 	else
 	{
@@ -202,11 +217,13 @@ void AlmanacDialog::SetPage(AlmanacPage thePage)
 			SetupPlant();
 		else if (mOpenPage == AlmanacPage::ALMANAC_PAGE_ZOMBIES)
 			SetupZombie();
-		else return;
+		else if (mOpenPage != AlmanacPage::ALMANAC_PAGE_OVERDRIVES)
+			return;
 
 		mIndexButton->mBtnNoDraw = false;
 		mPlantButton->mBtnNoDraw = true;
 		mZombieButton->mBtnNoDraw = true;
+		mOverdriveButton->mBtnNoDraw = true;
 	}
 }
 
@@ -228,6 +245,7 @@ void AlmanacDialog::Update()
 	mIndexButton->Update();
 	mPlantButton->Update();
 	mZombieButton->Update();
+	mOverdriveButton->Update();
 	if (mPlant) mPlant->Update();
 	if (mZombie) mZombie->Update();
 	for (const std::unique_ptr<Zombie>& aZombie : mZombiePerfTest)
@@ -241,7 +259,8 @@ void AlmanacDialog::Update()
 	int aMouseX = mApp->mWidgetManager->mLastMouseX;
 	int aMouseY = mApp->mWidgetManager->mLastMouseY;
 	if (SeedHitTest(aMouseX, aMouseY) != SeedType::SEED_NONE || ZombieHitTest(aMouseX, aMouseY) != ZombieType::ZOMBIE_INVALID ||
-		mCloseButton->IsMouseOver() || mIndexButton->IsMouseOver() || mPlantButton->IsMouseOver() || mZombieButton->IsMouseOver())
+		mCloseButton->IsMouseOver() || mIndexButton->IsMouseOver() || mPlantButton->IsMouseOver() || mZombieButton->IsMouseOver() ||
+		mOverdriveButton->IsMouseOver())
 	{
 		mApp->SetCursor(CURSOR_HAND);
 	}
@@ -357,6 +376,48 @@ void AlmanacDialog::DrawPlants(Graphics* g)
 		);
 		aRechargeStr = PvzpReplaceString(aRechargeStr, "{WAIT_TIME}", "[WAIT_TIME]");
 		PvzpDrawStringWrapped(g, aRechargeStr, Rect(600, 520, 139, 50), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_RIGHT);
+	}
+}
+
+void AlmanacDialog::DrawOverdrives(Graphics* g)
+{
+	static constexpr std::array<SeedType, 10> aOverdrivePlants = {
+		SeedType::SEED_CHOMPER,
+		SeedType::SEED_KERNELPULT,
+		SeedType::SEED_TWINSUNFLOWER,
+		SeedType::SEED_PLANTERN,
+		SeedType::SEED_SUN_MAGNET,
+		SeedType::SEED_GOLD_MAGNET,
+		SeedType::SEED_CATTAIL,
+		SeedType::SEED_GATLINGPEA,
+		SeedType::SEED_PUMPKINSHELL,
+		SeedType::SEED_TALLNUT
+	};
+	static constexpr std::array<const char*, aOverdrivePlants.size()> aRequirements = {
+		">15,000 sun: digestion is 10x faster; healing doubles to 50 HP/s for two nearby plants; costs 100 sun/second",
+		">20,000 sun: 4x attack speed and 50% butter chance; costs 150 sun/second",
+		">1,000 sun: faster production; >=10,000: 10% bomb chance (300 sun); >=100,000: 30% (600 sun)",
+		">1,000 sun: faster production; attacks need >=1,000 sun and cost 150/shot; >=50,000: bombs ignite lane flames",
+		">=5,000 sun: pickup value 6x and 15 slots; costs 1 HP/s to a 1 HP floor. Each pickup heals 10-20 plants; 25 sun per recipient/pulse, keeps 5,000 reserve",
+		">=50,000 sun: 3x gold/diamond odds; costs 250 sun/second and 25 HP/second to a 1 HP floor",
+		">=25,000 sun: 2x attack speed; up to 6 shots per cycle at 25 sun per shot",
+		">=200,000 sun: obsidian tint; 5% chance per shot for butter, Cherry Bomb, or melon ammo",
+		">=5,000 sun: restores 50 HP/second, gains 25% max HP, and boosts adjacent healing",
+		">=10,000 sun: restores 50 HP/second, gains 25% max HP, costs 200 sun/second"
+	};
+
+	g->DrawImage(Sexy::IMAGE_ALMANAC_PLANTBACK, 0, 0);
+	PvzpDrawString(g, "PLANT OVERDRIVE REQUIREMENTS", BOARD_WIDTH / 2, 48, Sexy::FONT_HOUSEOFTERROR20,
+		Color(213, 159, 43), DrawStringJustification::DS_ALIGN_CENTER);
+
+	for (size_t i = 0; i < aOverdrivePlants.size(); i++)
+	{
+		int aColumn = static_cast<int>(i / 5);
+		int aRow = static_cast<int>(i % 5);
+		int aX = aColumn == 0 ? 38 : 421;
+		int aY = 105 + aRow * 88;
+		std::string aEntry = std::format("{}: {}", Plant::GetNameString(aOverdrivePlants[i], SeedType::SEED_NONE), aRequirements[i]);
+		PvzpDrawStringWrapped(g, aEntry, Rect(aX, aY, 360, 76), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_LEFT);
 	}
 }
 
@@ -509,6 +570,7 @@ void AlmanacDialog::Draw(Graphics* g)
 	case AlmanacPage::ALMANAC_PAGE_INDEX:	DrawIndex(g);	break;
 	case AlmanacPage::ALMANAC_PAGE_PLANTS:	DrawPlants(g);	break;
 	case AlmanacPage::ALMANAC_PAGE_ZOMBIES:	DrawZombies(g);	break;
+	case AlmanacPage::ALMANAC_PAGE_OVERDRIVES: DrawOverdrives(g); break;
 	}
 
 	for (const std::unique_ptr<Zombie>& aZombie : mZombiePerfTest)
@@ -524,6 +586,7 @@ void AlmanacDialog::Draw(Graphics* g)
 	mIndexButton->Draw(g);
 	mPlantButton->Draw(g);
 	mZombieButton->Draw(g);
+	mOverdriveButton->Draw(g);
 }
 
 void AlmanacDialog::GetSeedPosition(SeedType theSeedType, int& x, int& y)
@@ -650,13 +713,14 @@ void AlmanacDialog::MouseUp([[maybe_unused]] int x, [[maybe_unused]] int y, [[ma
 {
 	if (mPlantButton->IsMouseOver())		SetPage(ALMANAC_PAGE_PLANTS);
 	else if (mZombieButton->IsMouseOver())	SetPage(ALMANAC_PAGE_ZOMBIES);
+	else if (mOverdriveButton->IsMouseOver()) SetPage(ALMANAC_PAGE_OVERDRIVES);
 	else if (mCloseButton->IsMouseOver())	mApp->KillAlmanacDialog();
 	else if (mIndexButton->IsMouseOver())	SetPage(ALMANAC_PAGE_INDEX);
 }
 
 void AlmanacDialog::MouseDown(int x, int y, [[maybe_unused]] int theClickCount)
 {
-	if (mPlantButton->IsMouseOver() || mCloseButton->IsMouseOver() || mIndexButton->IsMouseOver())
+	if (mPlantButton->IsMouseOver() || mCloseButton->IsMouseOver() || mIndexButton->IsMouseOver() || mOverdriveButton->IsMouseOver())
 		mApp->PlaySample(Sexy::SOUND_TAP);
 	if (mZombieButton->IsMouseOver())
 		mApp->PlaySample(Sexy::SOUND_GRAVEBUTTON);

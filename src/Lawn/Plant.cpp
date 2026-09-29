@@ -135,6 +135,8 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	mSeedType = theSeedType;
 	mImitaterType = theImitaterType;
 	mGatlingPeaVolleyProjectileType = ProjectileType::PROJECTILE_PEA;
+	mSunMagnetCoffeeTicksRemaining = 0;
+	mSunMagnetCoffeeTicksUntilDamage = 0;
 	mPlantHealth = 300;
 	mDoSpecialCountdown = 0;
 	mDisappearCountdown = 200;
@@ -2513,6 +2515,22 @@ void Plant::HealPlantsWithSun()
 void Plant::UpdateGoldMagnetShroom()
 {
 	Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
+	if (mSeedType == SeedType::SEED_SUN_MAGNET && mSunMagnetCoffeeTicksRemaining > 0)
+	{
+		--mSunMagnetCoffeeTicksRemaining;
+		if (--mSunMagnetCoffeeTicksUntilDamage <= 0)
+		{
+			mSunMagnetCoffeeTicksUntilDamage = 60;
+			mPlantHealth -= 4;
+			if (mPlantHealth <= 0)
+			{
+				Die();
+				return;
+			}
+		}
+		if (mSunMagnetCoffeeTicksRemaining == 0)
+			mSunMagnetCoffeeTicksUntilDamage = 0;
+	}
 	if (mSeedType == SeedType::SEED_SUN_MAGNET)
 	{
 		PlantID aPlantID = static_cast<PlantID>(mBoard->mPlants.DataArrayGetID(this));
@@ -2520,7 +2538,8 @@ void Plant::UpdateGoldMagnetShroom()
 		for (Coin* aCoin : mBoard->mCoins)
 			if (!aCoin->mDead && aCoin->mSunMagnetPickupPending && aCoin->mSunMagnetClaimID == aPlantID)
 				aHasPendingPickup = true;
-		if (aHasPendingPickup && (mState != PlantState::STATE_MAGNETSHROOM_SUCKING || aBodyReanim->mLoopType != ReanimLoopType::REANIM_LOOP))
+		if ((aHasPendingPickup || mSunMagnetCoffeeTicksRemaining > 0) &&
+			(mState != PlantState::STATE_MAGNETSHROOM_SUCKING || aBodyReanim->mLoopType != ReanimLoopType::REANIM_LOOP))
 		{
 			mState = PlantState::STATE_MAGNETSHROOM_SUCKING;
 			PlayBodyReanim("anim_attract", ReanimLoopType::REANIM_LOOP, 20, 12.0f);
@@ -2615,7 +2634,7 @@ void Plant::UpdateGoldMagnetShroom()
 					CollectSunMagnetCoin(aCoin);
 			}
 		}
-		if (aIsSuckingCoin || aHasPendingPickup)
+		if (aIsSuckingCoin || aHasPendingPickup || mSunMagnetCoffeeTicksRemaining > 0)
 		{
 			if (mState != PlantState::STATE_MAGNETSHROOM_SUCKING || aBodyReanim->mLoopType != ReanimLoopType::REANIM_LOOP)
 			{
@@ -2673,6 +2692,17 @@ void Plant::UpdateGoldMagnetShroom()
 		mState = PlantState::STATE_MAGNETSHROOM_SUCKING;
 		PlayBodyReanim("anim_attract", ReanimLoopType::REANIM_LOOP, 20, 12.0f);
 	}
+}
+
+void Plant::StartSunMagnetCoffeeBoost()
+{
+	if (mSeedType != SeedType::SEED_SUN_MAGNET || mDead)
+		return;
+
+	mSunMagnetCoffeeTicksRemaining = 300;
+	mSunMagnetCoffeeTicksUntilDamage = 60;
+	mState = PlantState::STATE_MAGNETSHROOM_SUCKING;
+	PlayBodyReanim("anim_attract", ReanimLoopType::REANIM_LOOP, 20, 12.0f);
 }
 
 void Plant::RemoveEffects()

@@ -322,7 +322,7 @@ std::unique_ptr<MemoryImage> ReanimatorCache::MakeCachedZombieFrame(ZombieType t
 		{
 			aTrackName = "anim_walk";
 		}
-		else if (theZombieType == ZombieType::ZOMBIE_GARGANTUAR)
+		else if (theZombieType == ZombieType::ZOMBIE_GARGANTUAR || theZombieType == ZombieType::ZOMBIE_BULWARK_GARGANTUAR)
 		{
 			aPosY = 60.0f;
 		}

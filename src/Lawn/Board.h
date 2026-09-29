@@ -49,7 +49,7 @@ constexpr const int MAX_ZOMBIES_IN_WAVE = 50;
 constexpr const int MAX_ZOMBIE_WAVES = 100;
 constexpr const int MAX_GRAVE_STONES = MAX_GRID_SIZE_X * MAX_GRID_SIZE_Y;
 constexpr const int MAX_POOL_GRID_SIZE = 10;
-constexpr const int MAX_RENDER_ITEMS = 2048;
+constexpr const size_t INITIAL_RENDER_ITEM_CAPACITY = 2048;
 constexpr const int PROGRESS_METER_COUNTER = 150;
 constexpr const int SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS = 10;
 
@@ -122,6 +122,7 @@ struct PlantsOnLawn
 	Plant*							mFlyingPlant;
 	Plant*							mNormalPlant;
 	int								mSunflowerCount;
+	int								mSunMagnetCount;
 };
 
 struct BungeeDropGrid
@@ -174,6 +175,11 @@ public:
 	DataArray<Coin>					mCoins;
 	DataArray<LawnMower>			mLawnMowers;
 	DataArray<GridItem>				mGridItems;
+	std::vector<RenderItem>			mRenderItems;
+	size_t						mRenderItemHighWater = 0;
+	size_t						mNextRenderItemWarning = INITIAL_RENDER_ITEM_CAPACITY;
+	std::array<int32_t, MAX_GRID_SIZE_Y>		mIceParticleRetryTicks{};
+	int32_t						mPoolSparklyParticleRetryTicks = 0;
 	std::unique_ptr<CursorObject>		mCursorObject;
 	std::unique_ptr<CursorPreview>		mCursorPreview;
 	std::unique_ptr<MessageWidget>		mAdvice;
@@ -500,7 +506,7 @@ public:
 	bool							IsValidCobCannonSpot(int theGridX, int theGridY);
 	bool							IsValidCobCannonSpotHelper(int theGridX, int theGridY);
 	void							MouseDownCobcannonFire(int x, int y, int theClickCount);
-	int								KillAllZombiesInRadius(int theRow, int theX, int theY, int theRadius, int theRowRange, bool theBurn, int theDamageRangeFlags);
+	int								KillAllZombiesInRadius(int theRow, int theX, int theY, int theRadius, int theRowRange, bool theBurn, int theDamageRangeFlags, int theExplosiveDamage = 0);
 	int					GetSeedBankExtraWidth();
 	bool							IsFlagWave(int theWaveNumber);
 	void							DrawHouseDoorTop(Graphics* g);
@@ -528,7 +534,7 @@ public:
 	int								GetLiveGargantuarCount();
 	int					GetNumWavesPerSurvivalStage();
 	int								GetLevelRandSeed();
-	void							AddBossRenderItem(RenderItem* theRenderList, int& theCurRenderItem, Zombie* theBossZombie);
+	void							AddBossRenderItem(std::vector<RenderItem>& theRenderList, Zombie* theBossZombie);
 	GridItem*			GetCraterAt(int theGridX, int theGridY);
 	GridItem*			GetGraveStoneAt(int theGridX, int theGridY);
 	GridItem*			GetLadderAt(int theGridX, int theGridY);

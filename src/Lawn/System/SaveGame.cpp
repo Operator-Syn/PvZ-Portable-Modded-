@@ -1646,6 +1646,7 @@ enum BoardBaseFieldId : uint32_t
 	BOARD_FIELD_AUTO_REUSE_ENDLESS_SEEDS,
 	BOARD_FIELD_SPIKEWEED_OVERDRIVE_STATE,
 	BOARD_FIELD_PLANTERN_FLAMES,
+	BOARD_FIELD_SUN_MAGNET_HIGH_EXTRA_ITEMS,
 	BOARD_FIELD_COUNT
 };
 
@@ -1797,8 +1798,33 @@ static void SyncSunMagnetExtraItems(PortableSaveContext& theContext, Board* theB
 	for (Board::SunMagnetExtraItems& anItems : theBoard->mSunMagnetExtraItems)
 	{
 		SyncEnumU32(theContext, anItems.mPlantID);
-		for (MagnetItem& anItem : anItems.mItems)
-			SyncMagnetItemPortable(theContext, anItem);
+		for (int i = 0; i < SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS; i++)
+			SyncMagnetItemPortable(theContext, anItems.mItems[i]);
+	}
+}
+
+static void SyncSunMagnetHighExtraItems(PortableSaveContext& theContext, Board* theBoard)
+{
+	int32_t aCount = theContext.mReading ? 0 : static_cast<int32_t>(theBoard->mSunMagnetExtraItems.size());
+	theContext.SyncInt32(aCount);
+	if (aCount < 0 || aCount > static_cast<int32_t>(DATA_ARRAY_MAX_SIZE) ||
+		(theContext.mReading && static_cast<size_t>(aCount) != theBoard->mSunMagnetExtraItems.size()))
+	{
+		theContext.mFailed = true;
+		return;
+	}
+
+	for (Board::SunMagnetExtraItems& anItems : theBoard->mSunMagnetExtraItems)
+	{
+		PlantID aPlantID = anItems.mPlantID;
+		SyncEnumU32(theContext, aPlantID);
+		if (theContext.mReading && aPlantID != anItems.mPlantID)
+		{
+			theContext.mFailed = true;
+			return;
+		}
+		for (int i = SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS; i < SUN_MAGNET_HIGH_OVERDRIVE_EXTRA_ITEMS; i++)
+			SyncMagnetItemPortable(theContext, anItems.mItems[i]);
 	}
 }
 
@@ -1808,7 +1834,7 @@ static void SyncZombieStrengthAndRainState(PortableSaveContext& theContext, Boar
 	theContext.SyncBool(theBoard->mZombieRainActive);
 	theContext.SyncInt32(theBoard->mZombieRainCountdown);
 	theContext.SyncInt32(theBoard->mZombieRainPendingCount);
-	if (theContext.mReading && (theBoard->mZombieStrengthTier < 0 || theBoard->mZombieStrengthTier > 3 ||
+	if (theContext.mReading && (theBoard->mZombieStrengthTier < 0 || theBoard->mZombieStrengthTier > 6 ||
 		theBoard->mZombieRainCountdown < 0 || theBoard->mZombieRainCountdown > 3000 ||
 		theBoard->mZombieRainPendingCount < 0 || theBoard->mZombieRainPendingCount > 50))
 	{
@@ -1986,6 +2012,7 @@ static constexpr BoardBaseFieldEntry gBoardBaseFields[] = {
 	{ BOARD_FIELD_AUTO_REUSE_ENDLESS_SEEDS, [](PortableSaveContext& c, Board* theBoard){ c.SyncBool(theBoard->mAutoReuseEndlessSeeds); } },
 	{ BOARD_FIELD_SPIKEWEED_OVERDRIVE_STATE, [](PortableSaveContext& c, Board* theBoard){ c.SyncBool(theBoard->mSpikeweedOverdriveActive); } },
 	{ BOARD_FIELD_PLANTERN_FLAMES, [](PortableSaveContext& c, Board* theBoard){ SyncInt32Array(c, theBoard->mPlanternFlameCountdown.data(), MAX_GRID_SIZE_Y); SyncInt32Array(c, theBoard->mPlanternFlameTick.data(), MAX_GRID_SIZE_Y); } },
+	{ BOARD_FIELD_SUN_MAGNET_HIGH_EXTRA_ITEMS, SyncSunMagnetHighExtraItems },
 };
 
 // The enum is contiguous starting at 1: the table must cover every id, in id order, so readers can index it directly.
@@ -2033,7 +2060,41 @@ static void SyncBoardBasePortable(PortableSaveContext& theContext, Board* theBoa
 
 static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard)
 {
-	SyncDataArrayObjectsTLV(theContext, theBoard->mZombies, SyncZombieTailPortable);
+	SyncDataArrayPortableTLV(theContext, theBoard->mZombies,
+		[&](std::vector<unsigned char>& aOut, Zombie& aZombie)
+		{
+			WriteGameObjectField(aOut, 1U, aZombie);
+			AppendFieldWithSync(aOut, PORTABLE_FIELD_TAIL, [&](PortableSaveContext& c){ SyncZombieTailPortable(c, aZombie); });
+			AppendFieldWithSync(aOut, 101U, [&](PortableSaveContext& c)
+			{
+				c.SyncInt32(aZombie.mTierBucketArmorHealth);
+				c.SyncInt32(aZombie.mTierBucketArmorMaxHealth);
+			});
+			AppendFieldWithSync(aOut, 102U, [&](PortableSaveContext& c){ SyncEnumU32(c, aZombie.mFirstIgnoredSpikyPlantID); });
+		},
+		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Zombie& aZombie)
+		{
+			if (aFieldId == 1U)
+				ReadGameObjectField(aData, aSize, aZombie);
+			else if (aFieldId == PORTABLE_FIELD_TAIL)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncZombieTailPortable(c, aZombie); });
+			else if (aFieldId == 101U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
+				{
+					c.SyncInt32(aZombie.mTierBucketArmorHealth);
+					c.SyncInt32(aZombie.mTierBucketArmorMaxHealth);
+				});
+			else if (aFieldId == 102U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncEnumU32(c, aZombie.mFirstIgnoredSpikyPlantID); });
+			if (aZombie.mTierBucketArmorHealth < 0 || aZombie.mTierBucketArmorMaxHealth < 0 ||
+				aZombie.mTierBucketArmorMaxHealth > 1100 * 27 ||
+				aZombie.mTierBucketArmorHealth > aZombie.mTierBucketArmorMaxHealth ||
+				theBoard->mZombieStrengthTier < 5 || aZombie.mZombieType == ZombieType::ZOMBIE_BUNGEE)
+			{
+				aZombie.mTierBucketArmorHealth = 0;
+				aZombie.mTierBucketArmorMaxHealth = 0;
+			}
+		});
 }
 
 static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
@@ -2046,6 +2107,8 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 			AppendFieldWithSync(aOut, 101U, [&](PortableSaveContext& c){ SyncEnum32(c, aPlant.mGatlingPeaVolleyProjectileType); });
 			AppendFieldWithSync(aOut, 102U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mSunMagnetCoffeeTicksRemaining); c.SyncInt32(aPlant.mSunMagnetCoffeeTicksUntilDamage); });
 			AppendFieldWithSync(aOut, 103U, [&](PortableSaveContext& c){ SyncEnumU32(c, aPlant.mCattailTargetZombieID); });
+			AppendFieldWithSync(aOut, 104U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mTwinSunflowerBombCountdown); });
+			AppendFieldWithSync(aOut, 105U, [&](PortableSaveContext& c){ c.SyncBool(aPlant.mGatlingPeaMillionSunVolley); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Plant& aPlant)
 		{
@@ -2059,6 +2122,10 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mSunMagnetCoffeeTicksRemaining); c.SyncInt32(aPlant.mSunMagnetCoffeeTicksUntilDamage); });
 			else if (aFieldId == 103U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncEnumU32(c, aPlant.mCattailTargetZombieID); });
+			else if (aFieldId == 104U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mTwinSunflowerBombCountdown); });
+			else if (aFieldId == 105U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aPlant.mGatlingPeaMillionSunVolley); });
 			if (aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_PEA &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_BUTTER &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_CHERRYBOMB &&
@@ -2075,6 +2142,8 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 			{
 				aPlant.mSunMagnetCoffeeTicksUntilDamage = 0;
 			}
+			if (aPlant.mTwinSunflowerBombCountdown < 0 || aPlant.mTwinSunflowerBombCountdown > TWIN_SUNFLOWER_ASSAULT_INTERVAL)
+				aPlant.mTwinSunflowerBombCountdown = TWIN_SUNFLOWER_ASSAULT_INTERVAL;
 		});
 }
 
@@ -2094,6 +2163,8 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 			AppendFieldWithSync(aOut, 102U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mPlanternCob); });
 			AppendFieldWithSync(aOut, 103U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mTargetTrackingEnded); });
 			AppendFieldWithSync(aOut, 104U, [&](PortableSaveContext& c){ c.SyncInt32(aProjectile.mCattailRedirectionCount); });
+			AppendFieldWithSync(aOut, 105U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mGatlingCherryShot); });
+			AppendFieldWithSync(aOut, 106U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mMillionSunDamage); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Projectile& aProjectile)
 		{
@@ -2114,6 +2185,10 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mTargetTrackingEnded); });
 			else if (aFieldId == 104U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aProjectile.mCattailRedirectionCount); });
+			else if (aFieldId == 105U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mGatlingCherryShot); });
+			else if (aFieldId == 106U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mMillionSunDamage); });
 				if (aProjectile.mCattailRedirectionCount < 0)
 					aProjectile.mCattailRedirectionCount = 0;
 				else if (aProjectile.mCattailRedirectionCount > 1)
@@ -2921,6 +2996,7 @@ static void FixBoardAfterLoad(Board* theBoard)
 			{
 			case ZombieType::ZOMBIE_GARGANTUAR:
 			case ZombieType::ZOMBIE_REDEYE_GARGANTUAR:
+			case ZombieType::ZOMBIE_BULWARK_GARGANTUAR:
 			{
 				Reanimation* aBodyReanim = theBoard->mApp->ReanimationGet(aZombie->mBodyReanimID);
 				if (aBodyReanim)

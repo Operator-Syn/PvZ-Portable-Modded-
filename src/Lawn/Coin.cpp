@@ -58,6 +58,8 @@ void Coin::CoinInitialize(int theX, int theY, CoinType theCoinType, CoinMotion t
 	mHeight = 60;
 	mDisappearCounter = 0;
 	mIsBeingCollected = false;
+	mSunMagnetClaimID = PlantID::PLANTID_NULL;
+	mSunMagnetPickupPending = false;
 	mFadeCount = 0;
 	mCoinMotion = theCoinMotion;
 	mCoinAge = 0;
@@ -426,7 +428,9 @@ bool Coin::IsMoney()
 bool Coin::IsSun()
 {
 	return mType == CoinType::COIN_SUN || mType == CoinType::COIN_SMALLSUN || mType == CoinType::COIN_LARGESUN ||
-		mType == CoinType::COIN_SUN_150 || mType == CoinType::COIN_SUN_500;
+		mType == CoinType::COIN_SUN_150 || mType == CoinType::COIN_SUN_500 ||
+		mType == CoinType::COIN_SUN_100 || mType == CoinType::COIN_SUN_600 ||
+		mType == CoinType::COIN_ZOMBIE_SUN_DROP;
 }
 
 bool Coin::IsPresentWithAdvice()
@@ -1301,7 +1305,9 @@ float Coin::GetSunScale()
 int Coin::GetSunValue()
 {
 	return mType == CoinType::COIN_SUN ? 25 : mType == CoinType::COIN_SMALLSUN ? 15 : mType == CoinType::COIN_LARGESUN ? 50 :
-		mType == CoinType::COIN_SUN_150 ? 150 : mType == CoinType::COIN_SUN_500 ? 500 : 0;
+		mType == CoinType::COIN_SUN_150 ? 150 : mType == CoinType::COIN_SUN_500 ? 500 :
+		mType == CoinType::COIN_SUN_100 ? 100 : mType == CoinType::COIN_SUN_600 ? 600 :
+		mType == CoinType::COIN_ZOMBIE_SUN_DROP ? std::clamp(mTimesDropped, 100, 200) : 0;
 }
 
 int Coin::GetCoinValue(CoinType theCoinType)
@@ -1427,7 +1433,7 @@ bool Coin::MouseHitTest(int theX, int theY, HitResult* theHitResult)
 		aExtraClickHeight = 30;
 		aExtraClickSize = 15;
 	}
-	if (mType == CoinType::COIN_SUN || mType == CoinType::COIN_SUN_150 || mType == CoinType::COIN_SUN_500)
+	if (IsSun())
 	{
 		aExtraClickSize = 15;
 	}

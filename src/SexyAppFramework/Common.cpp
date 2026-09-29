@@ -32,6 +32,12 @@
 #include <fstream>
 #include <mutex>
 #include <SDL.h>
+#if defined(__linux__) && !defined(__ANDROID__)
+#include <execinfo.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <unistd.h>
+#endif
 
 #include "misc/PerfTimer.h"
 
@@ -68,11 +74,107 @@ static inline bool IsUnicodeSpace(char32_t theChar)
 static std::ofstream gLogFileSink;
 static std::mutex gLogFileSinkMutex;
 
+#if defined(__linux__) && !defined(__ANDROID__)
+static int gCrashLogFileDescriptor = -1;
+static volatile sig_atomic_t gCrashHandlerActive = 0;
+static char gCrashSignalStack[64 * 1024];
+
+static void WriteCrashText(const char* theText, size_t theSize)
+{
+	if (gCrashLogFileDescriptor < 0)
+		return;
+	while (theSize > 0)
+	{
+		ssize_t aWritten = write(gCrashLogFileDescriptor, theText, theSize);
+		if (aWritten <= 0)
+			return;
+		theText += aWritten;
+		theSize -= static_cast<size_t>(aWritten);
+	}
+}
+
+static void CrashSignalHandler(int theSignal)
+{
+	if (gCrashHandlerActive)
+		_exit(128 + theSignal);
+	gCrashHandlerActive = 1;
+
+	WriteCrashText("\nFATAL SIGNAL ", sizeof("\nFATAL SIGNAL ") - 1);
+	switch (theSignal)
+	{
+	case SIGABRT: WriteCrashText("SIGABRT", sizeof("SIGABRT") - 1); break;
+	case SIGSEGV: WriteCrashText("SIGSEGV", sizeof("SIGSEGV") - 1); break;
+	case SIGBUS:  WriteCrashText("SIGBUS",  sizeof("SIGBUS") - 1);  break;
+	case SIGILL:  WriteCrashText("SIGILL",  sizeof("SIGILL") - 1);  break;
+	case SIGFPE:  WriteCrashText("SIGFPE",  sizeof("SIGFPE") - 1);  break;
+	default:      WriteCrashText("unknown", sizeof("unknown") - 1);  break;
+	}
+	WriteCrashText("; stack frames follow:\n", sizeof("; stack frames follow:\n") - 1);
+	void* aFrames[64];
+	int aFrameCount = backtrace(aFrames, 64);
+	if (aFrameCount > 0 && gCrashLogFileDescriptor >= 0)
+		backtrace_symbols_fd(aFrames, aFrameCount, gCrashLogFileDescriptor);
+	WriteCrashText("\nEnd fatal signal backtrace\n", sizeof("\nEnd fatal signal backtrace\n") - 1);
+	if (gCrashLogFileDescriptor >= 0)
+		fsync(gCrashLogFileDescriptor);
+
+	struct sigaction aDefaultAction{};
+	aDefaultAction.sa_handler = SIG_DFL;
+	sigemptyset(&aDefaultAction.sa_mask);
+	sigaction(theSignal, &aDefaultAction, nullptr);
+	sigset_t aSignalSet;
+	sigemptyset(&aSignalSet);
+	sigaddset(&aSignalSet, theSignal);
+	sigprocmask(SIG_UNBLOCK, &aSignalSet, nullptr);
+	kill(getpid(), theSignal);
+	_exit(128 + theSignal);
+}
+#endif
+
+void Sexy::RegisterCrashLogFileSink(std::string_view thePath)
+{
+#if defined(__linux__) && !defined(__ANDROID__)
+	std::string aPath = PathFromU8(thePath).string();
+	int aFileDescriptor = open(aPath.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+	if (aFileDescriptor < 0)
+	{
+		SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_ERROR, "Failed to open crash log '%s'", aPath.c_str());
+		return;
+	}
+	if (gCrashLogFileDescriptor >= 0)
+		close(gCrashLogFileDescriptor);
+	gCrashLogFileDescriptor = aFileDescriptor;
+
+	stack_t aSignalStack{};
+	aSignalStack.ss_sp = gCrashSignalStack;
+	aSignalStack.ss_size = sizeof(gCrashSignalStack);
+	if (sigaltstack(&aSignalStack, nullptr) != 0)
+	{
+		SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_ERROR, "%s", "Failed to install crash signal stack");
+		close(gCrashLogFileDescriptor);
+		gCrashLogFileDescriptor = -1;
+		return;
+	}
+
+	struct sigaction anAction{};
+	anAction.sa_handler = CrashSignalHandler;
+	anAction.sa_flags = SA_ONSTACK | SA_RESTART;
+	sigemptyset(&anAction.sa_mask);
+	const int aSignals[] = { SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGFPE };
+	for (int aSignal : aSignals)
+		sigaction(aSignal, &anAction, nullptr);
+#else
+	(void)thePath;
+#endif
+}
+
 void Sexy::RegisterLogFileSink(std::string_view thePath)
 {
 	gLogFileSink.open(PathFromU8(thePath), std::ios::app | std::ios::binary);
 	if (!gLogFileSink)
 		LogErrorLn("Failed to open log file '{}'", thePath);
+	else
+		RegisterCrashLogFileSink(thePath);
 }
 
 void Sexy::DispatchLogLn(SexyLogPriority thePriority, std::string_view theText)

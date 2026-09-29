@@ -684,9 +684,12 @@ void CutScene::StartLevelIntro()
 	mCutsceneTime = 0;
 	mBoard->mSeedBank->Move(SEED_BANK_OFFSET_X, -IMAGE_SEEDBANK->GetHeight());
 	mBoard->mMenuButton->mBtnNoDraw = true;
-	mApp->mSeedChooserScreen->mMouseVisible = false;
-	mApp->mSeedChooserScreen->Move(0, SEED_CHOOSER_OFFSET_Y);
-	mApp->mSeedChooserScreen->mMenuButton->mBtnNoDraw = true;
+	if (mApp->mSeedChooserScreen)
+	{
+		mApp->mSeedChooserScreen->mMouseVisible = false;
+		mApp->mSeedChooserScreen->Move(0, SEED_CHOOSER_OFFSET_Y);
+		mApp->mSeedChooserScreen->mMenuButton->mBtnNoDraw = true;
+	}
 	mBoard->mShowShovel = false;
 	mBoard->mSeedBank->mCutSceneDarken = 255;
 	mPlacedZombies = false;
@@ -1140,7 +1143,7 @@ void CutScene::AnimateBoard()
 	}
 
 	// Seed chooser animation
-	if (mBoard->ChooseSeedsOnCurrentLevel())
+	if (mBoard->ChooseSeedsOnCurrentLevel() && mApp->mSeedChooserScreen)
 	{
 		int aTimeSeedChoserSlideOnStart = TimeSeedChoserSlideOnStart + mCrazyDaveTime;
 		int aTimeSeedChoserSlideOnEnd = TimeSeedChoserSlideOnEnd + mCrazyDaveTime;
@@ -1320,7 +1323,8 @@ void CutScene::AnimateBoard()
 		}
 	}
 
-	mApp->mSeedChooserScreen->mParent->BringToFront(mApp->mSeedChooserScreen.get());
+	if (mApp->mSeedChooserScreen)
+		mApp->mSeedChooserScreen->mParent->BringToFront(mApp->mSeedChooserScreen.get());
 }
 
 void CutScene::ShowShovel()
@@ -1428,7 +1432,8 @@ void CutScene::Update()
 	if (!aCutsceneTimeStop)
 	{
 		mCutsceneTime += 10;
-		if (mCutsceneTime == TimeSeedChoserSlideOnEnd + mCrazyDaveTime && mBoard->ChooseSeedsOnCurrentLevel())
+		if (mCutsceneTime == TimeSeedChoserSlideOnEnd + mCrazyDaveTime &&
+			mBoard->ChooseSeedsOnCurrentLevel() && mApp->mSeedChooserScreen)
 		{
 			StartSeedChooser();
 		}

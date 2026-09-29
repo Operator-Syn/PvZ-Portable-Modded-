@@ -35,7 +35,6 @@ namespace Sexy
 //using namespace std;
 using namespace Sexy;
 
-constexpr const int MAX_PARTICLES_SIZE = 900;
 constexpr const int MAX_PARTICLE_FIELDS = 4;
 
 // Particle system definitions
@@ -247,6 +246,11 @@ public:
 	DataArray<PvzpParticle>			mParticles;
 	PvzpAllocator					mParticleListNodeAllocator;
 	PvzpAllocator					mEmitterListNodeAllocator;
+	bool							mParticleCapacityWarningLogged = false;
+	bool							mParticleSystemCapacityWarningLogged = false;
+	bool							mEmitterCapacityWarningLogged = false;
+	uint32_t						mSuppressedParticleSystemFailures = 0;
+	uint32_t						mSuppressedEmitterFailures = 0;
 
 public:
 	~PvzpParticleHolder();
@@ -255,6 +259,7 @@ public:
 	void							DisposeHolder();
 	PvzpParticleSystem*				AllocParticleSystemFromDef(float theX, float theY, int theRenderOrder, PvzpParticleDefinition* theDefinition, ParticleEffect theParticleEffect);
 	PvzpParticleSystem*				AllocParticleSystem(float theX, float theY, int theRenderOrder, ParticleEffect theParticleEffect);
+	bool					IsAtUsageThreshold(uint32_t thePercent) const;
 	bool					IsOverLoaded();
 };
 

@@ -2044,6 +2044,7 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 			WriteGameObjectField(aOut, 1U, aPlant);
 			AppendFieldWithSync(aOut, PORTABLE_FIELD_TAIL, [&](PortableSaveContext& c){ SyncPlantTailPortable(c, aPlant); });
 			AppendFieldWithSync(aOut, 101U, [&](PortableSaveContext& c){ SyncEnum32(c, aPlant.mGatlingPeaVolleyProjectileType); });
+			AppendFieldWithSync(aOut, 102U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mSunMagnetCoffeeTicksRemaining); c.SyncInt32(aPlant.mSunMagnetCoffeeTicksUntilDamage); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Plant& aPlant)
 		{
@@ -2053,11 +2054,24 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncPlantTailPortable(c, aPlant); });
 			else if (aFieldId == 101U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncEnum32(c, aPlant.mGatlingPeaVolleyProjectileType); });
+			else if (aFieldId == 102U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mSunMagnetCoffeeTicksRemaining); c.SyncInt32(aPlant.mSunMagnetCoffeeTicksUntilDamage); });
 			if (aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_PEA &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_BUTTER &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_CHERRYBOMB &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_MELON)
 				aPlant.mGatlingPeaVolleyProjectileType = ProjectileType::PROJECTILE_PEA;
+			if (aPlant.mSunMagnetCoffeeTicksRemaining < 0 || aPlant.mSunMagnetCoffeeTicksRemaining > 300 ||
+				aPlant.mSunMagnetCoffeeTicksUntilDamage < 0 || aPlant.mSunMagnetCoffeeTicksUntilDamage > 60 ||
+				(aPlant.mSunMagnetCoffeeTicksRemaining > 0 && aPlant.mSunMagnetCoffeeTicksUntilDamage == 0))
+			{
+				aPlant.mSunMagnetCoffeeTicksRemaining = 0;
+				aPlant.mSunMagnetCoffeeTicksUntilDamage = 0;
+			}
+			else if (aPlant.mSunMagnetCoffeeTicksRemaining == 0)
+			{
+				aPlant.mSunMagnetCoffeeTicksUntilDamage = 0;
+			}
 		});
 }
 

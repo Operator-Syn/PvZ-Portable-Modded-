@@ -73,6 +73,7 @@ public:
 	int32_t                 mCobTargetRow;        // Wintermelon bonus-volley Y offset when not used by Cob Cannon
 	ZombieID                mTargetZombieID;
 	int32_t                 mLastPortalX;
+	bool                    mTargetTrackingEnded;
 	static constexpr int32_t MAX_PIERCING_HITS = 32;
 	bool                    mPiercesZombies;
 	int32_t                 mPiercedZombieCount;

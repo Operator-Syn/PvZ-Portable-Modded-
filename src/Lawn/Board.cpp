@@ -23,7 +23,9 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
+#include <unordered_map>
 #include <SDL.h>
 #include <format>
 #include "ZenGarden.h"
@@ -110,8 +112,8 @@ Board::Board(LawnApp* theApp)
 
 	mZombies.DataArrayInitialize(MAX_ACTIVE_ZOMBIES, "zombies");
 	mPlants.DataArrayInitialize(1024U, "plants");
-	mProjectiles.DataArrayInitialize(4096U, "projectiles");
-	mCoins.DataArrayInitialize(1024U, "coins");
+	mProjectiles.DataArrayInitialize(8192U, "projectiles");
+	mCoins.DataArrayInitialize(4096U, "coins");
 	mLawnMowers.DataArrayInitialize(32U, "lawnmowers");
 	mGridItems.DataArrayInitialize(128U, "griditems");
 
@@ -2393,8 +2395,10 @@ Projectile* Board::AddProjectile(int theX, int theY, int theRenderOrder, int the
 {
 	if (mProjectiles.mSize >= mProjectiles.mMaxSize)
 	{
-		PvzpLogLn("Projectile pool full; rejecting projectile");
-		return nullptr;
+		PvzpAssertFailed("mProjectiles.mSize < mProjectiles.mMaxSize", __FILE__, __LINE__,
+			"Projectile pool exhausted: live {}/{}, high-water slots {}, free-list head {}",
+			mProjectiles.mSize, mProjectiles.mMaxSize, mProjectiles.mMaxUsedCount, mProjectiles.mFreeListHead);
+		std::abort();
 	}
 	Projectile* aProjectile = mProjectiles.DataArrayAlloc();
 	if (aProjectile == nullptr)
@@ -2420,21 +2424,45 @@ MagnetItem* Board::GetSunMagnetExtraItems(PlantID thePlantID, bool theCreate)
 
 void Board::UpdateSunMagnetCollection()
 {
-	std::vector<Plant*> aMagnets;
+	struct SunMagnetCandidate
+	{
+		Plant* mPlant;
+		PlantID mPlantID;
+		int mPendingClaims;
+		int mAvailableClaims;
+	};
+	std::vector<SunMagnetCandidate> aMagnets;
+	std::unordered_map<unsigned int, size_t> aMagnetIndices;
 	for (Plant* aPlant : mPlants)
 	{
 		if (!aPlant->mDead && aPlant->mSeedType == SeedType::SEED_SUN_MAGNET && aPlant->IsOnBoard() && !aPlant->NotOnGround())
-			aMagnets.push_back(aPlant);
+		{
+			PlantID aPlantID = static_cast<PlantID>(mPlants.DataArrayGetID(aPlant));
+			int aAvailableClaims = aPlant->GetFreeMagnetItem() != nullptr ? 1 : 0;
+			if (mSunMagnetOverdriveActive)
+			{
+				MagnetItem* anExtraItems = GetSunMagnetExtraItems(aPlantID, true);
+				for (int i = 0; i < SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS; i++)
+					if (anExtraItems[i].mItemType == MagnetItemType::MAGNET_ITEM_NONE)
+						++aAvailableClaims;
+			}
+			aMagnetIndices.emplace(static_cast<unsigned int>(aPlantID), aMagnets.size());
+			aMagnets.push_back({ aPlant, aPlantID, 0, aAvailableClaims });
+		}
 	}
 	for (Coin* aCoin : mCoins)
 	{
 		if (aCoin->mSunMagnetClaimID == PlantID::PLANTID_NULL)
 			continue;
-		Plant* aOwner = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aCoin->mSunMagnetClaimID));
-		if (aOwner == nullptr || aOwner->mDead || !aOwner->IsOnBoard() || aOwner->mSeedType != SeedType::SEED_SUN_MAGNET)
+		auto anOwnerIndex = aMagnetIndices.find(static_cast<unsigned int>(aCoin->mSunMagnetClaimID));
+		if (anOwnerIndex == aMagnetIndices.end())
 		{
 			aCoin->mSunMagnetClaimID = PlantID::PLANTID_NULL;
 			aCoin->mSunMagnetPickupPending = false;
+		}
+		else if (!aCoin->mDead && aCoin->mSunMagnetPickupPending)
+		{
+			++aMagnets[anOwnerIndex->second].mPendingClaims;
 		}
 	}
 	if (aMagnets.empty())
@@ -2449,39 +2477,31 @@ void Board::UpdateSunMagnetCollection()
 			continue;
 
 		Plant* aBestMagnet = nullptr;
+		PlantID aBestMagnetID = PlantID::PLANTID_NULL;
 		float aBestDistance = 0.0f;
 		for (size_t aMagnetOffset = 0; aMagnetOffset < aMagnets.size(); aMagnetOffset++)
 		{
-			Plant* aMagnet = aMagnets[(aFirstMagnet + static_cast<size_t>(aCoinOrdinal) + aMagnetOffset) % aMagnets.size()];
-			int aPending = 0;
-			PlantID aMagnetID = static_cast<PlantID>(mPlants.DataArrayGetID(aMagnet));
-			for (Coin* aPendingCoin : mCoins)
-				if (!aPendingCoin->mDead && aPendingCoin->mSunMagnetPickupPending && aPendingCoin->mSunMagnetClaimID == aMagnetID)
-					++aPending;
-			int aSlots = (aMagnet->GetFreeMagnetItem() != nullptr ? 1 : 0);
-			if (mSunMagnetOverdriveActive)
-			{
-				MagnetItem* anExtraItems = GetSunMagnetExtraItems(aMagnetID, true);
-				for (int i = 0; i < SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS; i++)
-					if (anExtraItems[i].mItemType == MagnetItemType::MAGNET_ITEM_NONE)
-						++aSlots;
-			}
-			if (aSlots <= aPending)
+			size_t anIndex = (aFirstMagnet + static_cast<size_t>(aCoinOrdinal) + aMagnetOffset) % aMagnets.size();
+			SunMagnetCandidate& aCandidate = aMagnets[anIndex];
+			if (aCandidate.mAvailableClaims <= aCandidate.mPendingClaims)
 				continue;
 
+			Plant* aMagnet = aCandidate.mPlant;
 			float aDistance = Distance2D(aMagnet->mX + aMagnet->mWidth / 2, aMagnet->mY + aMagnet->mHeight / 2,
 				aCoin->mPosX + aCoin->mWidth / 2, aCoin->mPosY + aCoin->mHeight / 2);
 			if (aBestMagnet == nullptr || aDistance < aBestDistance - 0.01f)
 			{
 				aBestMagnet = aMagnet;
+				aBestMagnetID = aCandidate.mPlantID;
 				aBestDistance = aDistance;
 			}
 		}
 
 		if (aBestMagnet)
 		{
-			aCoin->mSunMagnetClaimID = static_cast<PlantID>(mPlants.DataArrayGetID(aBestMagnet));
+			aCoin->mSunMagnetClaimID = aBestMagnetID;
 			aCoin->mSunMagnetPickupPending = true;
+			++aMagnets[aMagnetIndices[static_cast<unsigned int>(aCoin->mSunMagnetClaimID)]].mPendingClaims;
 			++aCoinOrdinal;
 		}
 	}
@@ -2930,6 +2950,21 @@ bool Board::IsIceAt(int theGridX, int theGridY)
 	return theGridX >= PixelToGridXKeepOnBoard(mIceMinX[theGridY] + 12, 0);
 }
 
+static Plant* FindTopUnupgradedSunflower(Board* theBoard, int theGridX, int theGridY)
+{
+	Plant* aTarget = nullptr;
+	for (Plant* aPlant : theBoard->mPlants)
+	{
+		if (aPlant->mDead || aPlant->mPlantCol != theGridX || aPlant->mRow != theGridY || aPlant->NotOnGround() ||
+			aPlant->mOnBungeeState == PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE ||
+			aPlant->mSeedType != SeedType::SEED_SUNFLOWER || !aPlant->IsUpgradableTo(SeedType::SEED_TWINSUNFLOWER))
+			continue;
+		if (aTarget == nullptr || theBoard->mPlants.DataArrayGetID(aPlant) > theBoard->mPlants.DataArrayGetID(aTarget))
+			aTarget = aPlant;
+	}
+	return aTarget;
+}
+
 PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedType)
 {
 	if (theGridX < 0 || theGridX >= GetNumPlayableColumns() || theGridY < 0 || theGridY >= MAX_GRID_SIZE_Y)
@@ -2974,6 +3009,10 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		if (aPlantOnLawn.mFlyingPlant)
 		{
 			return PlantingReason::PLANTING_NOT_HERE;
+		}
+		if (aPlantOnLawn.mNormalPlant && aPlantOnLawn.mNormalPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
+		{
+			return PlantingReason::PLANTING_OK;
 		}
 		if (aPlantOnLawn.mNormalPlant && aPlantOnLawn.mNormalPlant->mSeedType == SeedType::SEED_PLANTERN)
 		{
@@ -3129,9 +3168,12 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	{
 		bool aIsSunflowerStack = aNormalPlant->mSeedType == SeedType::SEED_SUNFLOWER || aNormalPlant->mSeedType == SeedType::SEED_TWINSUNFLOWER;
 		bool aWantsSunflowerLayer = theSeedType == SeedType::SEED_SUNFLOWER || theSeedType == SeedType::SEED_TWINSUNFLOWER;
-		if (aIsSunflowerStack && aWantsSunflowerLayer &&
-			!(theSeedType == SeedType::SEED_TWINSUNFLOWER && aNormalPlant->IsUpgradableTo(theSeedType)))
+		if (aIsSunflowerStack && aWantsSunflowerLayer)
+		{
+			if (theSeedType == SeedType::SEED_TWINSUNFLOWER && FindTopUnupgradedSunflower(this, theGridX, theGridY) != nullptr)
+				return PlantingReason::PLANTING_OK;
 			return aPlantOnLawn.mSunflowerCount < 3 ? PlantingReason::PLANTING_OK : PlantingReason::PLANTING_NOT_HERE;
+		}
 		if (aNormalPlant->IsUpgradableTo(theSeedType) && aNormalPlant->mOnBungeeState != PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE)
 		{
 			return PlantingReason::PLANTING_OK;
@@ -3435,7 +3477,7 @@ void Board::UpdateMousePosition()
 		int aGridY = PlantingPixelToGridY(mApp->mWidgetManager->mLastMouseX, mApp->mWidgetManager->mLastMouseY, aCursorSeedType);
 
 		Plant* aPlant = GetTopPlantAt(aGridX, aGridY, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
-		if (aPlant && (aPlant->mIsAsleep || aPlant->mSeedType == SeedType::SEED_PLANTERN) &&
+		if (aPlant && (aPlant->mIsAsleep || aPlant->mSeedType == SeedType::SEED_PLANTERN || aPlant->mSeedType == SeedType::SEED_SUN_MAGNET) &&
 			CanPlantAt(aGridX, aGridY, SeedType::SEED_INSTANT_COFFEE) == PlantingReason::PLANTING_OK)
 		{
 			aPlant->mHighlighted = true;
@@ -4174,14 +4216,21 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	GetPlantsOnLawn(aGridX, aGridY, &aPlantOnLawn);
 	Plant* aNormalPlant = aPlantOnLawn.mNormalPlant;
 	Plant* aPumpkinPlant = aPlantOnLawn.mPumpkinPlant;
-	if (aNormalPlant && aNormalPlant->IsUpgradableTo(aPlantingSeedType))
+	Plant* aPlantToUpgrade = aNormalPlant;
+	if (aPlantingSeedType == SeedType::SEED_TWINSUNFLOWER && aPlantOnLawn.mSunflowerCount > 0)
 	{
-		if (aPlantingSeedType == SeedType::SEED_GLOOMSHROOM)
+		Plant* aUnupgradedSunflower = FindTopUnupgradedSunflower(this, aGridX, aGridY);
+		if (aUnupgradedSunflower != nullptr)
+			aPlantToUpgrade = aUnupgradedSunflower;
+	}
+	if (aPlantToUpgrade && aPlantToUpgrade->IsUpgradableTo(aPlantingSeedType))
+	{
+		if (aPlantingSeedType == SeedType::SEED_GLOOMSHROOM && aPlantToUpgrade == aNormalPlant)
 		{
-			aIsAwake = !aNormalPlant->mIsAsleep;
-			aWakeUpCounter = aNormalPlant->mWakeUpCounter;
+			aIsAwake = !aPlantToUpgrade->mIsAsleep;
+			aWakeUpCounter = aPlantToUpgrade->mWakeUpCounter;
 		}
-		aNormalPlant->Die();
+		aPlantToUpgrade->Die();
 	}
 	if ((aPlantingSeedType == SeedType::SEED_WALLNUT || aPlantingSeedType == SeedType::SEED_TALLNUT) && aNormalPlant)
 	{
@@ -4244,6 +4293,11 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 			aPlant->mWakeUpCounter = aWakeUpCounter;
 		}
 		if (aPlantingSeedType == SeedType::SEED_INSTANT_COFFEE && aNormalPlant &&
+			aNormalPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
+		{
+			aNormalPlant->StartSunMagnetCoffeeBoost();
+		}
+		else if (aPlantingSeedType == SeedType::SEED_INSTANT_COFFEE && aNormalPlant &&
 			aNormalPlant->mSeedType == SeedType::SEED_PLANTERN)
 		{
 			if (!aNormalPlant->PlanternCoffeeBeanVolley())
@@ -10250,7 +10304,7 @@ int Board::PlantingPixelToGridY(int theX, int theY, SeedType theSeedType)
 		int aGridX = PixelToGridX(theX, theY);
 
 		Plant* aPlant = GetTopPlantAt(aGridX, aGridY, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
-		if (aPlant && aPlant->mIsAsleep)
+		if (aPlant && (aPlant->mIsAsleep || aPlant->mSeedType == SeedType::SEED_SUN_MAGNET))
 		{
 			return aGridY;
 		}
@@ -10259,7 +10313,7 @@ int Board::PlantingPixelToGridY(int theX, int theY, SeedType theSeedType)
 		if (aGridYDown != aGridY)
 		{
 			Plant* aPlantDown = GetTopPlantAt(aGridX, aGridYDown, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
-			if (aPlantDown && aPlantDown->mIsAsleep)
+			if (aPlantDown && (aPlantDown->mIsAsleep || aPlantDown->mSeedType == SeedType::SEED_SUN_MAGNET))
 			{
 				return aGridYDown;
 			}
@@ -10269,7 +10323,7 @@ int Board::PlantingPixelToGridY(int theX, int theY, SeedType theSeedType)
 		if (aGridYUp != aGridY)
 		{
 			Plant* aPlantUp = GetTopPlantAt(aGridX, aGridYUp, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
-			if (aPlantUp && aPlantUp->mIsAsleep)
+			if (aPlantUp && (aPlantUp->mIsAsleep || aPlantUp->mSeedType == SeedType::SEED_SUN_MAGNET))
 			{
 				return aGridYUp;
 			}
@@ -10857,7 +10911,11 @@ int Board::GetNumWavesPerSurvivalStage()
 	{
 		return 10;
 	}
-	else if (mApp->IsSurvivalHard(mApp->mGameMode) || mApp->IsSurvivalEndless(mApp->mGameMode))
+	else if (mApp->IsSurvivalEndless(mApp->mGameMode))
+	{
+		return 30;
+	}
+	else if (mApp->IsSurvivalHard(mApp->mGameMode))
 	{
 		return 20;
 	}

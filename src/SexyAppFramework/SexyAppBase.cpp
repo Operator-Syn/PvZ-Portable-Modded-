@@ -70,6 +70,7 @@
 #include "misc/Rect.h"
 #include "misc/PropertiesParser.h"
 #include "misc/PerfTimer.h"
+#include "misc/FrameProfiler.h"
 #include "misc/MTRand.h"
 #include "misc/ResourceManager.h"
 #include "sound/SDLMusicInterface.h"
@@ -1662,6 +1663,7 @@ void SexyAppBase::UpdateFrames()
 
 void SexyAppBase::DoUpdateFramesF(float theFrac)
 {
+	FrameProfileScope aUpdateScope(FrameProfileMetric::UPDATE_INTERPOLATION);
 	if ((mVSyncUpdates) && (!mMinimized))
 		mWidgetManager->UpdateFrameF(theFrac);
 }
@@ -1669,6 +1671,7 @@ void SexyAppBase::DoUpdateFramesF(float theFrac)
 bool SexyAppBase::DoUpdateFrames()
 {
 	SEXY_AUTO_PERF("SexyAppBase::DoUpdateFrames");
+	FrameProfileScope aUpdateScope(FrameProfileMetric::UPDATE);
 
 	if (gScreenSaverActive)
 		return false;
@@ -1776,6 +1779,10 @@ bool SexyAppBase::DrawDirtyStuff()
 {
 	SEXY_AUTO_PERF("SexyAppBase::DrawDirtyStuff");
 	MTAutoDisallowRand aDisallowRand;
+	const double aFrameBudgetMs = mVSyncUpdates && mSyncRefreshRate > 0
+		? 1000.0 / mSyncRefreshRate
+		: static_cast<double>(mFrameTime) / std::max(mUpdateMultiplier, 0.01);
+	FrameProfiler::Get().SetFrameBudget(aFrameBudgetMs);
 
 	if (gIsFailing) // just try to reinit
 	{
@@ -1818,7 +1825,9 @@ bool SexyAppBase::DrawDirtyStuff()
 	}
 
 	mIsDrawing = true;
+	FrameProfileScope aScreenDrawScope(FrameProfileMetric::SCREEN_DRAW);
 	bool drewScreen = mWidgetManager->DrawScreen();
+	aScreenDrawScope.Stop();
 	mIsDrawing = false;
 
 	if ((drewScreen || (aStartTime - mLastDrawTick >= 1000) || (mCustomCursorDirty)) &&
@@ -1845,7 +1854,11 @@ bool SexyAppBase::DrawDirtyStuff()
 		mLastDrawTick = aPreScreenBltTime;
 
 		if (drewScreen)
+		{
+			FrameProfileScope aPresentScope(FrameProfileMetric::PRESENT);
 			Redraw(nullptr);
+			aPresentScope.Stop();
+		}
 
 		// This is our one UpdateFTimeAcc if we are vsynched
 		UpdateFTimeAcc();
@@ -1853,6 +1866,11 @@ bool SexyAppBase::DrawDirtyStuff()
 		uint32_t aEndTime = SDL_GetTicks();
 
 		mScreenBltTime = aEndTime - aPreScreenBltTime;
+		const double anUpdateIntervalMs = mVSyncUpdates && mSyncRefreshRate > 0
+			? (1000.0 / mSyncRefreshRate) / std::max(mUpdateMultiplier, 0.01)
+			: mFrameTime / std::max(mUpdateMultiplier, 0.01);
+		FrameProfiler::Get().SetSchedulerState(mUpdateFTimeAcc, mPendingUpdatesAcc, anUpdateIntervalMs);
+		FrameProfiler::Get().RecordFrame();
 
 		if ((mLoadingThreadStarted) && (!mLoadingThreadCompleted))
 		{

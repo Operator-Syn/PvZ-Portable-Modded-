@@ -74,6 +74,7 @@ public:
 	ZombieID                mTargetZombieID;
 	int32_t                 mLastPortalX;
 	bool                    mTargetTrackingEnded;
+	int32_t                 mCattailRedirectionCount = 0;
 	static constexpr int32_t MAX_PIERCING_HITS = 32;
 	bool                    mPiercesZombies;
 	int32_t                 mPiercedZombieCount;

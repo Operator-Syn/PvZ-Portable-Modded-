@@ -59,6 +59,7 @@ Projectile::Projectile()
 	mPiercesZombies = false;
 	mPiercedZombieCount = 0;
 	mPlanternCob = false;
+	mTargetTrackingEnded = false;
 	std::fill_n(mPiercedZombieIDs, MAX_PIERCING_HITS, ZombieID::ZOMBIEID_NULL);
 }
 
@@ -90,6 +91,7 @@ void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, in
 	mAttachmentID = AttachmentID::ATTACHMENTID_NULL;
 	mCobTargetRow = 0;
 	mTargetZombieID = ZombieID::ZOMBIEID_NULL;
+	mTargetTrackingEnded = false;
 	mPiercesZombies = false;
 	mPiercedZombieCount = 0;
 	mPlanternCob = false;
@@ -701,7 +703,7 @@ void Projectile::UpdateNormalMotion()
 	else if (mMotionType == ProjectileMotion::MOTION_HOMING)
 	{
 		Zombie* aZombie = mBoard->ZombieTryToGet(mTargetZombieID);
-		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE &&
+		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && !mTargetTrackingEnded &&
 			(!aZombie || aZombie->IsDeadOrDying() || !aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags))))
 		{
 			Zombie* aClosestTarget = nullptr;
@@ -734,12 +736,14 @@ void Projectile::UpdateNormalMotion()
 			aZombie = aFlyingBalloon ? aFlyingBalloon : aClosestTarget;
 			if (aZombie == nullptr)
 			{
-				// Once a Cattail shot sees no eligible target, do not keep it alive for the next wave.
+				// Once no target exists, coast on the last velocity without tracking future waves.
 				mTargetZombieID = ZombieID::ZOMBIEID_NULL;
-				Die();
-				return;
+				mTargetTrackingEnded = true;
 			}
-			mTargetZombieID = mBoard->ZombieGetID(aZombie);
+			else
+			{
+				mTargetZombieID = mBoard->ZombieGetID(aZombie);
+			}
 		}
 
 		if (aZombie && !aZombie->IsDeadOrDying() && aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))

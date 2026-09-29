@@ -72,6 +72,13 @@ constexpr const float CLIP_HEIGHT_LIMIT = -100.0f;
 constexpr const float CLIP_HEIGHT_OFF = -200.0f;
 constexpr Color ZOMBIE_MINDCONTROLLED_COLOR = Color(128, 64, 192, 255);
 
+static float ZombieStrengthSpeedMultiplier(const Board* theBoard)
+{
+	if (theBoard == nullptr)
+		return 1.0f;
+	return theBoard->mZombieStrengthTier > 0 ? 1.5f : 1.0f;
+}
+
 static std::string ZombatarTrackName(const char* thePrefix, int theIndex)
 {
 	return std::format("{}{:02d}", thePrefix, theIndex);
@@ -895,6 +902,8 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 	{
 		mBodyMaxHealth = 300;
 	}
+	if (IsOnBoard() && mBoard->mZombieStrengthTier > 0)
+		mBoard->ApplyZombieStrengthTierToZombie(this, 0, mBoard->mZombieStrengthTier);
 
 	if (IsOnBoard())
 	{
@@ -1538,6 +1547,8 @@ void Zombie::ZombieCatapultFire(Plant* thePlant)
 	mApp->PlayFoley(FoleyType::FOLEY_BASKETBALL);
 
 	Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_BASKETBALL);
+	if (aProjectile == nullptr)
+		return;
 	float aRangeX = aOriginX - aTargetX - 20.0f;
 	float aRangeY = aTargetY - aOriginY;
 	if (aRangeX < 40.0f)
@@ -2342,16 +2353,19 @@ void Zombie::UpdateZombiePeaHead()
 		{
 			aOriginX += 90.0f * mScaleZombie;
 			Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_PEA);
-			aProjectile->mDamageRangeFlags = 1;
+			if (aProjectile)
+				aProjectile->mDamageRangeFlags = 1;
 		}
 		else
 		{
 			Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_ZOMBIE_PEA);
-			aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
+			if (aProjectile)
+				aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
 		}
 #else
 		Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_ZOMBIE_PEA);
-		aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
+		if (aProjectile)
+			aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
 #endif
 
 		mPhaseCounter = 150;
@@ -2462,16 +2476,19 @@ void Zombie::UpdateZombieGatlingHead()
 		{
 			aOriginX += 90.0f * mScaleZombie;
 			Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_PEA);
-			aProjectile->mDamageRangeFlags = 1;
+			if (aProjectile)
+				aProjectile->mDamageRangeFlags = 1;
 		}
 		else
 		{
 			Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_ZOMBIE_PEA);
-			aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
+			if (aProjectile)
+				aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
 		}
 #else
 		Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_ZOMBIE_PEA);
-		aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
+		if (aProjectile)
+			aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
 #endif
 	}
 	else if (mPhaseCounter == 0)
@@ -3931,7 +3948,7 @@ void Zombie::UpdateDamageStates(unsigned int theDamageFlags)
 
 float Zombie::ZombieTargetLeadX(float theTime)
 {
-	float aSpeed = mVelX;
+	float aSpeed = mVelX * ZombieStrengthSpeedMultiplier(mBoard);
 	if (mChilledCounter > 0)
 	{
 		aSpeed *= CHILLED_SPEED_FACTOR;
@@ -4136,6 +4153,7 @@ void Zombie::UpdateZombieWalking()
 				aSpeed *= CHILLED_SPEED_FACTOR;
 			}
 		}
+		aSpeed *= ZombieStrengthSpeedMultiplier(mBoard);
 
 		if (IsWalkingBackwards() || mZombiePhase == ZombiePhase::PHASE_DANCER_DANCING_IN)
 		{
@@ -4203,6 +4221,7 @@ void Zombie::UpdateZombieWalking()
 			{
 				aSpeed *= CHILLED_SPEED_FACTOR;
 			}
+			aSpeed *= ZombieStrengthSpeedMultiplier(mBoard);
 
 			if (IsWalkingBackwards())
 			{
@@ -6687,7 +6706,7 @@ void Zombie::UpdateAnimSpeed()
 			if (aDistance >= 1e-6f)
 			{
 				float aOneOverSpeed = aBodyReanim->mFrameCount / aDistance;
-				float aAnimRate = mVelX * aOneOverSpeed * 47.0f / mScaleZombie;
+				float aAnimRate = mVelX * aOneOverSpeed * 47.0f / mScaleZombie * ZombieStrengthSpeedMultiplier(mBoard);
 				ApplyAnimRate(aAnimRate);
 			}
 		}
@@ -6856,12 +6875,11 @@ void Zombie::CheckIfPreyCaught()
 		IsFlying())
 		return;
 
-	int aTicksBetweenEats = TICKS_BETWEEN_EATS;
-	if (mChilledCounter > 0)
-	{
-		aTicksBetweenEats *= 2;
-	}
-	if (mZombieAge % aTicksBetweenEats != 0)
+	int aBiteMultiplier = mBoard->mZombieStrengthTier > 0 ? 3 : 2;
+	int aBiteClock = mChilledCounter > 0 ? mZombieAge / 2 : mZombieAge;
+	if (aBiteClock <= 0 ||
+		(static_cast<int64_t>(aBiteClock) * aBiteMultiplier) / (2 * TICKS_BETWEEN_EATS) ==
+		(static_cast<int64_t>(aBiteClock - 1) * aBiteMultiplier) / (2 * TICKS_BETWEEN_EATS))
 	{
 		return;
 	}
@@ -6932,10 +6950,11 @@ void Zombie::CheckForPool()
 		return;
 	}
 
+	const int aPoolEntryRightEdge = LAWN_XMIN + mBoard->GetNumPlayableColumns() * 80 - 80;
 	bool aIsPoolSquare =
 		mBoard->IsPoolSquare(mBoard->PixelToGridX(mX + 75, mY), mRow) &&
 		mBoard->IsPoolSquare(mBoard->PixelToGridX(mX + 45, mY), mRow) &&
-		mX < 680;
+		mX < aPoolEntryRightEdge;
 
 	if (!mInPool && aIsPoolSquare)
 	{
@@ -7291,11 +7310,11 @@ void Zombie::DropLoot()
 
 	mDroppedLoot = true;
 	int aZombieValue = GetZombieDefinition(mZombieType).mZombieValue;
-	if (mApp->IsLittleTroubleLevel() && Rand(4) != 0)
+	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM || mApp->IsIZombieLevel())
 	{
 		return;
 	}
-	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM || mApp->IsIZombieLevel())
+	if (mApp->IsLittleTroubleLevel() && Rand(4) != 0)
 	{
 		return;
 	}
@@ -7303,6 +7322,12 @@ void Zombie::DropLoot()
 	Rect aZombieRect = GetZombieRect();
 	int aCenterX = aZombieRect.mX + aZombieRect.mWidth / 2;
 	int aCenterY = aZombieRect.mY + aZombieRect.mHeight / 4;
+	if (Rand(4) == 0)
+	{
+		Coin* aSunCoin = mBoard->AddCoin(aCenterX, aCenterY, CoinType::COIN_ZOMBIE_SUN_DROP, CoinMotion::COIN_MOTION_COIN);
+		aSunCoin->mTimesDropped = RandRangeInt(100, 200);
+		mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
+	}
 	if (mZombieType == ZombieType::ZOMBIE_YETI)
 	{
 		mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
@@ -8662,6 +8687,12 @@ void Zombie::ApplyBurn()
 {
 	if (mDead || mZombiePhase == ZombiePhase::PHASE_ZOMBIE_BURNED)
 		return;
+
+	if (mBoard != nullptr && mBoard->mZombieStrengthTier > 0)
+	{
+		TakeDamage(mBoard->GetZombieExplosiveDamage(), 18U);
+		return;
+	}
 
 	if (mBodyHealth >= 1800 || mZombieType == ZombieType::ZOMBIE_BOSS)
 	{

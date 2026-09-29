@@ -29,6 +29,7 @@
 #include "../GameConstants.h"
 #include "../PvzpLib/PvzpFoley.h"
 #include "../PvzpLib/PvzpDebug.h"
+#include "misc/FrameProfiler.h"
 #include "../PvzpLib/Reanimator.h"
 #include "../PvzpLib/Attachment.h"
 #include "Widget/AchievementsScreen.h"
@@ -105,6 +106,8 @@ void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, in
 	mPiercesZombies = false;
 	mPiercedZombieCount = 0;
 	mPlanternCob = false;
+	mGatlingCherryShot = false;
+	mMillionSunDamage = false;
 	std::fill(std::begin(mPiercedZombieIDs), std::end(mPiercedZombieIDs), ZombieID::ZOMBIEID_NULL);
 	mOnHighGround = mBoard->mGridSquareType[aGridX][theRow] == GridSquareType::GRIDSQUARE_HIGH_GROUND;
 	if (mBoard->StageHasRoof() && theX < 480)
@@ -496,16 +499,20 @@ bool Projectile::IsZombieHitBySplash(Zombie* theZombie)
 
 void Projectile::DoSplashDamage(Zombie* theZombie)
 {
+	Sexy::FrameProfileScope aProfileScope(Sexy::FrameProfileMetric::PROJECTILE_SPLASH, true);
 	const ProjectileDefinition& aProjectileDef = GetProjectileDef();
-
+	std::vector<Zombie*>& anAffectedZombies = mBoard->mSplashDamageTargets;
+	anAffectedZombies.clear();
 	int aZombiesGetSplashed = 0;
 	for (Zombie* aZombie : mBoard->mZombies)
 	{
 		if (aZombie->mDead)
 			continue;
-		if (aZombie != theZombie && IsZombieHitBySplash(aZombie))
+		if (IsZombieHitBySplash(aZombie))
 		{
-			aZombiesGetSplashed++;
+			anAffectedZombies.push_back(aZombie);
+			if (aZombie != theZombie)
+				++aZombiesGetSplashed;
 		}
 	}
 
@@ -516,30 +523,29 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 	{
 		aMaxSplashDamageAmount = aOriginalDamage;
 	}
-	int aSplashDamageAmount = aSplashDamage * aZombiesGetSplashed;
-	if (aSplashDamageAmount > aMaxSplashDamageAmount)
+	bool aQuadraticWintermelonOverdrive = mProjectileType == ProjectileType::PROJECTILE_WINTERMELON &&
+		mBoard->mSunMoney >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD;
+	bool aQuadraticTwinSunflowerBomb = mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB && mMillionSunDamage;
+	if (!aQuadraticWintermelonOverdrive && !aQuadraticTwinSunflowerBomb)
 	{
-		//aSplashDamage *= aMaxSplashDamageAmount / aSplashDamage;
-		aSplashDamage = aOriginalDamage * aMaxSplashDamageAmount / (aSplashDamageAmount * 3);
-		aSplashDamage = std::max(aSplashDamage, 1);
+		int aSplashDamageAmount = aSplashDamage * aZombiesGetSplashed;
+		if (aSplashDamageAmount > aMaxSplashDamageAmount)
+		{
+			//aSplashDamage *= aMaxSplashDamageAmount / aSplashDamage;
+			aSplashDamage = aOriginalDamage * aMaxSplashDamageAmount / (aSplashDamageAmount * 3);
+			aSplashDamage = std::max(aSplashDamage, 1);
+		}
 	}
 
-	for (Zombie* aZombie : mBoard->mZombies)
+	for (Zombie* aZombie : anAffectedZombies)
 	{
-		if (aZombie->mDead)
-			continue;
-		if (IsZombieHitBySplash(aZombie))
-		{
-			unsigned int aDamageFlags = GetDamageFlags(aZombie);
-			if (aZombie == theZombie)
-			{
-				aZombie->TakeDamage(aOriginalDamage, aDamageFlags);
-			}
-			else
-			{
-				aZombie->TakeDamage(aSplashDamage, aDamageFlags);
-			}
-		}
+		unsigned int aDamageFlags = GetDamageFlags(aZombie);
+		int aDamageMultiplier = aQuadraticWintermelonOverdrive || aQuadraticTwinSunflowerBomb ?
+			mBoard->GetQuadraticZombieDamageMultiplier(aZombie, static_cast<int>(anAffectedZombies.size())) : 1;
+		if (aZombie == theZombie)
+			aZombie->TakeDamage(aOriginalDamage * aDamageMultiplier, aDamageFlags);
+		else
+			aZombie->TakeDamage(aSplashDamage * aDamageMultiplier, aDamageFlags);
 	}
 }
 
@@ -962,6 +968,7 @@ void Projectile::PlayImpactSound(Zombie* theZombie)
 
 void Projectile::DoImpact(Zombie* theZombie)
 {
+	Sexy::FrameProfileScope aProfileScope(Sexy::FrameProfileMetric::PROJECTILE_IMPACT, true);
 	if (mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB ||
 		mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB ||
 		mProjectileType == ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB)
@@ -970,7 +977,8 @@ void Projectile::DoImpact(Zombie* theZombie)
 		mApp->PlayFoley(FoleyType::FOLEY_JUICY);
 		int aImpactX = static_cast<int>(mPosX + 40.0f);
 		int aImpactY = static_cast<int>(mPosY + mPosZ + 40.0f);
-		mBoard->KillAllZombiesInRadius(mRow, aImpactX, aImpactY, 115, 1, true, mDamageRangeFlags);
+		mBoard->KillAllZombiesInRadius(mRow, aImpactX, aImpactY, 115, 1, true, mDamageRangeFlags, 0,
+			mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB && mMillionSunDamage);
 		mApp->AddPvzpParticle(aImpactX, aImpactY, static_cast<int>(RenderLayer::RENDER_LAYER_TOP), ParticleEffect::PARTICLE_POWIE);
 		mBoard->ShakeBoard(3, -4);
 		if (mProjectileType == ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB && mBoard->mSunMoney >= 50000)
@@ -1021,7 +1029,10 @@ void Projectile::DoImpact(Zombie* theZombie)
 	else if (theZombie)
 	{
 		unsigned int aDamageFlags = GetDamageFlags(theZombie);
-		theZombie->TakeDamage(GetProjectileDef().mDamage, aDamageFlags);
+		int aDamage = GetProjectileDef().mDamage;
+		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && mMillionSunDamage)
+			aDamage = aDamage * 3 / 2;
+		theZombie->TakeDamage(aDamage, aDamageFlags);
 	}
 
 	float aLastPosX = mPosX - mVelX;
@@ -1159,6 +1170,12 @@ void Projectile::Update()
 
 	UpdateMotion();
 	AttachmentUpdateAndMove(mAttachmentID, mPosX, mPosY + mPosZ);
+	if (mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB)
+	{
+		Color aSunBombColor = mBoard->mSunMoney > TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD
+			? Color(255, 48, 48) : Color::White;
+		AttachmentOverrideColor(mAttachmentID, aSunBombColor);
+	}
 }
 
 void Projectile::Draw(Graphics* g)
@@ -1218,6 +1235,12 @@ void Projectile::Draw(Graphics* g)
 		aScale = 1.0f;
 		break;
 	case ProjectileType::PROJECTILE_CHERRYBOMB:
+		if (mGatlingCherryShot)
+		{
+			aImage = IMAGE_PROJECTILEPEA;
+			break;
+		}
+		[[fallthrough]];
 	case ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB:
 	case ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB:
 		aImage = nullptr;
@@ -1233,8 +1256,21 @@ void Projectile::Draw(Graphics* g)
 		aMirror = true;
 	}
 
+	if (mGatlingCherryShot && mAttachmentID != AttachmentID::ATTACHMENTID_NULL)
+	{
+		Graphics theParticleGraphics(*g);
+		MakeParentGraphicsFrame(&theParticleGraphics);
+		AttachmentDraw(mAttachmentID, &theParticleGraphics, false);
+	}
+
 	if (aImage)
 	{
+		GraphicsStateGuard aStateGuard(*g);
+		if (mGatlingCherryShot)
+		{
+			g->SetColorizeImages(true);
+			g->SetColor(Color(28, 22, 38));
+		}
 		PVZP_ASSERT(aProjectileDef.mImageRow < aImage->mNumRows);
 		PVZP_ASSERT(mFrame < aImage->mNumCols);
 
@@ -1252,11 +1288,12 @@ void Projectile::Draw(Graphics* g)
 			float aOffsetY = mPosZ + mPosY + aCelHeight * 0.5f;
 			SexyTransform2D aTransform;
 			PvzpScaleRotateTransformMatrix(aTransform, aOffsetX + mBoard->mX, aOffsetY + mBoard->mY, mRotation, aScale, aScale);
-			PvzpBltMatrix(g, aImage, aTransform, g->mClipRect, Color::White, g->mDrawMode, aSrcRect);
+			PvzpBltMatrix(g, aImage, aTransform, g->mClipRect,
+				mGatlingCherryShot ? Color(28, 22, 38) : Color::White, g->mDrawMode, aSrcRect);
 		}
 	}
 
-	if (mAttachmentID != AttachmentID::ATTACHMENTID_NULL)
+	if (!mGatlingCherryShot && mAttachmentID != AttachmentID::ATTACHMENTID_NULL)
 	{
 		Graphics theParticleGraphics(*g);
 		MakeParentGraphicsFrame(&theParticleGraphics);
@@ -1316,9 +1353,16 @@ void Projectile::DrawShadow(Graphics* g)
 	case ProjectileType::PROJECTILE_CHERRYBOMB:
 	case ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB:
 	case ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB:
-		aOffsetX += 3.0f;
-		aOffsetY += 10.0f;
-		aScale = 1.6f;
+		if (mGatlingCherryShot)
+		{
+			aOffsetX += 3.0f;
+		}
+		else
+		{
+			aOffsetX += 3.0f;
+			aOffsetY += 10.0f;
+			aScale = 1.6f;
+		}
 		break;
 
 	case ProjectileType::PROJECTILE_PUFF:
@@ -1363,7 +1407,7 @@ void Projectile::Die()
 
 Rect Projectile::GetProjectileRect()
 {
-	if (mProjectileType == ProjectileType::PROJECTILE_PEA ||
+	if (mProjectileType == ProjectileType::PROJECTILE_PEA || mGatlingCherryShot ||
 		mProjectileType == ProjectileType::PROJECTILE_SNOWPEA ||
 		mProjectileType == ProjectileType::PROJECTILE_ZOMBIE_PEA)
 	{

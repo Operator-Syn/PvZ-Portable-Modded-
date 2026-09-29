@@ -25,6 +25,7 @@
 #include <iterator>
 #include <memory>
 #include <new>
+#include <cstdlib>
 #include "PvzpDebug.h"
 #include "PvzpCommon.h"
 
@@ -51,6 +52,7 @@ public:
 	unsigned int			mFreeListHead = 0U;
 	unsigned int			mSize = 0U;
 	unsigned int			mNextKey = 1U;
+	unsigned int			mNextUsageWarningPercent = 75U;
 	const char*				mName = nullptr;
 
 public:
@@ -68,6 +70,7 @@ public:
 		mItemIds = std::make_unique<unsigned int[]>(theMaxSize);
 		mMaxSize = theMaxSize;
 		mNextKey = 1001U;
+		mNextUsageWarningPercent = 75U;
 		mName = theName;
 	}
 
@@ -80,6 +83,7 @@ public:
 		mMaxSize = 0U;
 		mFreeListHead = 0U;
 		mSize = 0U;
+		mNextUsageWarningPercent = 75U;
 		mName = nullptr;
 	}
 
@@ -100,6 +104,7 @@ public:
 
 		mFreeListHead = 0U;
 		mMaxUsedCount = 0U;
+		mNextUsageWarningPercent = 75U;
 	}
 
 	inline unsigned int DataArrayGetID(T* theItem)
@@ -155,7 +160,13 @@ public:
 
 	T* DataArrayAlloc()
 	{
-		PVZP_ASSERT(mSize < mMaxSize, "Data array full: {}", mName);
+		if (mMaxSize == 0U || mSize >= mMaxSize)
+		{
+			PvzpAssertFailed("mSize < mMaxSize", __FILE__, __LINE__,
+				"Data array '{}' exhausted: live {}/{}, high-water slots {}, free-list head {}",
+				mName ? mName : "unnamed", mSize, mMaxSize, mMaxUsedCount, mFreeListHead);
+			std::abort();
+		}
 		PVZP_ASSERT(mFreeListHead <= mMaxUsedCount, "DataArrayAlloc error in {}", mName);
 		unsigned int aNext = mMaxUsedCount;
 		if (mFreeListHead == mMaxUsedCount)
@@ -170,6 +181,14 @@ public:
 		mItemIds[aNext] = (mNextKey++ << DATA_ARRAY_KEY_SHIFT) | aNext;
 		if (mNextKey == DATA_ARRAY_MAX_SIZE) mNextKey = 1;
 		mSize++;
+		while (mNextUsageWarningPercent <= 100U &&
+			static_cast<uint64_t>(mSize) * 100U >= static_cast<uint64_t>(mMaxSize) * mNextUsageWarningPercent)
+		{
+			PvzpLogLn("Data array usage warning: '{}' live {}/{}, high-water slots {} ({}% threshold)",
+				mName ? mName : "unnamed", mSize, mMaxSize, mMaxUsedCount, mNextUsageWarningPercent);
+			mNextUsageWarningPercent = mNextUsageWarningPercent == 75U ? 90U :
+				mNextUsageWarningPercent == 90U ? 100U : 101U;
+		}
 
 		return &aNewItem;
 	}

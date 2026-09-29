@@ -49,6 +49,8 @@ public:
 	TriVertex                   mVertArray[MAX_TRIANGLES][3];
 	int                         mTriangleCount;
 	int                         mDrawMode;
+	uint32_t                    mTrianglesFlushed;
+	uint32_t                    mBatchFlushes;
 
 	PvzpTriangleGroup();
 	void                        DrawGroup(Graphics* g);

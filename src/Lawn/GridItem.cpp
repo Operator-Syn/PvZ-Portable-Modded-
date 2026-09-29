@@ -499,7 +499,7 @@ void GridItem::UpdatePortal()
 		}
 
 		PvzpParticleSystem* aParticle = mApp->AddPvzpParticle(aXPos, aYPos, 0, aEffect);
-		mGridItemParticleID = mApp->ParticleGetID(aParticle);
+		mGridItemParticleID = aParticle != nullptr ? mApp->ParticleGetID(aParticle) : ParticleSystemID::PARTICLESYSTEMID_NULL;
 	}
 }
 

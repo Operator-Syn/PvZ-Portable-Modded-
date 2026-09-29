@@ -76,6 +76,10 @@ NewOptionsDialog::NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector) :
 
 	mFullscreenCheckbox = MakeNewCheckbox(NewOptionsDialog::NewOptionsDialog_Fullscreen, this, !theApp->mIsWindowed);
 	mHardwareAccelerationCheckbox = MakeNewCheckbox(NewOptionsDialog::NewOptionsDialog_HardwareAcceleration, this, theApp->Is3DAccelerated());
+	mShowAutoReuseEndlessSeeds = !theFromGameSelector && theApp->mBoard != nullptr && theApp->IsSurvivalEndless(theApp->mGameMode);
+	mAutoReuseEndlessSeedsCheckbox = MakeNewCheckbox(NewOptionsDialog::NewOptionsDialog_AutoReuseEndlessSeeds, this,
+		mShowAutoReuseEndlessSeeds && theApp->mBoard->mAutoReuseEndlessSeeds);
+	mAutoReuseEndlessSeedsCheckbox->SetVisible(mShowAutoReuseEndlessSeeds);
 
 	if (mFromGameSelector)
 	{
@@ -128,6 +132,7 @@ void NewOptionsDialog::AddedToManager(Sexy::WidgetManager* theWidgetManager)
 	AddWidget(mSfxVolumeSlider.get());
 	AddWidget(mHardwareAccelerationCheckbox.get());
 	AddWidget(mFullscreenCheckbox.get());
+	AddWidget(mAutoReuseEndlessSeedsCheckbox.get());
 	AddWidget(mBackToGameButton.get());
 }
 
@@ -139,6 +144,7 @@ void NewOptionsDialog::RemovedFromManager(Sexy::WidgetManager* theWidgetManager)
 	RemoveWidget(mSfxVolumeSlider.get());
 	RemoveWidget(mFullscreenCheckbox.get());
 	RemoveWidget(mHardwareAccelerationCheckbox.get());
+	RemoveWidget(mAutoReuseEndlessSeedsCheckbox.get());
 	RemoveWidget(mBackToMainButton.get());
 	RemoveWidget(mBackToGameButton.get());
 	RemoveWidget(mRestartButton.get());
@@ -151,6 +157,7 @@ void NewOptionsDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	mSfxVolumeSlider->Resize(199, 143, 135, 40);
 	mHardwareAccelerationCheckbox->Resize(283, 175, 46, 45);
 	mFullscreenCheckbox->Resize(284, 206, 46, 45);
+	mAutoReuseEndlessSeedsCheckbox->Resize(340, 245, 46, 45);
 	mAlmanacButton->Resize(107, 241, 209, 46);
 	mRestartButton->Resize(mAlmanacButton->mX, mAlmanacButton->mY + 43, 209, 46);
 	mBackToMainButton->Resize(mRestartButton->mX, mRestartButton->mY + 43, 209, 46);
@@ -196,6 +203,8 @@ void NewOptionsDialog::Draw(Sexy::Graphics* g)
 	PvzpDrawString(g, mApp->GetString("OPTIONS_SOUNDFX", "Sound FX"), aSliderLabelsX, 167 + aSfxOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
 	PvzpDrawString(g, mApp->GetString("OPTIONS_3D_ACCELERATION", "3D Acceleration"), aCheckboxLabelsX, 197 + a3DAccelOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
 	PvzpDrawString(g, mApp->GetString("OPTIONS_FULL_SCREEN", "Full Screen"), aCheckboxLabelsX, 229 + aFullScreenOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
+	if (mShowAutoReuseEndlessSeeds)
+		PvzpDrawString(g, mApp->GetString("AUTO_REUSE_ENDLESS_SEEDS", "Auto-reuse seeds"), 394, 274, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_LEFT);
 	if (aFontScale != 1.0f)
 		g->SetScale(1.0f, 1.0f, 0.0f, 0.0f);
 }
@@ -275,6 +284,14 @@ void NewOptionsDialog::CheckboxChecked(int theId, bool checked)
 					Dialog::BUTTONS_FOOTER
 				);
 			}
+		}
+		break;
+
+	case NewOptionsDialog::NewOptionsDialog_AutoReuseEndlessSeeds:
+		if (mApp->mBoard && mApp->IsSurvivalEndless(mApp->mGameMode))
+		{
+			mApp->mBoard->mAutoReuseEndlessSeeds = checked;
+			mApp->mBoard->TryToSaveGame();
 		}
 		break;
 	}

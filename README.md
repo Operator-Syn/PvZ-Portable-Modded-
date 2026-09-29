@@ -70,6 +70,7 @@ Note about writable data and caches:
 - The game will read resources (like `main.pak` and `properties/`) from the executable directory by default, so you can launch the binary from any working directory and it will still find them.
 - Per-user writable files (settings, savegames, compiled caches, screenshots) are stored in the **OS-recommended application data path**. With the current build these are under `io.github.wszqkzqk/PvZPortable` and include subfolders such as:
   - `userdata/` — Player save files.
+  - `userdata/performance.log` — Bounded frame timing summaries and slow-frame captures (`.1` is the rotated previous log).
   - `cache64/` if you use the 64-bit version or `cache32/` if you use the 32-bit version — Compiled binary caches (reanimation / compiled definitions). These caches are **local startup** artifacts (**native layout**), not portable files; when cache/schema checks fail, the game transparently recompiles from source data.
   - `registry.regemu` — Settings/registry emulation.
 
@@ -248,6 +249,12 @@ Example: Manually enable `PVZ_DEBUG` in **Release build** so that you can use **
 
 ```bash
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DPVZ_DEBUG=ON
+```
+
+Gameplay timing summaries are recorded in `userdata/performance.log`. To include detailed subsystem timings, set `PVZ_PROFILE=detail` when launching the game, for example:
+
+```bash
+PVZ_PROFILE=detail ./build/pvz-portable
 ```
 
 If running these commands does not create a successful build please create an issue and detail your problem.

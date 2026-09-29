@@ -129,6 +129,8 @@ public:
 	int32_t                         mBodyMaxHealth;
 	int32_t                         mHelmHealth;
 	int32_t                         mHelmMaxHealth;
+	int32_t                         mTierBucketArmorHealth;
+	int32_t                         mTierBucketArmorMaxHealth;
 	ShieldType                      mShieldType;
 	int32_t                         mShieldHealth;
 	int32_t                         mShieldMaxHealth;
@@ -147,6 +149,7 @@ public:
 	float                           mVelZ;
 	float                           mOriginalAnimRate;
 	PlantID                         mTargetPlantID;
+	PlantID                         mFirstIgnoredSpikyPlantID = PlantID::PLANTID_NULL;
 	int32_t                         mBossMode;
 	int32_t                         mTargetRow;
 	int32_t                         mBossBungeeCounter;
@@ -183,6 +186,7 @@ public:
 	void                            ApplyChill(bool theIsIceTrap);
 	void                            UpdateZombieBungee();
 	void                            BungeeLanding();
+	bool                            CanBeTargetedByPlants() const;
 	bool                            EffectedByDamage(unsigned int theDamageRangeFlags);
 	void                            PickRandomSpeed();
 	void                            UpdateZombiePolevaulter();
@@ -255,6 +259,7 @@ public:
 	int                  TakeFlyingDamage(int theDamage, unsigned int theDamageFlags);
 	int                             TakeShieldDamage(int theDamage, unsigned int theDamageFlags);
 	int                             TakeHelmDamage(int theDamage, unsigned int theDamageFlags);
+	int                             TakeTierBucketArmorDamage(int theDamage, unsigned int theDamageFlags);
 	void                            TakeBodyDamage(int theDamage, unsigned int theDamageFlags);
 	void                            AttachShield();
 	void                            DetachShield();
@@ -292,7 +297,7 @@ public:
 	bool                            IsImmobilizied();
 	void                            ApplyButter();
 	float                           ZombieTargetLeadX(float theTime);
-	void                            UpdateZombieImp();
+	void                            UpdateZombieThrown();
 	void                            SquishAllInSquare(int theX, int theY, ZombieAttackType theAttackType);
 	void                            RemoveIceTrap();
 	bool                            IsBouncingPogo();

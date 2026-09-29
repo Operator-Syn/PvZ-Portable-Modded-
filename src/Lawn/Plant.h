@@ -223,11 +223,13 @@ public:
 	bool                    mIsOnBoard;
 	bool                    mHighlighted;
 	ProjectileType          mGatlingPeaVolleyProjectileType;
+	bool                    mGatlingPeaMillionSunVolley = false;
 	float                   mGatlingPeaVisualBlend = 0.0f;
 	ZombieID                mCattailTargetZombieID = ZombieID::ZOMBIEID_NULL;
 	int32_t                 mSunMagnetCoffeeTicksRemaining = 0;
 	int32_t                 mSunMagnetCoffeeTicksUntilDamage = 0;
 	bool                    mSunMagnetHasPendingPickup = false;
+	int32_t                 mTwinSunflowerBombCountdown = 225;
 
 public:
 	Plant();
@@ -239,7 +241,8 @@ public:
 	void                    MouseDown(int x, int y, int theClickCount);
 	void                    DoSpecial();
 	void                    Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY,
-		int theWintermelonVolleyIndex = -1, bool theFireWintermelonCherryBomb = false, bool theSkipCatTailOverdriveVolley = false);
+		int theWintermelonVolleyIndex = -1, bool theFireWintermelonCherryBomb = false, bool theSkipCatTailOverdriveVolley = false,
+		int theKernelPultVolleyIndex = -1, int theKernelPultVolleySize = 0, bool theMillionSunCatTailVolley = false);
 	Zombie*                 FindTargetZombie(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY,
 		const std::vector<Zombie*>* theExcludedZombies = nullptr);
 	void                    Die();

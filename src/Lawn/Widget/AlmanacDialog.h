@@ -51,7 +51,8 @@ private:
 		ALMANAC_BUTTON_CLOSE = 0,
 		ALMANAC_BUTTON_PLANT = 1,
 		ALMANAC_BUTTON_ZOMBIE = 2,
-		ALMANAC_BUTTON_INDEX = 3
+		ALMANAC_BUTTON_INDEX = 3,
+		ALMANAC_BUTTON_OVERDRIVES = 4
 	};
 
 public:
@@ -60,6 +61,7 @@ public:
 	std::unique_ptr<GameButton>	mIndexButton;
 	std::unique_ptr<GameButton>	mPlantButton;
 	std::unique_ptr<GameButton>	mZombieButton;
+	std::unique_ptr<GameButton>	mOverdriveButton;
 	AlmanacPage					mOpenPage;
 	Reanimation*				mReanim[4];
 	SeedType					mSelectedSeed;
@@ -81,6 +83,7 @@ public:
 	void						DrawIndex(Graphics* g);
 	void						DrawPlants(Graphics* g);
 	void						DrawZombies(Graphics* g);
+	void						DrawOverdrives(Graphics* g);
 	void						Draw(Graphics* g) override;
 	void						GetSeedPosition(SeedType theSeedType, int& x, int& y);
 	SeedType					SeedHitTest(int x, int y);

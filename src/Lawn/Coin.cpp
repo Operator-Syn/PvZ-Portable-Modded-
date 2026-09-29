@@ -39,6 +39,7 @@
 #include "Widget/AchievementsScreen.h"
 
 Coin::Coin()
+	: mSunValueOverride(0)
 {
 }
 
@@ -71,6 +72,7 @@ void Coin::CoinInitialize(int theX, int theY, CoinType theCoinType, CoinMotion t
 	mHasBouncyArrow = false;
 	mHitGround = false;
 	mTimesDropped = 0;
+	mSunValueOverride = 0;
 	mPottedPlantSpec.InitializePottedPlant(SeedType::SEED_NONE);
 
 	if (IsSun())
@@ -1304,6 +1306,8 @@ float Coin::GetSunScale()
 
 int Coin::GetSunValue()
 {
+	if (mSunValueOverride > 0)
+		return mSunValueOverride;
 	return mType == CoinType::COIN_SUN ? 25 : mType == CoinType::COIN_SMALLSUN ? 15 : mType == CoinType::COIN_LARGESUN ? 50 :
 		mType == CoinType::COIN_SUN_150 ? 150 : mType == CoinType::COIN_SUN_500 ? 500 :
 		mType == CoinType::COIN_SUN_100 ? 100 : mType == CoinType::COIN_SUN_600 ? 600 :

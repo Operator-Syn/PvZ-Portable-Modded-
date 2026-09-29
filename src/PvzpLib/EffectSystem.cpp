@@ -25,6 +25,7 @@
 #include "Reanimator.h"
 #include "PvzpParticle.h"
 #include "EffectSystem.h"
+#include "misc/FrameProfiler.h"
 #include "../GameConstants.h"
 #include "graphics/GLImage.h"
 #include "graphics/GLInterface.h"
@@ -68,6 +69,7 @@ void EffectSystem::EffectSystemFreeAll()
 	mParticleHolder->mParticleSystems.DataArrayFreeAll();
 	mParticleHolder->mEmitters.DataArrayFreeAll();
 	mParticleHolder->mParticles.DataArrayFreeAll();
+	mParticleHolder->mZamboniSmokeLiveParticles = 0;
 	mParticleHolder->mEmitterListNodeAllocator.FreeAll();
 	mParticleHolder->mParticleListNodeAllocator.FreeAll();
 
@@ -97,14 +99,21 @@ void EffectSystem::ProcessDeleteQueue()
 
 void EffectSystem::Update()
 {
+	mParticleHolder->mVisualQualityTier = Sexy::FrameProfiler::Get().GetVisualQualityTier();
+	Sexy::FrameProfileScope aProfileScope(Sexy::FrameProfileMetric::EFFECTS_UPDATE);
+	Sexy::FrameProfileScope aParticleScope(Sexy::FrameProfileMetric::PARTICLE_SYSTEMS_UPDATE, true);
 	for (PvzpParticleSystem* aParticle : mParticleHolder->mParticleSystems)
 		if (!aParticle->mIsAttachment)
 			aParticle->Update();
+	aParticleScope.Stop();
 
+	Sexy::FrameProfileScope aTrailScope(Sexy::FrameProfileMetric::TRAILS_UPDATE, true);
 	for (Trail* aTrail : mTrailHolder->mTrails)
 		if (!aTrail->mIsAttachment)
 			aTrail->Update();
+	aTrailScope.Stop();
 
+	Sexy::FrameProfileScope aReanimationScope(Sexy::FrameProfileMetric::REANIMATIONS_UPDATE, true);
 	for (Reanimation* aReanim : mReanimationHolder->mReanimations)
 		if (!aReanim->mIsAttachment)
 			aReanim->Update();
@@ -360,12 +369,16 @@ PvzpTriangleGroup::PvzpTriangleGroup()
 	mImage = nullptr;
 	mTriangleCount = 0;
 	mDrawMode = Graphics::DRAWMODE_NORMAL;
+	mTrianglesFlushed = 0;
+	mBatchFlushes = 0;
 }
 
 void PvzpTriangleGroup::DrawGroup(Graphics* g)
 {
 	if (mImage && mTriangleCount)
 	{
+		mTrianglesFlushed += static_cast<uint32_t>(mTriangleCount);
+		++mBatchFlushes;
 		// without 3D acceleration, additive blending is messed up
 		if (!gSexyAppBase->Is3DAccelerated() && mDrawMode == Graphics::DRAWMODE_ADDITIVE)
 			gPvzpTriangleDrawAdditive = true;

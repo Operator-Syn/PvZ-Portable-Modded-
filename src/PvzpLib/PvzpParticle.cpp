@@ -23,11 +23,25 @@
 #include "Definition.h"
 #include "PvzpParticle.h"
 #include "EffectSystem.h"
+#include "misc/FrameProfiler.h"
 #include "../GameConstants.h"
 #include "graphics/Graphics.h"
 #include "graphics/GLInterface.h"
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <cstdlib>
+#include <cmath>
+#include <cstring>
 #include <format>
+#include <mutex>
+#include <thread>
+
+namespace
+{
+constexpr uint32_t ZAMBONI_SMOKE_PARTICLE_LIMIT = 12000;
+constexpr float ZAMBONI_SMOKE_SPAWN_RATE_SCALE = 0.5f;
+}
 
 int gParticleDefCount;
 std::unique_ptr<PvzpParticleDefinition[]> gParticleDefArray;
@@ -242,6 +256,138 @@ PvzpParticleSystem::PvzpParticleSystem()
 	mRenderOrder = 0;
 }
 
+static bool IsLowPriorityParticleEffect(ParticleEffect theEffect)
+{
+	// Only explicitly decorative ambient effects shed quality; unknown and gameplay-feedback effects stay protected.
+	switch (theEffect)
+	{
+	case ParticleEffect::PARTICLE_ICEBALL_TRAIL:
+	case ParticleEffect::PARTICLE_FIREBALL_TRAIL:
+	case ParticleEffect::PARTICLE_SNOWPEA_TRAIL:
+	case ParticleEffect::PARTICLE_PUFFSHROOM_TRAIL:
+	case ParticleEffect::PARTICLE_ZAMBONI_SMOKE:
+	case ParticleEffect::PARTICLE_CREDIT_STROBE:
+	case ParticleEffect::PARTICLE_CREDITS_RAYSWIPE:
+	case ParticleEffect::PARTICLE_CREDITS_FOG:
+		return true;
+	default:
+		return false;
+	}
+}
+
+#if !defined(__EMSCRIPTEN__)
+class ParticleCalculationWorkers
+{
+public:
+	ParticleCalculationWorkers()
+	{
+		const unsigned int aHardwareThreads = std::thread::hardware_concurrency();
+		const unsigned int aWorkerCount = std::min(16U, aHardwareThreads > 1 ? aHardwareThreads - 1 : 0U);
+		mWorkers.reserve(aWorkerCount);
+		for (unsigned int i = 0; i < aWorkerCount; ++i)
+			mWorkers.emplace_back([this] { WorkerLoop(); });
+	}
+
+	~ParticleCalculationWorkers()
+	{
+		{
+			std::lock_guard<std::mutex> aLock(mMutex);
+			mStopping = true;
+			++mGeneration;
+		}
+		mWake.notify_all();
+		for (std::thread& aWorker : mWorkers)
+			if (aWorker.joinable())
+				aWorker.join();
+	}
+
+	bool Available() const { return !mWorkers.empty(); }
+
+	void Run(PvzpParticleEmitter* theEmitter, const std::vector<PvzpParticle*>& theParticles)
+	{
+		{
+			std::lock_guard<std::mutex> aLock(mMutex);
+			mEmitter = theEmitter;
+			mParticles = &theParticles;
+			mNextParticle.store(0, std::memory_order_relaxed);
+			mWorkersRemaining = mWorkers.size();
+			++mGeneration;
+		}
+		mWake.notify_all();
+		ProcessParticles();
+		std::unique_lock<std::mutex> aLock(mMutex);
+		mFinished.wait(aLock, [this] { return mWorkersRemaining == 0; });
+		mParticles = nullptr;
+		mEmitter = nullptr;
+	}
+
+private:
+	void ProcessParticles()
+	{
+		constexpr size_t aChunkSize = 128;
+		while (true)
+		{
+			const size_t aStart = mNextParticle.fetch_add(aChunkSize, std::memory_order_relaxed);
+			if (aStart >= mParticles->size())
+				return;
+			const size_t anEnd = std::min(aStart + aChunkSize, mParticles->size());
+			for (size_t i = aStart; i < anEnd; ++i)
+				mEmitter->CalculateParticleState((*mParticles)[i]);
+		}
+	}
+
+	void WorkerLoop()
+	{
+		uint64_t aSeenGeneration = 0;
+		std::unique_lock<std::mutex> aLock(mMutex);
+		while (true)
+		{
+			mWake.wait(aLock, [this, aSeenGeneration] { return mStopping || mGeneration != aSeenGeneration; });
+			if (mStopping)
+				return;
+			aSeenGeneration = mGeneration;
+			aLock.unlock();
+			ProcessParticles();
+			aLock.lock();
+			if (--mWorkersRemaining == 0)
+				mFinished.notify_one();
+		}
+	}
+
+	std::vector<std::thread> mWorkers;
+	std::mutex mMutex;
+	std::condition_variable mWake;
+	std::condition_variable mFinished;
+	std::atomic<size_t> mNextParticle{0};
+	PvzpParticleEmitter* mEmitter = nullptr;
+	const std::vector<PvzpParticle*>* mParticles = nullptr;
+	size_t mWorkersRemaining = 0;
+	uint64_t mGeneration = 0;
+	bool mStopping = false;
+};
+
+static bool IsParticleParallelEnabled()
+{
+	static const bool anEnabled = []
+	{
+		const char* anEnvironment = std::getenv("PVZ_PARTICLE_PARALLEL");
+		return anEnvironment != nullptr && std::strcmp(anEnvironment, "1") == 0;
+	}();
+	return anEnabled;
+}
+
+static ParticleCalculationWorkers& GetParticleCalculationWorkers()
+{
+	static ParticleCalculationWorkers aWorkers;
+	return aWorkers;
+}
+#else
+static bool IsParticleParallelEnabled()
+{
+	return false;
+}
+#endif
+
 PvzpParticleSystem::~PvzpParticleSystem()
 {
 	ParticleSystemDie();
@@ -276,6 +422,7 @@ void PvzpParticleSystem::PvzpParticleInitializeFromDef(float theX, float theY, i
 void PvzpParticleEmitter::PvzpEmitterInitialize(float theX, float theY, PvzpParticleSystem* theSystem, PvzpEmitterDefinition* theEmitterDef)
 {
 	mSpawnAccum = 0.0f;
+	mSpawnScaleAccum = 0.0f;
 	mParticlesSpawned = 0;
 	mSystemTimeValue = -1.0f;
 	mSystemLastTimeValue = -1.0f;
@@ -285,12 +432,28 @@ void PvzpParticleEmitter::PvzpEmitterInitialize(float theX, float theY, PvzpPart
 	mSystemCenter.x = theX;
 	mSystemCenter.y = theY;
 	mFrameOverride = -1;
+	mCurrentQualityTier = 0;
 	mParticleSystem = theSystem;
 	mScaleOverride = 1.0f;
 	mExtraAdditiveDrawOverride = false;
 	mImageOverride = nullptr;
 	mSystemDuration = 0;
 	mEmitterDef = theEmitterDef;
+	mCullRadius = 0.0f;
+	if (mEmitterDef->mImage != nullptr)
+	{
+		const float aCelWidth = static_cast<float>(mEmitterDef->mImage->GetCelWidth());
+		const float aCelHeight = static_cast<float>(mEmitterDef->mImage->GetCelHeight());
+		float aScaleBound = 1.0f;
+		for (int i = 0; mEmitterDef->mParticleScale.mNodes != nullptr && i < mEmitterDef->mParticleScale.mCountNodes; ++i)
+			aScaleBound = std::max({ aScaleBound, std::abs(mEmitterDef->mParticleScale.mNodes[i].mLowValue),
+				std::abs(mEmitterDef->mParticleScale.mNodes[i].mHighValue) });
+		float aStretchBound = 1.0f;
+		for (int i = 0; mEmitterDef->mParticleStretch.mNodes != nullptr && i < mEmitterDef->mParticleStretch.mCountNodes; ++i)
+			aStretchBound = std::max({ aStretchBound, std::abs(mEmitterDef->mParticleStretch.mNodes[i].mLowValue),
+				std::abs(mEmitterDef->mParticleStretch.mNodes[i].mHighValue) });
+		mCullRadius = std::hypot(aCelWidth, aCelHeight) * aScaleBound * aStretchBound + 2.0f;
+	}
 	if (mEmitterDef->mParticleFields.count < 0 || mEmitterDef->mParticleFields.count > MAX_PARTICLE_FIELDS)
 	{
 		PvzpLogLn("Emitter '{}' has {} particle fields; limiting to {}",
@@ -338,6 +501,9 @@ PvzpParticle* PvzpParticleEmitter::SpawnParticle(int theIndex, int theSpawnCount
 {
 	DataArray<PvzpParticle>& aDataArray = mParticleSystem->mParticleHolder->mParticles;
 	PvzpParticleHolder* aParticleHolder = mParticleSystem->mParticleHolder;
+	if (mParticleSystem->mEffectType == ParticleEffect::PARTICLE_ZAMBONI_SMOKE &&
+		aParticleHolder->mZamboniSmokeLiveParticles >= ZAMBONI_SMOKE_PARTICLE_LIMIT)
+		return nullptr;
 	if (aDataArray.mSize >= aDataArray.mMaxSize)
 	{
 		if (!aParticleHolder->mParticleCapacityWarningLogged)
@@ -355,6 +521,8 @@ PvzpParticle* PvzpParticleEmitter::SpawnParticle(int theIndex, int theSpawnCount
 		aParticleHolder->mParticleCapacityWarningLogged = false;
 
 	PvzpParticle* aParticle = aDataArray.DataArrayAlloc();
+	if (mParticleSystem->mEffectType == ParticleEffect::PARTICLE_ZAMBONI_SMOKE)
+		++aParticleHolder->mZamboniSmokeLiveParticles;
 	PVZP_ASSERT(mEmitterDef->mParticleFields.count <= MAX_PARTICLE_FIELDS);
 	for (int i = 0; i < mEmitterDef->mParticleFields.count; i++)
 	{
@@ -649,7 +817,8 @@ bool PvzpParticleEmitter::UpdateParticle(PvzpParticle* theParticle)
 {
 	if (theParticle->mParticleAge >= theParticle->mParticleDuration)  // particle reached the end of its lifetime
 	{
-		if (TestBit(mEmitterDef->mParticleFlags, static_cast<int>(ParticleFlags::PARTICLE_PARTICLE_LOOPS)))
+		if (TestBit(mEmitterDef->mParticleFlags, static_cast<int>(ParticleFlags::PARTICLE_PARTICLE_LOOPS)) &&
+			!(IsLowPriorityParticleEffect(mParticleSystem->mEffectType) && mCurrentQualityTier >= 2))
 			theParticle->mParticleAge = 0;
 		else if (theParticle->mCrossFadeDuration > 0)
 			theParticle->mParticleAge = theParticle->mParticleDuration - 1;  // hold the particle on its last frame
@@ -660,6 +829,13 @@ bool PvzpParticleEmitter::UpdateParticle(PvzpParticle* theParticle)
 		mParticleSystem->mParticleHolder->mParticles.DataArrayTryToGet(theParticle->mCrossFadeParticleID) == nullptr)
 		return false;  // the cross-fade source is gone; the particle can be deleted
 
+	CalculateParticleState(theParticle);
+	return true;
+}
+
+void PvzpParticleEmitter::CalculateParticleState(PvzpParticle* theParticle)
+{
+	// This touches one particle and immutable emitter/system data; workers skip emitters with FIELD_SHAKE because it uses global rand().
 	theParticle->mParticleTimeValue = theParticle->mParticleAge / (static_cast<float>(theParticle->mParticleDuration) - 1);
 	for (int i = 0; i < mEmitterDef->mParticleFields.count; i++)
 		UpdateParticleField(theParticle, &mEmitterDef->mParticleFields.Fields[i], theParticle->mParticleTimeValue, i);
@@ -680,9 +856,11 @@ bool PvzpParticleEmitter::UpdateParticle(PvzpParticle* theParticle)
 			theParticle->mAnimationTimeValue += 1.0f;
 	}
 
-	theParticle->mParticleAge++;
+	if (IsLowPriorityParticleEffect(mParticleSystem->mEffectType))
+		theParticle->mParticleAge += mCurrentQualityTier >= 3 ? 4 : mCurrentQualityTier == 2 ? 2 : 1;
+	else
+		++theParticle->mParticleAge;
 	theParticle->mParticleLastTimeValue = theParticle->mParticleTimeValue;
-	return true;
 }
 
 void PvzpParticleEmitter::UpdateSpawning()
@@ -704,6 +882,20 @@ void PvzpParticleEmitter::UpdateSpawning()
 		int aSpawnMaxLaunched = aSpawningEmitter->SystemTrackEvaluate(aSpawningEmitter->mEmitterDef->mSpawnMaxLaunched, ParticleSystemTracks::TRACK_SPAWN_MAX_LAUNCHED);
 		if (aSpawnCount > aSpawnMaxLaunched - mParticlesSpawned)
 			aSpawnCount = aSpawnMaxLaunched - mParticlesSpawned;  // cap at the emitter's total launch limit
+	}
+	if (mParticleSystem->mEffectType == ParticleEffect::PARTICLE_ZAMBONI_SMOKE && aSpawnCount > 0)
+	{
+		mSpawnScaleAccum += aSpawnCount * ZAMBONI_SMOKE_SPAWN_RATE_SCALE;
+		aSpawnCount = static_cast<int>(mSpawnScaleAccum);
+		mSpawnScaleAccum -= aSpawnCount;
+	}
+	if (IsLowPriorityParticleEffect(mParticleSystem->mEffectType) && mCurrentQualityTier > 0)
+	{
+		const uint32_t anEmitterId = mParticleSystem->mParticleHolder->mEmitters.DataArrayGetID(this);
+		const uint32_t aPhase = static_cast<uint32_t>(mSystemAge) + anEmitterId;
+		if (mCurrentQualityTier >= 3 || (mCurrentQualityTier == 2 && (aPhase & 1U) == 0) ||
+			(mCurrentQualityTier == 1 && (aPhase & 3U) == 0))
+			aSpawnCount = 0;
 	}
 
 	for (int i = 0; i < aSpawnCount; i++)
@@ -735,24 +927,44 @@ void PvzpParticleEmitter::DeleteAll()
 		ParticleID anId = mParticleList.RemoveHead();
 		DataArray<PvzpParticle>& aDataArray = mParticleSystem->mParticleHolder->mParticles;
 		aDataArray.DataArrayFree(aDataArray.DataArrayGet(anId));
+		if (mParticleSystem->mEffectType == ParticleEffect::PARTICLE_ZAMBONI_SMOKE &&
+			mParticleSystem->mParticleHolder->mZamboniSmokeLiveParticles > 0)
+			--mParticleSystem->mParticleHolder->mZamboniSmokeLiveParticles;
 	}
 }
 
 void PvzpParticleSystem::Update()
 {
+	Sexy::FrameProfiler& aProfiler = Sexy::FrameProfiler::Get();
+	const uint64_t aProfileStart = aProfiler.BeginParticleEffect();
+	uint32_t aParticlesVisited = 0;
+	uint32_t aParticlesSpawned = 0;
+	uint32_t aLiveParticles = 0;
 	if (!mDontUpdate)
 	{
 		bool aEmitterAlive = false;
 		for (PvzpListNode<ParticleEmitterID>* aNode = mEmitterList.mHead; aNode != nullptr; aNode = aNode->mNext)
 		{
 			PvzpParticleEmitter* aEmitter = mParticleHolder->mEmitters.DataArrayGet(static_cast<unsigned int>(aNode->mValue));
+			const uint32_t aParticlesBefore = aProfileStart == 0 ? 0 : aEmitter->mParticleList.mSize;
+			const int32_t aSpawnedBefore = aProfileStart == 0 ? 0 : aEmitter->mParticlesSpawned;
 			aEmitter->Update();
+			if (aProfileStart != 0)
+			{
+				const uint32_t aSpawnedThisUpdate = static_cast<uint32_t>(std::max(0, aEmitter->mParticlesSpawned - aSpawnedBefore));
+				aParticlesVisited += aParticlesBefore + aSpawnedThisUpdate;
+				aParticlesSpawned += aSpawnedThisUpdate;
+				aLiveParticles += aEmitter->mParticleList.mSize;
+			}
 			if ((FloatTrackIsSet(aEmitter->mEmitterDef->mCrossFadeDuration) && aEmitter->mParticleList.mSize > 0) || !aEmitter->mDead)
 				aEmitterAlive = true;
 		}
 		if (!aEmitterAlive)
 			mDead = true;
 	}
+	if (aProfileStart != 0)
+		aProfiler.RecordParticleEffectUpdate(static_cast<int>(mEffectType), aProfileStart, aParticlesVisited,
+			aParticlesSpawned, aLiveParticles, mEmitterList.mSize);
 }
 
 bool PvzpParticleEmitter::CrossFadeParticle(PvzpParticle* theParticle, PvzpParticleEmitter* theToEmitter)
@@ -799,13 +1011,25 @@ void PvzpParticleEmitter::DeleteParticle(PvzpParticle* theParticle)
 
 	ParticleID aParticleID = static_cast<ParticleID>(mParticleSystem->mParticleHolder->mParticles.DataArrayGetID(theParticle));
 	mParticleList.RemoveAt(mParticleList.Find(aParticleID));
+	if (mParticleSystem->mEffectType == ParticleEffect::PARTICLE_ZAMBONI_SMOKE &&
+		mParticleSystem->mParticleHolder->mZamboniSmokeLiveParticles > 0)
+		--mParticleSystem->mParticleHolder->mZamboniSmokeLiveParticles;
 	mParticleSystem->mParticleHolder->mParticles.DataArrayFree(theParticle);
+}
+
+static bool EmitterUsesSharedRandomShake(const PvzpEmitterDefinition& theDefinition)
+{
+	for (int i = 0; i < theDefinition.mParticleFields.count; ++i)
+		if (theDefinition.mParticleFields.Fields[i].mFieldType == ParticleFieldType::FIELD_SHAKE)
+			return true;
+	return false;
 }
 
 void PvzpParticleEmitter::Update()
 {
 	if (mDead)
 		return;
+	mCurrentQualityTier = mParticleSystem->mParticleHolder->mVisualQualityTier;
 
 	mSystemAge++;
 	bool aDie = false;
@@ -836,13 +1060,55 @@ void PvzpParticleEmitter::Update()
 	mSystemTimeValue = mSystemAge / static_cast<float>(mSystemDuration - 1);
 	for (int i = 0; i < mEmitterDef->mSystemFields.count; i++)
 		UpdateSystemField(&mEmitterDef->mSystemFields.Fields[i], mSystemTimeValue, i);
-	for (PvzpListNode<ParticleID>* aNode = mParticleList.mHead; aNode != nullptr; )
+	PvzpParticleHolder* aHolder = mParticleSystem->mParticleHolder;
+	const bool anEmitterUsesSharedRandom = EmitterUsesSharedRandomShake(*mEmitterDef);
+	const bool aUseParallelCalculation = IsParticleParallelEnabled() && !anEmitterUsesSharedRandom && mParticleList.mSize >= 512;
+	if (!aUseParallelCalculation)
 	{
-		PvzpListNode<ParticleID>* aNext = aNode->mNext;
-		PvzpParticle* aParticle = mParticleSystem->mParticleHolder->mParticles.DataArrayGet(static_cast<unsigned int>(aNode->mValue));
-		if (!UpdateParticle(aParticle))
-			DeleteParticle(aParticle);
-		aNode = aNext;
+		for (PvzpListNode<ParticleID>* aNode = mParticleList.mHead; aNode != nullptr; )
+		{
+			PvzpListNode<ParticleID>* aNext = aNode->mNext;
+			PvzpParticle* aParticle = aHolder->mParticles.DataArrayGet(static_cast<unsigned int>(aNode->mValue));
+			if (!UpdateParticle(aParticle))
+				DeleteParticle(aParticle);
+			aNode = aNext;
+		}
+	}
+	else
+	{
+		aHolder->mParticleIdScratch.clear();
+		for (PvzpListNode<ParticleID>* aNode = mParticleList.mHead; aNode != nullptr; aNode = aNode->mNext)
+			aHolder->mParticleIdScratch.push_back(aNode->mValue);
+		for (ParticleID anId : aHolder->mParticleIdScratch)
+		{
+			PvzpParticle* aParticle = aHolder->mParticles.DataArrayTryToGet(anId);
+			if (aParticle != nullptr && !(
+				aParticle->mParticleAge < aParticle->mParticleDuration &&
+				aParticle->mCrossFadeDuration <= 0 &&
+				aParticle->mCrossFadeParticleID == ParticleID::PARTICLEID_NULL))
+			{
+				if (!UpdateParticle(aParticle))
+					DeleteParticle(aParticle);
+			}
+		}
+		aHolder->mParticleUpdateScratch.clear();
+		for (ParticleID anId : aHolder->mParticleIdScratch)
+		{
+			PvzpParticle* aParticle = aHolder->mParticles.DataArrayTryToGet(anId);
+			if (aParticle != nullptr && aParticle->mParticleAge < aParticle->mParticleDuration &&
+				aParticle->mCrossFadeDuration <= 0 && aParticle->mCrossFadeParticleID == ParticleID::PARTICLEID_NULL)
+				aHolder->mParticleUpdateScratch.push_back(aParticle);
+		}
+		ParticleCalculationWorkers& aWorkers = GetParticleCalculationWorkers();
+		if (aWorkers.Available())
+		{
+			aWorkers.Run(this, aHolder->mParticleUpdateScratch);
+			Sexy::FrameProfiler::Get().RecordParticleParallelBatch(static_cast<int>(mParticleSystem->mEffectType),
+				static_cast<uint32_t>(aHolder->mParticleUpdateScratch.size()));
+		}
+		else
+			for (PvzpParticle* aParticle : aHolder->mParticleUpdateScratch)
+				CalculateParticleState(aParticle);
 	}
 	UpdateSpawning();
 
@@ -1042,10 +1308,26 @@ void RenderParticle(Graphics* g, PvzpParticle* theParticle, const Color& theColo
 	}
 }
 
-void PvzpParticleEmitter::DrawParticle(Graphics* g, PvzpParticle* theParticle, PvzpTriangleGroup* theTriangleGroup)
+void PvzpParticleEmitter::DrawParticle(Graphics* g, PvzpParticle* theParticle, PvzpTriangleGroup* theTriangleGroup,
+	uint32_t& theCullCount)
 {
 	if (theParticle->mCrossFadeDuration > 0)  // cross-fade source particles are not drawn
 		return;
+	if (mImageOverride == nullptr && mEmitterDef->mImage != nullptr && mCullRadius > 0.0f &&
+		theParticle->mCrossFadeParticleID == ParticleID::PARTICLEID_NULL &&
+		!TestBit(mEmitterDef->mParticleFlags, static_cast<int>(ParticleFlags::PARTICLE_FULLSCREEN)))
+	{
+		const float aRadius = mCullRadius * std::abs(mScaleOverride);
+		const float aPosX = theParticle->mPosition.x + g->mTransX;
+		const float aPosY = theParticle->mPosition.y + g->mTransY;
+		const Rect& aClip = g->mClipRect;
+		if (aPosX + aRadius < aClip.mX || aPosX - aRadius > aClip.mX + aClip.mWidth ||
+			aPosY + aRadius < aClip.mY || aPosY - aRadius > aClip.mY + aClip.mHeight)
+		{
+			++theCullCount;
+			return;
+		}
+	}
 
 	ParticleRenderParams aParams;
 	if (GetRenderParams(theParticle, &aParams))
@@ -1074,21 +1356,34 @@ void PvzpParticleEmitter::DrawParticle(Graphics* g, PvzpParticle* theParticle, P
 
 void PvzpParticleSystem::Draw(Graphics* g)
 {
+	Sexy::FrameProfiler& aProfiler = Sexy::FrameProfiler::Get();
+	const uint64_t aProfileStart = aProfiler.BeginParticleEffect();
+	PvzpTriangleGroup aTriangleGroup;
+	uint32_t aParticlesVisited = 0;
+	uint32_t aParticlesCulled = 0;
 	for (PvzpListNode<ParticleEmitterID>* aNode = mEmitterList.mHead; aNode != nullptr; aNode = aNode->mNext)
-		mParticleHolder->mEmitters.DataArrayGet(static_cast<unsigned int>(aNode->mValue))->Draw(g);
+		mParticleHolder->mEmitters.DataArrayGet(static_cast<unsigned int>(aNode->mValue))->Draw(g, &aTriangleGroup,
+			aParticlesVisited, aParticlesCulled);
+	aTriangleGroup.DrawGroup(g);
+	if (aProfileStart != 0)
+		aProfiler.RecordParticleEffectDraw(static_cast<int>(mEffectType), aProfileStart, aParticlesVisited,
+			aParticlesCulled, aTriangleGroup.mTrianglesFlushed, aTriangleGroup.mBatchFlushes);
 }
 
-void PvzpParticleEmitter::Draw(Graphics* g)
+void PvzpParticleEmitter::Draw(Graphics* g, PvzpTriangleGroup* theTriangleGroup, uint32_t& theParticlesVisited,
+	uint32_t& theParticlesCulled)
 {
 	bool aHardWare = gSexyAppBase->Is3DAccelerated();
 	if ((TestBit(mEmitterDef->mParticleFlags, static_cast<int>(ParticleFlags::PARTICLE_SOFTWARE_ONLY)) && aHardWare) ||
 		(TestBit(mEmitterDef->mParticleFlags, static_cast<int>(ParticleFlags::PARTICLE_HARDWARE_ONLY)) && !aHardWare))
 		return;
 
-	PvzpTriangleGroup aTriangleGroup;
 	for (PvzpListNode<ParticleID>* aNode = mParticleList.mHead; aNode != nullptr; aNode = aNode->mNext)
-		DrawParticle(g, mParticleSystem->mParticleHolder->mParticles.DataArrayGet(static_cast<unsigned int>(aNode->mValue)), &aTriangleGroup);
-	aTriangleGroup.DrawGroup(g);
+	{
+		++theParticlesVisited;
+		DrawParticle(g, mParticleSystem->mParticleHolder->mParticles.DataArrayGet(static_cast<unsigned int>(aNode->mValue)),
+			theTriangleGroup, theParticlesCulled);
+	}
 }
 
 void PvzpParticleSystem::SystemMove(float theX, float theY)
@@ -1255,6 +1550,8 @@ PvzpParticleHolder::~PvzpParticleHolder()
 
 void PvzpParticleHolder::InitializeHolder()
 {
+	mZamboniSmokeLiveParticles = 0;
+	mVisualQualityTier = 0;
 	mParticleCapacityWarningLogged = false;
 	mParticleSystemCapacityWarningLogged = false;
 	mEmitterCapacityWarningLogged = false;
@@ -1269,15 +1566,21 @@ void PvzpParticleHolder::InitializeHolder()
 	mEmitters.DataArrayInitialize(8192U, "emitters");
 	mParticles.DataArrayInitialize(32768U, "particles");
 #endif
+	mParticleUpdateScratch.reserve(mParticles.mMaxSize);
+	mParticleIdScratch.reserve(mParticles.mMaxSize);
 	mParticleListNodeAllocator.Initialize(1024, sizeof(PvzpListNode<ParticleID>));
 	mEmitterListNodeAllocator.Initialize(1024, sizeof(PvzpListNode<ParticleEmitterID>));
 }
 
 void PvzpParticleHolder::DisposeHolder()
 {
+	mZamboniSmokeLiveParticles = 0;
+	mVisualQualityTier = 0;
 	mParticleSystems.DataArrayDispose();
 	mEmitters.DataArrayDispose();
 	mParticles.DataArrayDispose();
+	mParticleUpdateScratch.clear();
+	mParticleIdScratch.clear();
 	mParticleListNodeAllocator.FreeAll();
 	mEmitterListNodeAllocator.FreeAll();
 	mParticleCapacityWarningLogged = false;

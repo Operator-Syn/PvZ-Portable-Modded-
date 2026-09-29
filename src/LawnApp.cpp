@@ -1173,9 +1173,12 @@ void LawnApp::Init()
 		mAppRandSeed = mRandSeed; // demo sessions derive the app-level seed from the recorded one
 
 	Sexy::MkDir(Sexy::GetAppDataPath("userdata"));
+	std::string aLogPath = Sexy::GetAppDataPath("userdata/") + "log.txt";
 #ifdef PVZ_DEBUG
-	Sexy::RegisterLogFileSink(Sexy::GetAppDataPath("userdata/") + "log.txt");
+	Sexy::RegisterLogFileSink(aLogPath);
 	PvzpLogLn("Started {}", static_cast<uint64_t>(std::time(nullptr)));
+#else
+	Sexy::RegisterCrashLogFileSink(aLogPath);
 #endif
 	PvzpLogLn("session id: {}", static_cast<long long>(mSessionID));
 
@@ -2319,6 +2322,8 @@ PvzpParticleSystem* LawnApp::AddPvzpParticle(float theX, float theY, int theRend
 
 ParticleSystemID LawnApp::ParticleGetID(PvzpParticleSystem* theParticle)
 {
+	if (theParticle == nullptr)
+		return ParticleSystemID::PARTICLESYSTEMID_NULL;
 	return (ParticleSystemID)mEffectSystem->mParticleHolder->mParticleSystems.DataArrayGetID(theParticle);
 }
 

@@ -24,6 +24,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 #include "PvzpList.h"
 #include "DataArray.h"
 #include "misc/SexyVector.h"
@@ -244,13 +245,17 @@ public:
 	DataArray<PvzpParticleSystem>	mParticleSystems;
 	DataArray<PvzpParticleEmitter>	mEmitters;
 	DataArray<PvzpParticle>			mParticles;
+	std::vector<PvzpParticle*>		mParticleUpdateScratch;
+	std::vector<ParticleID>			mParticleIdScratch;
 	PvzpAllocator					mParticleListNodeAllocator;
 	PvzpAllocator					mEmitterListNodeAllocator;
 	bool							mParticleCapacityWarningLogged = false;
+	uint32_t						mZamboniSmokeLiveParticles = 0;
 	bool							mParticleSystemCapacityWarningLogged = false;
 	bool							mEmitterCapacityWarningLogged = false;
 	uint32_t						mSuppressedParticleSystemFailures = 0;
 	uint32_t						mSuppressedEmitterFailures = 0;
+	int								mVisualQualityTier = 0;
 
 public:
 	~PvzpParticleHolder();
@@ -313,6 +318,7 @@ public:
 	PvzpParticleSystem*				mParticleSystem;
 	PvzpList<ParticleID>				mParticleList;
 	float							mSpawnAccum;
+	float							mSpawnScaleAccum;
 	Sexy::SexyVector2				mSystemCenter;
 	int32_t							mParticlesSpawned;
 	int32_t							mSystemAge;
@@ -327,16 +333,20 @@ public:
 	ParticleEmitterID				mCrossFadeEmitterID;
 	int32_t							mEmitterCrossFadeCountDown;
 	int32_t							mFrameOverride;
+	int								mCurrentQualityTier;
+	float								mCullRadius;
 	float							mTrackInterp[ParticleSystemTracks::NUM_SYSTEM_TRACKS];
 	float							mSystemFieldInterp[MAX_PARTICLE_FIELDS][2];
 
 public:
 	void							PvzpEmitterInitialize(float theX, float theY, PvzpParticleSystem* theSystem, PvzpEmitterDefinition* theEmitterDef);
 	void							Update();
-	void							Draw(Graphics* g);
+	void							Draw(Graphics* g, PvzpTriangleGroup* theTriangleGroup, uint32_t& theParticlesVisited,
+								uint32_t& theParticlesCulled);
 	void							SystemMove(float theX, float theY);
 	static bool						GetRenderParams(PvzpParticle* theParticle, ParticleRenderParams* theParams);
-	void							DrawParticle(Graphics* g, PvzpParticle* theParticle, PvzpTriangleGroup* theTriangleGroup);
+	void							DrawParticle(Graphics* g, PvzpParticle* theParticle, PvzpTriangleGroup* theTriangleGroup,
+								uint32_t& theCullCount);
 	void							UpdateSpawning();
 	bool							UpdateParticle(PvzpParticle* theParticle);
 	PvzpParticle*					SpawnParticle(int theIndex, int theSpawnCount);
@@ -345,6 +355,7 @@ public:
 	bool							CrossFadeParticleToName(PvzpParticle* theParticle, const char* theEmitterName);
 	void							DeleteAll();
 	void							UpdateParticleField(PvzpParticle* theParticle, ParticleField* theParticleField, float theParticleTimeValue, int theFieldIndex);
+	void							CalculateParticleState(PvzpParticle* theParticle);
 	void							UpdateSystemField(ParticleField* theParticleField, float theParticleTimeValue, int theFieldIndex);
 	float				SystemTrackEvaluate(FloatParameterTrack& theTrack, ParticleSystemTracks theSystemTrack);
 	static float			ParticleTrackEvaluate(FloatParameterTrack& theTrack, PvzpParticle* theParticle, ParticleTracks theParticleTrack);

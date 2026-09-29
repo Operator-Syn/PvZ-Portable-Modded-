@@ -732,7 +732,14 @@ void Projectile::UpdateNormalMotion()
 			}
 
 			aZombie = aFlyingBalloon ? aFlyingBalloon : aClosestTarget;
-			mTargetZombieID = aZombie ? mBoard->ZombieGetID(aZombie) : ZombieID::ZOMBIEID_NULL;
+			if (aZombie == nullptr)
+			{
+				// Once a Cattail shot sees no eligible target, do not keep it alive for the next wave.
+				mTargetZombieID = ZombieID::ZOMBIEID_NULL;
+				Die();
+				return;
+			}
+			mTargetZombieID = mBoard->ZombieGetID(aZombie);
 		}
 
 		if (aZombie && !aZombie->IsDeadOrDying() && aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))

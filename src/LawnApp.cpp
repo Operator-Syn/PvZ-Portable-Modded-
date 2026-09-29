@@ -23,6 +23,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <format>
+#include <cstdlib>
 #include "LawnApp.h"
 #include "Resources.h"
 #include "Lawn/LawnCommon.h"
@@ -73,6 +74,7 @@
 #include "widget/Checkbox.h"
 #include "widget/Dialog.h"
 #include "SexyAppFramework/resource.h"
+#include "misc/FrameProfiler.h"
 
 bool gIsPartnerBuild = false;
 bool gSlowMo = false;
@@ -1180,6 +1182,10 @@ void LawnApp::Init()
 #else
 	Sexy::RegisterCrashLogFileSink(aLogPath);
 #endif
+	const char* aProfileMode = std::getenv("PVZ_PROFILE");
+	Sexy::FrameProfiler::Get().Initialize(Sexy::GetAppDataPath("userdata/performance.log"),
+		static_cast<uint64_t>(mSessionID), mBuildNum, mCommitDate,
+		aProfileMode != nullptr && std::string_view(aProfileMode) == "detail");
 	PvzpLogLn("session id: {}", static_cast<long long>(mSessionID));
 
 	if (!mResourceManager->ParseResourcesFile("properties/resources.xml"))
@@ -2971,6 +2977,7 @@ int LawnApp::GetNumPreloadingTasks()
 				if (i != ZombieType::ZOMBIE_BOSS &&
 					i != ZombieType::ZOMBIE_CATAPULT &&
 					i != ZombieType::ZOMBIE_GARGANTUAR &&
+					i != ZombieType::ZOMBIE_BULWARK_GARGANTUAR &&
 					i != ZombieType::ZOMBIE_DIGGER &&
 					i != ZombieType::ZOMBIE_ZAMBONI)
 				{
@@ -3042,6 +3049,7 @@ void LawnApp::PreloadForUser()
 				continue;
 			}
 			if (i == ZombieType::ZOMBIE_BOSS || i == ZombieType::ZOMBIE_CATAPULT || i == ZombieType::ZOMBIE_GARGANTUAR ||
+				i == ZombieType::ZOMBIE_BULWARK_GARGANTUAR ||
 				i == ZombieType::ZOMBIE_DIGGER || i == ZombieType::ZOMBIE_ZAMBONI)
 			{
 				continue;

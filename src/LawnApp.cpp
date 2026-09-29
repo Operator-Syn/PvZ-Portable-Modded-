@@ -1586,16 +1586,16 @@ void LawnApp::UpdateFrames()
 	{
 		mAppCounter++;
 
-		if (mBoard)
-		{
-			mBoard->ProcessDeleteQueue();
-		}
 		if (mLoadingThreadCompleted && mEffectSystem)
 		{
 			mEffectSystem->ProcessDeleteQueue();
 		}
 
 		SexyApp::UpdateFrames();
+		if (mBoard)
+		{
+			mBoard->ProcessDeleteQueue();
+		}
 
 		mMusic->MusicUpdate();
 

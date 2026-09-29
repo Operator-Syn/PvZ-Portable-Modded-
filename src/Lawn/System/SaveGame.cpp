@@ -2045,6 +2045,7 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 			AppendFieldWithSync(aOut, PORTABLE_FIELD_TAIL, [&](PortableSaveContext& c){ SyncPlantTailPortable(c, aPlant); });
 			AppendFieldWithSync(aOut, 101U, [&](PortableSaveContext& c){ SyncEnum32(c, aPlant.mGatlingPeaVolleyProjectileType); });
 			AppendFieldWithSync(aOut, 102U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mSunMagnetCoffeeTicksRemaining); c.SyncInt32(aPlant.mSunMagnetCoffeeTicksUntilDamage); });
+			AppendFieldWithSync(aOut, 103U, [&](PortableSaveContext& c){ SyncEnumU32(c, aPlant.mCattailTargetZombieID); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Plant& aPlant)
 		{
@@ -2056,6 +2057,8 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncEnum32(c, aPlant.mGatlingPeaVolleyProjectileType); });
 			else if (aFieldId == 102U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mSunMagnetCoffeeTicksRemaining); c.SyncInt32(aPlant.mSunMagnetCoffeeTicksUntilDamage); });
+			else if (aFieldId == 103U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncEnumU32(c, aPlant.mCattailTargetZombieID); });
 			if (aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_PEA &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_BUTTER &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_CHERRYBOMB &&
@@ -2090,6 +2093,7 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 			});
 			AppendFieldWithSync(aOut, 102U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mPlanternCob); });
 			AppendFieldWithSync(aOut, 103U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mTargetTrackingEnded); });
+			AppendFieldWithSync(aOut, 104U, [&](PortableSaveContext& c){ c.SyncInt32(aProjectile.mCattailRedirectionCount); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Projectile& aProjectile)
 		{
@@ -2108,6 +2112,12 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mPlanternCob); });
 			else if (aFieldId == 103U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mTargetTrackingEnded); });
+			else if (aFieldId == 104U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aProjectile.mCattailRedirectionCount); });
+				if (aProjectile.mCattailRedirectionCount < 0)
+					aProjectile.mCattailRedirectionCount = 0;
+				else if (aProjectile.mCattailRedirectionCount > 1)
+					aProjectile.mCattailRedirectionCount = 1;
 			if (aProjectile.mPiercedZombieCount < 0 || aProjectile.mPiercedZombieCount > Projectile::MAX_PIERCING_HITS)
 			{
 				aProjectile.mPiercesZombies = false;
@@ -2124,6 +2134,7 @@ static void SyncCoinsPortable(PortableSaveContext& theContext, Board* theBoard)
 			WriteGameObjectField(aOut, 1U, aCoin);
 			AppendFieldWithSync(aOut, PORTABLE_FIELD_TAIL, [&](PortableSaveContext& c){ SyncCoinTailPortable(c, aCoin); });
 			AppendFieldWithSync(aOut, 101U, [&](PortableSaveContext& c){ SyncEnumU32(c, aCoin.mSunMagnetClaimID); c.SyncBool(aCoin.mSunMagnetPickupPending); });
+			AppendFieldWithSync(aOut, 102U, [&](PortableSaveContext& c){ c.SyncInt32(aCoin.mSunValueOverride); });
 		},
 		[](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Coin& aCoin)
 		{
@@ -2133,6 +2144,10 @@ static void SyncCoinsPortable(PortableSaveContext& theContext, Board* theBoard)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncCoinTailPortable(c, aCoin); });
 			else if (aFieldId == 101U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncEnumU32(c, aCoin.mSunMagnetClaimID); c.SyncBool(aCoin.mSunMagnetPickupPending); });
+			else if (aFieldId == 102U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aCoin.mSunValueOverride); });
+			if (aCoin.mSunValueOverride < 0)
+				aCoin.mSunValueOverride = 0;
 		});
 }
 

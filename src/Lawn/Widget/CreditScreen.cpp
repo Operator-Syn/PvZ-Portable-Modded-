@@ -1365,7 +1365,7 @@ void CreditScreen::UpdateMovie()
 		if (aCreditsReanim->ShouldTriggerTimedEvent(aFrameFactor * 188.0f))
 		{
 			PvzpParticleSystem* aFogParticle = mApp->AddPvzpParticle(aFogPosX, 230.0f, static_cast<int>(RenderLayer::RENDER_LAYER_TOP), ParticleEffect::PARTICLE_CREDITS_FOG);
-			mFogParticleID = mApp->ParticleGetID(aFogParticle);
+			mFogParticleID = aFogParticle != nullptr ? mApp->ParticleGetID(aFogParticle) : ParticleSystemID::PARTICLESYSTEMID_NULL;
 		}
 		PvzpParticleSystem* aFogParticle = mApp->ParticleTryToGet(mFogParticleID);
 		if (aFogParticle)

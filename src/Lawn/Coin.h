@@ -59,6 +59,8 @@ public:
 	bool                    mHasBouncyArrow;
 	bool                    mHitGround;
 	int32_t                 mTimesDropped;
+	PlantID                 mSunMagnetClaimID;
+	bool                    mSunMagnetPickupPending;
 
 public:
 	Coin();

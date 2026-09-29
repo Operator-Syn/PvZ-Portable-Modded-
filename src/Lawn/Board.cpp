@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <limits>
 #include <numeric>
+#include <unordered_map>
 #include <SDL.h>
 #include <format>
 #include "ZenGarden.h"
@@ -59,6 +60,7 @@
 
 //#define SEXY_PERF_ENABLED
 #include "misc/PerfTimer.h"
+#include "misc/FrameProfiler.h"
 #include "Widget/AchievementsScreen.h"
 
 constexpr const int ZOMBIE_COUNTDOWN_FIRST_WAVE = 1800;
@@ -71,6 +73,10 @@ constexpr const int SUN_COUNTDOWN_RANGE = 275;
 constexpr const int SUN_COUNTDOWN_MAX = 950;
 constexpr const int FOG_BLOW_RETURN_TIME = 2000;
 constexpr const int FLAG_RAISE_TIME = 100;
+static bool IsFumeGloomStackType(SeedType theSeedType)
+{
+	return theSeedType == SeedType::SEED_FUMESHROOM || theSeedType == SeedType::SEED_GLOOMSHROOM;
+}
 
 struct ZombieStrengthTier
 {
@@ -78,12 +84,22 @@ struct ZombieStrengthTier
 	int mHealthMultiplier;
 };
 
-constexpr std::array<ZombieStrengthTier, 4> ZOMBIE_STRENGTH_TIERS = {{
+// Keep toughness thresholds and multipliers together: extend this table when adding future sun tiers.
+constexpr std::array<ZombieStrengthTier, 8> ZOMBIE_STRENGTH_TIERS = {{
 	{ 0, 1 },
 	{ 100000, 5 },
 	{ 200000, 10 },
 	{ 500000, 8 },
+	{ 700000, 12 },
+	{ 800000, 12 },
+	{ 1000000, 18 }, // 1.5x the 800k tier; armor uses the same multiplier.
+	{ 2000000, 27 }, // 1.5x the 1m tier; armor and existing type modifiers still apply.
 }};
+
+constexpr int QUADRATIC_RESISTANCE_SUN_THRESHOLD = 900000;
+constexpr int QUADRATIC_RESISTANCE_BASE_TIER_INDEX = 5; // 800k tier immediately below resistance activation.
+constexpr int QUADRATIC_RESISTANCE_BASE_CAP = 4;
+constexpr int QUADRATIC_RESISTANCE_CAP_STEP = 2;
 
 static int ZombieStrengthTierForSun(int theSunAmount)
 {
@@ -103,6 +119,39 @@ static int ZombieHealthMultiplierForTier(int theTier)
 	return ZOMBIE_STRENGTH_TIERS[aClampedTier].mHealthMultiplier;
 }
 
+static int ZombieHealthMultiplierForZombie(const Zombie* theZombie, int theTier)
+{
+	const int aMultiplier = ZombieHealthMultiplierForTier(theTier);
+	if (theZombie != nullptr &&
+		(theZombie->mZombieType == ZombieType::ZOMBIE_TRAFFIC_CONE || theZombie->mZombieType == ZombieType::ZOMBIE_PAIL) &&
+		theTier >= static_cast<int>(ZOMBIE_STRENGTH_TIERS.size()) - 1)
+		return aMultiplier * 2;
+	if (theZombie != nullptr && (theZombie->mZombieType == ZombieType::ZOMBIE_LADDER ||
+		theZombie->mZombieType == ZombieType::ZOMBIE_IMP) && theTier >= 4)
+		return aMultiplier * 3 / 2;
+	return aMultiplier;
+}
+
+int Board::GetQuadraticZombieDamageMultiplier(const Zombie* theZombie, int theTargetCount) const
+{
+	const int aFullMultiplier = std::max(1, theTargetCount);
+	if (mSunMoney < QUADRATIC_RESISTANCE_SUN_THRESHOLD ||
+		theZombie == nullptr || theZombie->mZombieType == ZombieType::ZOMBIE_BUNGEE)
+		return aFullMultiplier;
+
+	// Resistance is deliberately parameterized from the 800k effective HP baseline. Raise the cap
+	// by two for every doubling of the global tier HP multiplier as toughness tiers are added.
+	const int aBaselineHealth = ZombieHealthMultiplierForTier(QUADRATIC_RESISTANCE_BASE_TIER_INDEX);
+	const int aCurrentHealth = ZombieHealthMultiplierForTier(mZombieStrengthTier);
+	int aCap = QUADRATIC_RESISTANCE_BASE_CAP;
+	for (int64_t aScaledHealth = static_cast<int64_t>(aBaselineHealth) * 2;
+		aCurrentHealth >= aScaledHealth; aScaledHealth *= 2)
+		aCap += QUADRATIC_RESISTANCE_CAP_STEP;
+
+	const int aDiminishedMultiplier = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(aFullMultiplier))));
+	return std::min(aDiminishedMultiplier, aCap);
+}
+
 bool gShownMoreSunTutorial = false;
 
 Board::Board(LawnApp* theApp)
@@ -111,6 +160,7 @@ Board::Board(LawnApp* theApp)
 	mApp->mBoard = this;
 
 	mZombies.DataArrayInitialize(MAX_ACTIVE_ZOMBIES, "zombies");
+	mSplashDamageTargets.reserve(MAX_ACTIVE_ZOMBIES);
 	mPlants.DataArrayInitialize(1024U, "plants");
 	mProjectiles.DataArrayInitialize(8192U, "projectiles");
 	mCoins.DataArrayInitialize(4096U, "coins");
@@ -338,7 +388,9 @@ int Board::GetLiveGargantuarCount() {
 	{
 		if (aZombie->mDead)
 			continue;
-		if (aZombie->mHasHead && !aZombie->IsDeadOrDying() && aZombie->IsOnBoard() && (aZombie->mZombieType == ZombieType::ZOMBIE_GARGANTUAR || aZombie->mZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR))
+		if (aZombie->mHasHead && !aZombie->IsDeadOrDying() && aZombie->IsOnBoard() &&
+			(aZombie->mZombieType == ZombieType::ZOMBIE_GARGANTUAR || aZombie->mZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR ||
+			 aZombie->mZombieType == ZombieType::ZOMBIE_BULWARK_GARGANTUAR))
 		{
 			aCount++;
 		}
@@ -634,7 +686,8 @@ void Board::PutInMissingZombies(int theWaveNumber, ZombiePicker* theZombiePicker
 {
 	for (ZombieType aZombieType = ZombieType::ZOMBIE_NORMAL; aZombieType < ZombieType::NUM_ZOMBIE_TYPES; aZombieType = static_cast<ZombieType>(static_cast<int>(aZombieType) + 1))
 	{
-		if (theZombiePicker->mZombieTypeCount[aZombieType] <= 0 && aZombieType != ZombieType::ZOMBIE_YETI && CanZombieSpawnOnLevel(aZombieType, mLevel))
+		if (theZombiePicker->mZombieTypeCount[aZombieType] <= 0 && aZombieType != ZombieType::ZOMBIE_YETI &&
+			aZombieType != ZombieType::ZOMBIE_BULWARK_GARGANTUAR && CanZombieSpawnOnLevel(aZombieType, mLevel))
 		{
 			PutZombieInWave(aZombieType, theWaveNumber, theZombiePicker);
 		}
@@ -2213,7 +2266,9 @@ void Board::GetPlantsOnLawn(int theGridX, int theGridY, PlantsOnLawn* thePlantOn
 	thePlantOnLawn->mFlyingPlant = nullptr;
 	thePlantOnLawn->mNormalPlant = nullptr;
 	thePlantOnLawn->mSunflowerCount = 0;
-	thePlantOnLawn->mSunMagnetCount = 0;
+	thePlantOnLawn->mFumeGloomCount = 0;
+	thePlantOnLawn->mSunMagnetPlant = nullptr;
+	thePlantOnLawn->mMagnetCount = 0;
 
 	if (theGridX < 0 || theGridX >= GetNumPlayableColumns() || theGridY < 0 || theGridY >= MAX_GRID_SIZE_Y)
 		return;
@@ -2276,9 +2331,20 @@ void Board::GetPlantsOnLawn(int theGridX, int theGridY, PlantsOnLawn* thePlantOn
 				mPlants.DataArrayGetID(aPlant) > mPlants.DataArrayGetID(thePlantOnLawn->mNormalPlant))
 				thePlantOnLawn->mNormalPlant = aPlant;
 		}
-		else if (aSeedType == SeedType::SEED_SUN_MAGNET)
+		else if (aSeedType == SeedType::SEED_MAGNETSHROOM || aSeedType == SeedType::SEED_GOLD_MAGNET ||
+			aSeedType == SeedType::SEED_SUN_MAGNET)
 		{
-			++thePlantOnLawn->mSunMagnetCount;
+			++thePlantOnLawn->mMagnetCount;
+			if (thePlantOnLawn->mNormalPlant == nullptr ||
+				mPlants.DataArrayGetID(aPlant) > mPlants.DataArrayGetID(thePlantOnLawn->mNormalPlant))
+				thePlantOnLawn->mNormalPlant = aPlant;
+			if (aSeedType == SeedType::SEED_SUN_MAGNET && (thePlantOnLawn->mSunMagnetPlant == nullptr ||
+				mPlants.DataArrayGetID(aPlant) > mPlants.DataArrayGetID(thePlantOnLawn->mSunMagnetPlant)))
+				thePlantOnLawn->mSunMagnetPlant = aPlant;
+		}
+		else if (IsFumeGloomStackType(aSeedType))
+		{
+			++thePlantOnLawn->mFumeGloomCount;
 			if (thePlantOnLawn->mNormalPlant == nullptr ||
 				mPlants.DataArrayGetID(aPlant) > mPlants.DataArrayGetID(thePlantOnLawn->mNormalPlant))
 				thePlantOnLawn->mNormalPlant = aPlant;
@@ -2445,6 +2511,7 @@ MagnetItem* Board::GetSunMagnetExtraItems(PlantID thePlantID, bool theCreate)
 
 void Board::UpdateSunMagnetCollection()
 {
+	Sexy::FrameProfileScope aProfileScope(Sexy::FrameProfileMetric::SUN_MAGNET_ASSIGNMENT, true);
 	struct SunMagnetCandidate
 	{
 		Plant* mPlant;
@@ -2471,7 +2538,7 @@ void Board::UpdateSunMagnetCollection()
 			if (mSunMagnetOverdriveActive)
 			{
 				MagnetItem* anExtraItems = GetSunMagnetExtraItems(aPlantIDValue, true);
-				for (int i = 0; i < SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS; i++)
+				for (int i = 0; i < GetSunMagnetExtraItemCapacity(mSunMoney); i++)
 					if (anExtraItems[i].mItemType == MagnetItemType::MAGNET_ITEM_NONE)
 						++aAvailableClaims;
 			}
@@ -2560,7 +2627,9 @@ void Board::UpdatePlanternFlames()
 		--mPlanternFlameTick[aRow];
 		if (mPlanternFlameCountdown[aRow] % 15 == 0)
 		{
-			float aFireX = 280.0f + static_cast<float>(RandRangeInt(0, 560));
+			float aFirstFireX = static_cast<float>(GridToPixelX(0, aRow) + 40);
+			float aLastFireX = static_cast<float>(GridToPixelX(GetNumPlayableColumns() - 1, aRow) + 40);
+			float aFireX = RandRangeFloat(aFirstFireX, aLastFireX);
 			float aFireY = static_cast<float>(GetPosYBasedOnRow(aFireX, aRow));
 			Reanimation* aFire = mApp->AddReanimation(aFireX, aFireY, MakeRenderOrder(RenderLayer::RENDER_LAYER_LAWN_MOWER, aRow, 3),
 				ReanimationType::REANIM_JALAPENO_FIRE);
@@ -2597,7 +2666,9 @@ bool Board::TryLaunchTwinSunflowerSunBomb()
 			aTargets.push_back(aZombie);
 	}
 	int aSunCost = mTwinSunflowerHighOverdriveActive ? 600 : 300;
-	if (aTargets.empty() || !TakeSunMoney(aSunCost))
+	if (mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+		aSunCost *= 2;
+	if (aTargets.empty() || mSunMoney < aSunCost)
 		return false;
 
 	Zombie* aTarget = aTargets[RandRangeInt(0, static_cast<int>(aTargets.size()) - 1)];
@@ -2610,6 +2681,12 @@ bool Board::TryLaunchTwinSunflowerSunBomb()
 		ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB);
 	if (aProjectile == nullptr)
 		return false;
+	aProjectile->mMillionSunDamage = mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD;
+	if (!TakeSunMoney(aSunCost))
+	{
+		aProjectile->mDead = true;
+		return false;
+	}
 	aProjectile->mMotionType = ProjectileMotion::MOTION_LOBBED;
 	aProjectile->mPosX = aTargetX;
 	aProjectile->mPosY = aTargetY;
@@ -2736,13 +2813,15 @@ ZombieType Board::PickZombieType(int theZombiePoints, int theWaveIndex, ZombiePi
 		if (mApp->IsSurvivalMode())
 		{
 			int aFlags = GetSurvivalFlagsCompleted();
-			// Per-wave spawn cap for Gargantuar and Zomboni
-			if (aZombieType == ZombieType::ZOMBIE_GARGANTUAR || aZombieType == ZombieType::ZOMBIE_ZAMBONI)
+			// Per-wave spawn cap for Gargantuars and Zomboni.
+			if (aZombieType == ZombieType::ZOMBIE_GARGANTUAR || aZombieType == ZombieType::ZOMBIE_BULWARK_GARGANTUAR || aZombieType == ZombieType::ZOMBIE_ZAMBONI)
 			{
-				if (theZombiePicker->mZombieTypeCount[aZombieType] >= PvzpAnimateCurve(10, 50, aFlags, 2, 50, PvzpCurves::CURVE_LINEAR))
-				{
+				int aGargantuarCount = theZombiePicker->mZombieTypeCount[ZombieType::ZOMBIE_GARGANTUAR] +
+					theZombiePicker->mZombieTypeCount[ZombieType::ZOMBIE_BULWARK_GARGANTUAR];
+				int aCountForCap = aZombieType == ZombieType::ZOMBIE_ZAMBONI ?
+					theZombiePicker->mZombieTypeCount[aZombieType] : aGargantuarCount;
+				if (aCountForCap >= PvzpAnimateCurve(10, 50, aFlags, 2, 50, PvzpCurves::CURVE_LINEAR))
 					continue;
-				}
 			}
 			// Redeye caps: per flag wave, and total across non-flag waves
 			else if (aZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR)
@@ -2773,6 +2852,16 @@ ZombieType Board::PickZombieType(int theZombiePoints, int theWaveIndex, ZombiePi
 				aPickWeight = PvzpAnimateCurve(10, 50, aFlags, aPickWeight, aPickWeight / 4, PvzpCurves::CURVE_LINEAR);
 			}
 		}
+		if (mApp->IsSurvivalEndless(aGameMode))
+		{
+			// Split the existing normal-Garg pick weight 75/25, preserving the combined Garg rate.
+			if (aZombieType == ZombieType::ZOMBIE_GARGANTUAR)
+				aPickWeight = aPickWeight * 3 / 4;
+			else if (aZombieType == ZombieType::ZOMBIE_BULWARK_GARGANTUAR)
+				aPickWeight = GetZombieDefinition(ZombieType::ZOMBIE_GARGANTUAR).mPickWeight / 4;
+		}
+		else if (aZombieType == ZombieType::ZOMBIE_BULWARK_GARGANTUAR)
+			continue;
 		aZombieWeightArray[aPickCount].mItem = aZombieType;
 		aZombieWeightArray[aPickCount].mWeight = aPickWeight;
 		aPickCount++;
@@ -2824,11 +2913,13 @@ bool Board::RowCanHaveZombieType(int theRow, ZombieType theZombieType)
 	}
 	if (theZombieType == ZOMBIE_BOBSLED && !mIceTimer[theRow])
 	{
-		return false;
+		if (mSunMoney < TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+			return false;
 	}
 	if (theRow == 0 && !mApp->IsSurvivalMode())
 	{
-		if (theZombieType == ZombieType::ZOMBIE_GARGANTUAR || theZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR)
+		if (theZombieType == ZombieType::ZOMBIE_GARGANTUAR || theZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR ||
+			theZombieType == ZombieType::ZOMBIE_BULWARK_GARGANTUAR)
 		{
 			return false;
 		}
@@ -2894,6 +2985,9 @@ int Board::PickRowForNewZombie(ZombieType theZombieType)
 
 bool Board::CanAddBobSled()
 {
+	if (mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+		return true;
+
 	for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
 	{
 		if (mIceTimer[aRow] > 0 && mIceMinX[aRow] < 700)
@@ -3000,6 +3094,114 @@ static Plant* FindTopUnupgradedSunflower(Board* theBoard, int theGridX, int theG
 	return aTarget;
 }
 
+static bool IsMagnetStackType(SeedType theSeedType)
+{
+	return theSeedType == SeedType::SEED_MAGNETSHROOM || theSeedType == SeedType::SEED_GOLD_MAGNET ||
+		theSeedType == SeedType::SEED_SUN_MAGNET;
+}
+
+static Plant* FindTopUnupgradedMagnet(Board* theBoard, int theGridX, int theGridY)
+{
+	Plant* aTarget = nullptr;
+	for (Plant* aPlant : theBoard->mPlants)
+	{
+		if (aPlant->mDead || aPlant->mPlantCol != theGridX || aPlant->mRow != theGridY || aPlant->NotOnGround() ||
+			aPlant->mOnBungeeState == PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE ||
+			aPlant->mSeedType != SeedType::SEED_MAGNETSHROOM || !aPlant->IsUpgradableTo(SeedType::SEED_GOLD_MAGNET))
+			continue;
+		if (aTarget == nullptr || theBoard->mPlants.DataArrayGetID(aPlant) > theBoard->mPlants.DataArrayGetID(aTarget))
+			aTarget = aPlant;
+	}
+	return aTarget;
+}
+
+static Plant* FindTopUnupgradedFumeShroom(Board* theBoard, int theGridX, int theGridY)
+{
+	Plant* aTarget = nullptr;
+	for (Plant* aPlant : theBoard->mPlants)
+	{
+		if (aPlant->mDead || aPlant->mPlantCol != theGridX || aPlant->mRow != theGridY || aPlant->NotOnGround() ||
+			aPlant->mOnBungeeState == PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE ||
+			!aPlant->IsUpgradableTo(SeedType::SEED_GLOOMSHROOM))
+			continue;
+		if (aTarget == nullptr || theBoard->mPlants.DataArrayGetID(aPlant) > theBoard->mPlants.DataArrayGetID(aTarget))
+			aTarget = aPlant;
+	}
+	return aTarget;
+}
+
+struct CoffeeBeanColumnPlan
+{
+	std::vector<PlantID> mAffectedPlants;
+	std::vector<PlantID> mPlanterns;
+	int mPlanternTargetLaneCount = 0;
+};
+
+static CoffeeBeanColumnPlan BuildCoffeeBeanColumnPlan(Board* theBoard, int theColumn)
+{
+	CoffeeBeanColumnPlan aPlan;
+	for (int aRow = 0; aRow < theBoard->GetNumPlayableRows(); aRow++)
+	{
+		bool aLaneHasTarget = false;
+		for (Zombie* aZombie : theBoard->mZombies)
+		{
+			if (!aZombie->mDead && !aZombie->IsDeadOrDying() && aZombie->mRow == aRow && aZombie->EffectedByDamage(127U))
+			{
+				aLaneHasTarget = true;
+				break;
+			}
+		}
+		aPlan.mPlanternTargetLaneCount += aLaneHasTarget ? 1 : 0;
+	}
+
+	std::vector<PlantID> aEligiblePlanterns;
+	for (Plant* aPlant : theBoard->mPlants)
+	{
+		if (aPlant->mDead || !aPlant->IsOnBoard() || aPlant->mSquished || aPlant->mPlantCol != theColumn ||
+			aPlant->mOnBungeeState == PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE)
+			continue;
+
+		PlantID aPlantID = static_cast<PlantID>(theBoard->mPlants.DataArrayGetID(aPlant));
+		if (aPlant->mSeedType == SeedType::SEED_SUN_MAGNET ||
+			(aPlant->mIsAsleep && aPlant->mWakeUpCounter == 0))
+		{
+			aPlan.mAffectedPlants.push_back(aPlantID);
+		}
+		else if (aPlant->mSeedType == SeedType::SEED_PLANTERN && aPlan.mPlanternTargetLaneCount > 0)
+		{
+			aEligiblePlanterns.push_back(aPlantID);
+		}
+	}
+
+	uint64_t aRequiredProjectileCount = static_cast<uint64_t>(aEligiblePlanterns.size()) * aPlan.mPlanternTargetLaneCount;
+	uint64_t aAvailableProjectileCount = theBoard->mProjectiles.mMaxSize - theBoard->mProjectiles.mSize;
+	if (aRequiredProjectileCount <= aAvailableProjectileCount)
+	{
+		aPlan.mPlanterns = std::move(aEligiblePlanterns);
+		aPlan.mAffectedPlants.insert(aPlan.mAffectedPlants.end(), aPlan.mPlanterns.begin(), aPlan.mPlanterns.end());
+	}
+	return aPlan;
+}
+
+static bool IsCoffeeBeanChargeableByPlant(Board* theBoard)
+{
+	return theBoard->mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_BANK &&
+		!theBoard->mApp->mEasyPlantingCheat && !theBoard->HasConveyorBeltSeedBank();
+}
+
+static int64_t CoffeeBeanColumnSunCost(Board* theBoard, const CoffeeBeanColumnPlan& thePlan)
+{
+	if (thePlan.mAffectedPlants.empty())
+		return std::numeric_limits<int64_t>::max();
+
+	int64_t aSunCost = 0;
+	if (IsCoffeeBeanChargeableByPlant(theBoard))
+		aSunCost += static_cast<int64_t>(thePlan.mAffectedPlants.size()) *
+			theBoard->GetCurrentPlantCost(SeedType::SEED_INSTANT_COFFEE, SeedType::SEED_NONE);
+	aSunCost += static_cast<int64_t>(thePlan.mPlanterns.size()) * thePlan.mPlanternTargetLaneCount * 500;
+	return aSunCost;
+}
+
 PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedType)
 {
 	if (theGridX < 0 || theGridX >= GetNumPlayableColumns() || theGridY < 0 || theGridY >= MAX_GRID_SIZE_Y)
@@ -3045,38 +3247,27 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		{
 			return PlantingReason::PLANTING_NOT_HERE;
 		}
-		if (aPlantOnLawn.mNormalPlant && aPlantOnLawn.mNormalPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
+		CoffeeBeanColumnPlan aPlan = BuildCoffeeBeanColumnPlan(this, theGridX);
+		bool aClickedPlantIsEligible = aPlantOnLawn.mSunMagnetPlant != nullptr;
+		if (aPlantOnLawn.mNormalPlant != nullptr)
 		{
-			return PlantingReason::PLANTING_OK;
+			Plant* aClickedPlant = aPlantOnLawn.mNormalPlant;
+			aClickedPlantIsEligible = aClickedPlantIsEligible ||
+				(aClickedPlant->mIsAsleep && aClickedPlant->mWakeUpCounter == 0 &&
+				 aClickedPlant->mOnBungeeState != PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE);
+			PlantID aClickedPlantID = static_cast<PlantID>(mPlants.DataArrayGetID(aClickedPlant));
+			aClickedPlantIsEligible = aClickedPlantIsEligible ||
+				std::find(aPlan.mPlanterns.begin(), aPlan.mPlanterns.end(), aClickedPlantID) != aPlan.mPlanterns.end();
 		}
-		if (aPlantOnLawn.mNormalPlant && aPlantOnLawn.mNormalPlant->mSeedType == SeedType::SEED_PLANTERN)
+		if (!aClickedPlantIsEligible)
 		{
-			int aTargetLaneCount = 0;
-			for (int aRow = 0; aRow < GetNumPlayableRows(); aRow++)
-			{
-				bool aLaneHasTarget = false;
-				for (Zombie* aZombie : mZombies)
-				{
-					if (!aZombie->mDead && !aZombie->IsDeadOrDying() && aZombie->mRow == aRow && aZombie->EffectedByDamage(127U))
-					{
-						aLaneHasTarget = true;
-						break;
-					}
-				}
-				aTargetLaneCount += aLaneHasTarget ? 1 : 0;
-			}
-			int aRequiredSun = Plant::GetCost(SeedType::SEED_INSTANT_COFFEE) + aTargetLaneCount * 500;
-			if (aTargetLaneCount == 0 || mProjectiles.mMaxSize - mProjectiles.mSize < static_cast<unsigned int>(aTargetLaneCount) ||
-				!CanTakeSunMoney(aRequiredSun))
+			if (aPlantOnLawn.mNormalPlant != nullptr && aPlantOnLawn.mNormalPlant->mSeedType == SeedType::SEED_PLANTERN)
 				return PlantingReason::PLANTING_NOT_HERE;
-			return PlantingReason::PLANTING_OK;
-		}
-
-		if (!aPlantOnLawn.mNormalPlant || !aPlantOnLawn.mNormalPlant->mIsAsleep || aPlantOnLawn.mNormalPlant->mWakeUpCounter > 0 ||
-			aPlantOnLawn.mNormalPlant->mOnBungeeState == PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE)
-		{
 			return PlantingReason::PLANTING_NEEDS_SLEEPING;
 		}
+		int64_t aRequiredSun = CoffeeBeanColumnSunCost(this, aPlan);
+		if (aRequiredSun > std::numeric_limits<int>::max() || !CanTakeSunMoney(static_cast<int>(aRequiredSun)))
+			return PlantingReason::PLANTING_NOT_HERE;
 
 		return PlantingReason::PLANTING_OK;
 	}
@@ -3201,6 +3392,16 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 
 	if (aNormalPlant)
 	{
+		bool aIsFumeGloomStack = IsFumeGloomStackType(aNormalPlant->mSeedType);
+		if (mSunMoney >= TWO_MILLION_SUN_THRESHOLD && aIsFumeGloomStack &&
+			IsFumeGloomStackType(theSeedType))
+		{
+			if (theSeedType == SeedType::SEED_GLOOMSHROOM &&
+				FindTopUnupgradedFumeShroom(this, theGridX, theGridY) != nullptr)
+				return PlantingReason::PLANTING_OK;
+			return aPlantOnLawn.mFumeGloomCount < 5 ? PlantingReason::PLANTING_OK : PlantingReason::PLANTING_NOT_HERE;
+		}
+
 		bool aIsSunflowerStack = aNormalPlant->mSeedType == SeedType::SEED_SUNFLOWER || aNormalPlant->mSeedType == SeedType::SEED_TWINSUNFLOWER;
 		bool aWantsSunflowerLayer = theSeedType == SeedType::SEED_SUNFLOWER || theSeedType == SeedType::SEED_TWINSUNFLOWER;
 		if (aIsSunflowerStack && aWantsSunflowerLayer)
@@ -3209,8 +3410,12 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 				return PlantingReason::PLANTING_OK;
 			return aPlantOnLawn.mSunflowerCount < 5 ? PlantingReason::PLANTING_OK : PlantingReason::PLANTING_NOT_HERE;
 		}
-		if (aNormalPlant->mSeedType == SeedType::SEED_SUN_MAGNET && theSeedType == SeedType::SEED_SUN_MAGNET)
-			return aPlantOnLawn.mSunMagnetCount < 3 ? PlantingReason::PLANTING_OK : PlantingReason::PLANTING_NOT_HERE;
+		if (IsMagnetStackType(aNormalPlant->mSeedType) && IsMagnetStackType(theSeedType))
+		{
+			if (theSeedType == SeedType::SEED_GOLD_MAGNET && FindTopUnupgradedMagnet(this, theGridX, theGridY) != nullptr)
+				return PlantingReason::PLANTING_OK;
+			return aPlantOnLawn.mMagnetCount < 5 ? PlantingReason::PLANTING_OK : PlantingReason::PLANTING_NOT_HERE;
+		}
 		if (aNormalPlant->IsUpgradableTo(theSeedType) && aNormalPlant->mOnBungeeState != PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE)
 		{
 			return PlantingReason::PLANTING_OK;
@@ -3749,24 +3954,33 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 
 			if (aPlant->mSeedType == SeedType::SEED_CHOMPER)
 			{
-				aPlantDetails += std::format("\nOverdrive: {} (requires >15,000 sun; drains 100 sun/s while active)",
+				aPlantDetails += std::format("\nOverdrive: {} (>15,000 sun; digests 2x faster, heals up to 2 forward plants with quadratic group scaling (each gets base heal x recipient count); costs 100 sun/s)",
 					mChomperOverdriveActive ? "Active" : "Inactive");
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_KERNELPULT)
 			{
-				aPlantDetails += std::format("\nOverdrive: {} (requires >20,000 sun; drains 150 sun/s while active)",
+				aPlantDetails += std::format("\nOverdrive: {} (>20,000 sun; 4x attack rate, 50% butter chance, costs 150 sun/s per Kernel Pult. >=500,000: 90% butter chance, 2-5 butter volley, 200-tick butter; Giants immune; costs 175 sun/s)",
 					mKernelPultOverdriveActive ? "Active" : "Inactive");
+			}
+			else if (aPlant->mSeedType == SeedType::SEED_SUNFLOWER)
+			{
+				aPlantDetails += "\nSun production: sun value compounds by x1.2 per completed flag";
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_TWINSUNFLOWER)
 			{
-				aPlantDetails += std::format("\nOverdrive: Production {} (>1,000 sun); Sun Bomb {} (>=10,000 sun; 10%/event, 300 sun); High tier {} (>=100,000 sun; 30%/event, 600 sun)",
+				aPlantDetails += std::format("\nSun production: sun value compounds by x1.2 per completed flag; stops at >=1,000,000 sun\nOverdrive: Production {} (>1,000 sun; 2x faster); Bomb {} (>=10,000: 10%/event, 300 sun; >=100,000: 30%, 600 sun); Assault {} (>=1,000,000: fires every 112 ticks for 1,200 sun)",
 					mTwinSunflowerProductionOverdriveActive ? "Active" : "Inactive",
 					mTwinSunflowerBombardmentOverdriveActive ? "Active" : "Inactive",
-					mTwinSunflowerHighOverdriveActive ? "Active" : "Inactive");
+					mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? "Active" : "Inactive");
+			}
+			else if (aPlant->mSeedType == SeedType::SEED_WINTERMELON)
+			{
+				aPlantDetails += std::format("\nOverdrive: {} (>=1,000,000 sun; impact damage scales with group size. From 900,000 sun, quadratic scaling is ceil(sqrt(targets)), capped at 4x; cap increases by 2x per doubling of zombie HP. Bungees are exempt; costs 200 sun/s)",
+					mSunMoney >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD ? "Active" : "Inactive");
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
 			{
-				aPlantDetails += std::format("\nOverdrive: {} (requires >=5,000 sun; pickup value 6x, up to 15 per batch; costs 1 HP/s to a 1 HP floor)",
+				aPlantDetails += std::format("\nSun payout: flag value compounds by x1.2/flag, then magnet multiplies it by 2x or 6x. Overdrive {} (>=5,000 sun; 6x pickup, 15 slots or 35 at 150,000; loses 1 HP/s to 1 HP. Below 1,000,000 each pickup assigns 10-20 heal stacks at 25 sun/stack; at >=1,000,000 healing starts passively each second, prioritizes lowest HP percentage, and costs 50 sun/stack; keeps 5,000 reserve. Coffee Bean: aura/growth, collects 5s, loses 4 HP/s)",
 					mSunMagnetOverdriveActive ? "Active" : "Inactive");
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_GOLD_MAGNET)
@@ -3776,17 +3990,17 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_CATTAIL)
 			{
-				aPlantDetails += std::format("\nOverdrive: {} (>=25,000 sun; 4x attack speed, 6 shots/cycle, 125 sun/projectile)",
+				aPlantDetails += std::format("\nSeed cost: 75 sun\nOverdrive: {} (>=25,000 sun; about 4x attack rate, 6 shots/cycle, 125 sun/projectile; >=1,000,000: 375 sun/projectile and 1.5x damage)",
 					mCatTailOverdriveActive ? "Active" : "Inactive");
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_PLANTERN)
 			{
-				aPlantDetails += std::format("\nOverdrive: Production {} (>1,000 sun); Coffee Bean fires one Cob per targeted lane (500 sun/lane); flames cost 300 sun/lane each second for five seconds",
+				aPlantDetails += std::format("\nSun production: sun value compounds by x1.2 per completed flag\nOverdrive: Production {} (>1,000 sun; about 2x faster); shoots Cherry Bombs every 2,500 ticks for 150 sun when bank >=1,000; >=1,000,000: 2x attack rate and 300 sun/shot; >=50,000: impacts burn the lane. Coffee Bean: Cob/targeted lane (500 sun; 1,000 at >=1,000,000), then 5s flames (300 sun/lane/s)",
 					mSunMoney > 1000 ? "Active" : "Inactive");
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_GATLINGPEA)
 			{
-				aPlantDetails += std::format("\nOverdrive: {} (>=200,000 sun; 15%/burst for four matching special shots; pea shots pierce)",
+				aPlantDetails += std::format("\nOverdrive: {} (>=200,000 sun; 15% chance per 4-shot burst for matching smoky Butter, Cherry Bomb, or Melon peas; >=1,000,000: each shot has 50% Cherry Bomb chance for 150 sun, plus 300 sun/s upkeep)",
 					mGatlingPeaOverdriveActive ? "Active" : "Inactive");
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_SPIKEWEED || aPlant->mSeedType == SeedType::SEED_SPIKEROCK)
@@ -3797,7 +4011,7 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
 			{
-				aPlantDetails += std::format("\nOverdrive: {} (>=5,000 sun; restores 50 HP/s plus its own +50% boost; +25% max HP; adjacent plants get +50% per Pumpkin)",
+				aPlantDetails += std::format("\nOverdrive: {} (>=5,000 sun; restores 50 HP/s, gains 25% max HP; nearby Pumpkin healing bonus scales quadratically with adjacent Pumpkin count)",
 					mPumpkinOverdriveActive ? "Active" : "Inactive");
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_TALLNUT)
@@ -4215,6 +4429,11 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		return;
 	}
 
+	CoffeeBeanColumnPlan aCoffeeBeanPlan;
+	if (aPlantingSeedType == SeedType::SEED_INSTANT_COFFEE &&
+		mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_BANK)
+		aCoffeeBeanPlan = BuildCoffeeBeanColumnPlan(this, aGridX);
+
 	ClearAdvice(AdviceType::ADVICE_PLANTING_NEED_SLEEPING);
 	ClearAdvice(AdviceType::ADVICE_CANT_PLANT_THERE);
 	ClearAdvice(AdviceType::ADVICE_PLANTING_NEEDS_GROUND);
@@ -4241,7 +4460,10 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 
 	if (!mApp->mEasyPlantingCheat && mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_BANK && !HasConveyorBeltSeedBank())
 	{
-		if (!TakeSunMoney(GetCurrentPlantCost(aPlantingSeedType, SeedType::SEED_NONE)))
+		int64_t aPlantingSunCost = GetCurrentPlantCost(aPlantingSeedType, SeedType::SEED_NONE);
+		if (aPlantingSeedType == SeedType::SEED_INSTANT_COFFEE)
+			aPlantingSunCost *= static_cast<int64_t>(aCoffeeBeanPlan.mAffectedPlants.size());
+		if (aPlantingSunCost > std::numeric_limits<int>::max() || !TakeSunMoney(static_cast<int>(aPlantingSunCost)))
 		{
 			return;
 		}
@@ -4261,9 +4483,18 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		if (aUnupgradedSunflower != nullptr)
 			aPlantToUpgrade = aUnupgradedSunflower;
 	}
+	else if (aPlantingSeedType == SeedType::SEED_GOLD_MAGNET && aPlantOnLawn.mMagnetCount > 0)
+	{
+		aPlantToUpgrade = FindTopUnupgradedMagnet(this, aGridX, aGridY);
+	}
+	else if (aPlantingSeedType == SeedType::SEED_GLOOMSHROOM &&
+		mSunMoney >= TWO_MILLION_SUN_THRESHOLD && aPlantOnLawn.mFumeGloomCount > 0)
+	{
+		aPlantToUpgrade = FindTopUnupgradedFumeShroom(this, aGridX, aGridY);
+	}
 	if (aPlantToUpgrade && aPlantToUpgrade->IsUpgradableTo(aPlantingSeedType))
 	{
-		if (aPlantingSeedType == SeedType::SEED_GLOOMSHROOM && aPlantToUpgrade == aNormalPlant)
+		if (aPlantingSeedType == SeedType::SEED_GLOOMSHROOM)
 		{
 			aIsAwake = !aPlantToUpgrade->mIsAsleep;
 			aWakeUpCounter = aPlantToUpgrade->mWakeUpCounter;
@@ -4330,18 +4561,28 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		{
 			aPlant->mWakeUpCounter = aWakeUpCounter;
 		}
-		if (aPlantingSeedType == SeedType::SEED_INSTANT_COFFEE && aNormalPlant &&
-			aNormalPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
+		if (aPlantingSeedType == SeedType::SEED_INSTANT_COFFEE)
 		{
-			aNormalPlant->StartSunMagnetCoffeeBoost();
-		}
-		else if (aPlantingSeedType == SeedType::SEED_INSTANT_COFFEE && aNormalPlant &&
-			aNormalPlant->mSeedType == SeedType::SEED_PLANTERN)
-		{
-			if (!aNormalPlant->PlanternCoffeeBeanVolley())
+			int aCoffeeBeanCost = GetCurrentPlantCost(SeedType::SEED_INSTANT_COFFEE, SeedType::SEED_NONE);
+			for (PlantID aAffectedPlantID : aCoffeeBeanPlan.mAffectedPlants)
 			{
-				AddSunMoney(GetCurrentPlantCost(aPlantingSeedType, SeedType::SEED_NONE));
-				return;
+				Plant* aAffectedPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aAffectedPlantID));
+				if (aAffectedPlant == nullptr || aAffectedPlant->mDead)
+					continue;
+				if (aAffectedPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
+				{
+					aAffectedPlant->StartSunMagnetCoffeeBoost();
+				}
+				else if (std::find(aCoffeeBeanPlan.mPlanterns.begin(), aCoffeeBeanPlan.mPlanterns.end(), aAffectedPlantID) !=
+					aCoffeeBeanPlan.mPlanterns.end())
+				{
+					if (!aAffectedPlant->PlanternCoffeeBeanVolley() && IsCoffeeBeanChargeableByPlant(this))
+						AddSunMoney(aCoffeeBeanCost);
+				}
+				else if (aAffectedPlant->mIsAsleep && aAffectedPlant->mWakeUpCounter == 0)
+				{
+					aAffectedPlant->mWakeUpCounter = 100;
+				}
 			}
 		}
 
@@ -5386,6 +5627,7 @@ int Board::TotalZombiesHealthInWave(int theWaveIndex)
 void Board::SpawnZombieWave()
 {
 	mChallenge->SpawnZombieWave();
+	bool aWaveAlreadyHasBungee = false;
 	if (mApp->IsBungeeBlitzLevel())
 	{
 		BungeeDropGrid aBungeeDropGrid;
@@ -5395,6 +5637,8 @@ void Board::SpawnZombieWave()
 			ZombieType aZombieType = mZombiesInWave[mCurrentWave][i];
 			if (aZombieType == ZombieType::ZOMBIE_INVALID)
 				break;
+			if (aZombieType == ZombieType::ZOMBIE_BUNGEE)
+				aWaveAlreadyHasBungee = true;
 
 			if (aZombieType == ZombieType::ZOMBIE_BUNGEE || aZombieType == ZombieType::ZOMBIE_ZAMBONI)
 			{
@@ -5414,6 +5658,8 @@ void Board::SpawnZombieWave()
 			ZombieType aZombieType = mZombiesInWave[mCurrentWave][i];
 			if (aZombieType == ZombieType::ZOMBIE_INVALID)
 				break;
+			if (aZombieType == ZombieType::ZOMBIE_BUNGEE)
+				aWaveAlreadyHasBungee = true;
 
 			if (aZombieType == ZombieType::ZOMBIE_BOBSLED && !CanAddBobSled())
 			{
@@ -5427,6 +5673,21 @@ void Board::SpawnZombieWave()
 				AddZombie(aZombieType, mCurrentWave);
 			}
 		}
+	}
+	if (mSunMoney >= TWO_MILLION_SUN_THRESHOLD && mZombieAllowed[ZombieType::ZOMBIE_BUNGEE] &&
+		!mApp->IsBungeeBlitzLevel() && !aWaveAlreadyHasBungee)
+	{
+		bool anEndlessMode = mApp->IsSurvivalEndless(mApp->mGameMode);
+		bool aBypassesFirstAllowedWave = mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_POGO_PARTY ||
+			mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BOBSLED_BONANZA ||
+			mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_AIR_RAID;
+		bool aWaveAllowed = anEndlessMode ? IsFlagWave(mCurrentWave) :
+			(aBypassesFirstAllowedWave || mCurrentWave + 1 >= GetZombieDefinition(ZombieType::ZOMBIE_BUNGEE).mFirstAllowedWave);
+		bool aFrequencyWave = anEndlessMode
+			? ((mCurrentWave / std::max(1, GetNumWavesPerFlag())) % 2 == 0)
+			: (mCurrentWave % 2 == 0);
+		if (aWaveAllowed && aFrequencyWave)
+			AddZombie(ZombieType::ZOMBIE_BUNGEE, mCurrentWave);
 	}
 
 	if (mCurrentWave == mNumWaves - 1 && !mApp->IsContinuousChallenge())
@@ -5509,7 +5770,28 @@ static bool PlantHealthRatioLess(Board* theBoard, Plant* thePlantA, Plant* thePl
 
 static bool PlantCanRegenerate(Plant* thePlant)
 {
-	return !thePlant->mDead && thePlant->IsOnBoard() && thePlant->mPlantHealth > 0 && thePlant->mPlantMaxHealth > 0;
+	return thePlant != nullptr && !thePlant->mDead && thePlant->IsOnBoard() &&
+		thePlant->mPlantHealth > 0 && thePlant->mPlantMaxHealth > 0;
+}
+
+static int CountChomperHealTargets(Board* theBoard, PlantID theChomperID)
+{
+	int aTargetCount = 0;
+	for (const Board::ChomperHealAura& anAura : theBoard->mChomperHealAuras)
+	{
+		if (anAura.mChomperID != theChomperID)
+			continue;
+		Plant* aPlant = theBoard->mPlants.DataArrayTryToGet(static_cast<unsigned int>(anAura.mPlantID));
+		if (PlantCanRegenerate(aPlant) && aPlant->mPlantHealth < aPlant->mPlantMaxHealth)
+			++aTargetCount;
+	}
+	return aTargetCount;
+}
+
+static int ScaleAreaHealingQuadratically(int theBaseAmount, int theAffectedPlantCount)
+{
+	int64_t aScaledAmount = static_cast<int64_t>(theBaseAmount) * std::max(1, theAffectedPlantCount);
+	return static_cast<int>(std::clamp<int64_t>(aScaledAmount, 0, std::numeric_limits<int>::max()));
 }
 
 static int GetPlantHealingAmount(Board* theBoard, Plant* thePlant, int theBaseAmount)
@@ -5528,7 +5810,8 @@ static int GetPlantHealingAmount(Board* theBoard, Plant* thePlant, int theBaseAm
 		if (aIsHealingPumpkinItself || ((aColumnDistance != 0 || aRowDistance != 0) && aColumnDistance <= 1 && aRowDistance <= 1))
 			++aNearbyPumpkins;
 	}
-	return static_cast<int>((static_cast<int64_t>(theBaseAmount) * (2 + aNearbyPumpkins) + 1) / 2);
+	int64_t aNearbyPumpkinsSquared = static_cast<int64_t>(aNearbyPumpkins) * aNearbyPumpkins;
+	return static_cast<int>((static_cast<int64_t>(theBaseAmount) * (2 + aNearbyPumpkinsSquared) + 1) / 2);
 }
 
 static void HealPlant(Board* theBoard, Plant* thePlant, int theBaseAmount)
@@ -5538,12 +5821,23 @@ static void HealPlant(Board* theBoard, Plant* thePlant, int theBaseAmount)
 	int aHealingAmount = GetPlantHealingAmount(theBoard, thePlant, theBaseAmount);
 	thePlant->mPlantHealth = static_cast<int32_t>(std::min<int64_t>(
 		static_cast<int64_t>(thePlant->mPlantHealth) + aHealingAmount, thePlant->mPlantMaxHealth));
+	if (thePlant->mSeedType == SeedType::SEED_SPIKEROCK)
+	{
+		Reanimation* aBodyReanim = theBoard->mApp->ReanimationTryToGet(thePlant->mBodyReanimID);
+		if (aBodyReanim != nullptr)
+		{
+			aBodyReanim->AssignRenderGroupToTrack("bigspike3",
+				thePlant->mPlantHealth > thePlant->mPlantMaxHealth * 2 / 3 ? RENDER_GROUP_NORMAL : RENDER_GROUP_HIDDEN);
+			aBodyReanim->AssignRenderGroupToTrack("bigspike2",
+				thePlant->mPlantHealth > thePlant->mPlantMaxHealth / 3 ? RENDER_GROUP_NORMAL : RENDER_GROUP_HIDDEN);
+		}
+	}
 }
 
-static int ApplySunMagnetRegenerationPulse(Board* theBoard, Plant* thePlant, int theStackCount)
+static int ApplySunMagnetRegenerationPulse(Board* theBoard, Plant* thePlant, int theStackCount, int theAffectedPlantCount = 1)
 {
 	constexpr int aSunReserve = 5000;
-	constexpr int aSunCost = 25;
+	int aSunCost = theBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? 50 : 25;
 	constexpr int aHealthRestored = 25;
 	if (!PlantCanRegenerate(thePlant))
 		return 0;
@@ -5554,7 +5848,7 @@ static int ApplySunMagnetRegenerationPulse(Board* theBoard, Plant* thePlant, int
 		if (thePlant->mPlantHealth >= thePlant->mPlantMaxHealth || theBoard->mSunMoney < aSunReserve + aSunCost ||
 			!theBoard->TakeSunMoney(aSunCost))
 			break;
-		HealPlant(theBoard, thePlant, aHealthRestored);
+		HealPlant(theBoard, thePlant, ScaleAreaHealingQuadratically(aHealthRestored, theAffectedPlantCount));
 		++aAppliedStacks;
 	}
 	if (aAppliedStacks == 0)
@@ -5588,8 +5882,9 @@ static int ApplySunMagnetRegenerationPulse(Board* theBoard, Plant* thePlant, int
 void Board::StartSunMagnetRegeneration(Plant* theMagnet)
 {
 	constexpr int aSunReserve = 5000;
+	int aSunCost = mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? 50 : 25;
 	if (theMagnet == nullptr || theMagnet->mDead || !theMagnet->IsOnBoard() ||
-		theMagnet->mSeedType != SeedType::SEED_SUN_MAGNET || mSunMoney < aSunReserve + 25)
+		theMagnet->mSeedType != SeedType::SEED_SUN_MAGNET || mSunMoney < aSunReserve + aSunCost)
 		return;
 
 	std::vector<Plant*> aTargets;
@@ -5605,22 +5900,62 @@ void Board::StartSunMagnetRegeneration(Plant* theMagnet)
 		{ return PlantHealthRatioLess(this, thePlantA, thePlantB); });
 	PlantID aMagnetID = static_cast<PlantID>(mPlants.DataArrayGetID(theMagnet));
 	int aAssignmentCount = RandRangeInt(10, 20);
+	int aAffordableAssignments = (mSunMoney - aSunReserve) / aSunCost;
+	aAssignmentCount = std::min(aAssignmentCount, aAffordableAssignments);
+	struct HealAssignment
+	{
+		Plant* mPlant;
+		int mStackCount;
+	};
+	std::vector<HealAssignment> anAssignments;
+	anAssignments.reserve(aAssignmentCount);
 	for (int i = 0; i < aAssignmentCount; i++)
 	{
-		if (mSunMoney < aSunReserve + 25)
-			break;
-		Plant* aPlant = aTargets[Rand(static_cast<int>(aTargets.size()))];
+		Plant* aPlant;
+		if (mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+			aPlant = aTargets[static_cast<size_t>(i) % aTargets.size()];
+		else
+			aPlant = aTargets[Rand(static_cast<int>(aTargets.size()))];
+		auto anAssignment = std::find_if(anAssignments.begin(), anAssignments.end(),
+			[aPlant](const HealAssignment& theAssignment){ return theAssignment.mPlant == aPlant; });
+		if (anAssignment == anAssignments.end())
+			anAssignments.push_back({ aPlant, 1 });
+		else
+			++anAssignment->mStackCount;
+	}
+
+	std::vector<PlantID> anAffectedPlantIDs;
+	for (const SunMagnetHealStack& aStack : mSunMagnetHealStacks)
+	{
+		if (aStack.mMagnetID != aMagnetID)
+			continue;
+		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aStack.mPlantID));
+		if (PlantCanRegenerate(aPlant) && aPlant->mPlantHealth < aPlant->mPlantMaxHealth &&
+			std::find(anAffectedPlantIDs.begin(), anAffectedPlantIDs.end(), aStack.mPlantID) == anAffectedPlantIDs.end())
+			anAffectedPlantIDs.push_back(aStack.mPlantID);
+	}
+	for (const HealAssignment& anAssignment : anAssignments)
+	{
+		PlantID aPlantID = static_cast<PlantID>(mPlants.DataArrayGetID(anAssignment.mPlant));
+		if (std::find(anAffectedPlantIDs.begin(), anAffectedPlantIDs.end(), aPlantID) == anAffectedPlantIDs.end())
+			anAffectedPlantIDs.push_back(aPlantID);
+	}
+	int aAffectedPlantCount = std::max(1, static_cast<int>(anAffectedPlantIDs.size()));
+
+	for (const HealAssignment& anAssignment : anAssignments)
+	{
+		Plant* aPlant = anAssignment.mPlant;
 		PlantID aPlantID = static_cast<PlantID>(mPlants.DataArrayGetID(aPlant));
 		auto aStack = std::find_if(mSunMagnetHealStacks.begin(), mSunMagnetHealStacks.end(),
 			[aPlantID, aMagnetID](const SunMagnetHealStack& theStack)
 			{ return theStack.mPlantID == aPlantID && theStack.mMagnetID == aMagnetID; });
 		if (aStack == mSunMagnetHealStacks.end())
 		{
-			mSunMagnetHealStacks.push_back({ aPlantID, aMagnetID, 1, 0, 100 });
+			mSunMagnetHealStacks.push_back({ aPlantID, aMagnetID, anAssignment.mStackCount, 0, 100 });
 		}
 		else
 		{
-			aStack->mStackCount = std::min(aStack->mStackCount + 1, 1000);
+			aStack->mStackCount = std::min(aStack->mStackCount + anAssignment.mStackCount, 1000);
 			aStack->mElapsedTicks = 0;
 			if (aStack->mTicksUntilPulse < 1 || aStack->mTicksUntilPulse > 100)
 				aStack->mTicksUntilPulse = 100;
@@ -5628,7 +5963,7 @@ void Board::StartSunMagnetRegeneration(Plant* theMagnet)
 
 		if (aPlant->mPlantHealth < aPlant->mPlantMaxHealth)
 		{
-			if (ApplySunMagnetRegenerationPulse(this, aPlant, 1) == 0)
+			if (ApplySunMagnetRegenerationPulse(this, aPlant, anAssignment.mStackCount, aAffectedPlantCount) == 0)
 				break;
 		}
 		ShowPlantHealGlow(aPlant);
@@ -5718,7 +6053,9 @@ void Board::RestorePlantHealGlowsAfterLoad()
 		{
 			anAura->mTicksUntilPulse = 100;
 			int aHealAmount = mChomperOverdriveActive ? 50 : 25;
-			HealPlant(this, aPlant, aHealAmount);
+			int aTargetCount = CountChomperHealTargets(this, anAura->mChomperID);
+			if (aTargetCount > 0)
+				HealPlant(this, aPlant, ScaleAreaHealingQuadratically(aHealAmount, aTargetCount));
 			PlantID aPlantID = anAura->mPlantID;
 			for (PlantHealVisual& aVisual : mPlantHealVisuals)
 				if (aVisual.mPlantID == aPlantID) aVisual.mElapsedTicks = 0;
@@ -5880,7 +6217,7 @@ void Board::UpdatePlantHealGlows()
 	std::sort(aDueForPulse.begin(), aDueForPulse.end(), [this](Plant* thePlantA, Plant* thePlantB)
 		{ return PlantHealthRatioLess(this, thePlantA, thePlantB); });
 	for (Plant* aPlant : aDueForPulse)
-		ApplySunMagnetRegenerationPulse(this, aPlant, 1);
+		ApplySunMagnetRegenerationPulse(this, aPlant, 1, static_cast<int>(aDueForPulse.size()));
 
 	std::vector<SunMagnetHealStack*> aDueMagnetStacks;
 	for (auto aStack = mSunMagnetHealStacks.begin(); aStack != mSunMagnetHealStacks.end();)
@@ -5914,10 +6251,49 @@ void Board::UpdatePlantHealGlows()
 			return PlantHealthRatioLess(this, aPlantA, aPlantB);
 		return theStackA->mMagnetID < theStackB->mMagnetID;
 	});
+	std::unordered_map<PlantID, int> aSunMagnetTargetCounts;
+	if (!aDueMagnetStacks.empty())
+	{
+		for (const SunMagnetHealStack& aStack : mSunMagnetHealStacks)
+		{
+			Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aStack.mPlantID));
+			if (PlantCanRegenerate(aPlant) && aPlant->mPlantHealth < aPlant->mPlantMaxHealth)
+				++aSunMagnetTargetCounts[aStack.mMagnetID];
+		}
+	}
 	for (SunMagnetHealStack* aStack : aDueMagnetStacks)
 	{
 		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aStack->mPlantID));
-		ApplySunMagnetRegenerationPulse(this, aPlant, aStack->mStackCount);
+		int aTargetCount = aSunMagnetTargetCounts[aStack->mMagnetID];
+		ApplySunMagnetRegenerationPulse(this, aPlant, aStack->mStackCount, aTargetCount);
+	}
+
+	for (auto anAura = mChomperHealAuras.begin(); anAura != mChomperHealAuras.end();)
+	{
+		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(anAura->mPlantID));
+		Plant* aChomper = mPlants.DataArrayTryToGet(static_cast<unsigned int>(anAura->mChomperID));
+		bool aChomperIsActive = aChomper != nullptr && !aChomper->mDead && aChomper->IsOnBoard() &&
+			aChomper->mSeedType == SeedType::SEED_CHOMPER;
+		if (aPlant == nullptr || !PlantCanRegenerate(aPlant) || !aChomperIsActive)
+		{
+			anAura = mChomperHealAuras.erase(anAura);
+			continue;
+		}
+		--anAura->mTicksUntilPulse;
+		if (anAura->mTicksUntilPulse <= 0)
+		{
+			anAura->mTicksUntilPulse = 100;
+			int aTargetCount = CountChomperHealTargets(this, anAura->mChomperID);
+			if (aTargetCount > 0)
+			{
+				int aHealAmount = mChomperOverdriveActive ? 50 : 25;
+				HealPlant(this, aPlant, ScaleAreaHealingQuadratically(aHealAmount, aTargetCount));
+				PlantID aPlantID = anAura->mPlantID;
+				for (PlantHealVisual& aVisual : mPlantHealVisuals)
+					if (aVisual.mPlantID == aPlantID) aVisual.mElapsedTicks = 0;
+			}
+		}
+		++anAura;
 	}
 
 	for (auto aVisual = mPlantHealVisuals.begin(); aVisual != mPlantHealVisuals.end();)
@@ -6036,6 +6412,32 @@ void Board::UpdatePlantOverdrive()
 		return;
 
 	int aSunAtSecondStart = mSunMoney;
+	if (aSunAtSecondStart >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+	{
+		for (Zombie* aZombie : mZombies)
+		{
+			if (aZombie->mDead || aZombie->IsDeadOrDying() || aZombie->mBodyHealth <= 0 ||
+				aZombie->mBodyHealth >= aZombie->mBodyMaxHealth || aZombie->mBodyMaxHealth <= 0)
+				continue;
+
+			int aHealPercent = Rand(100) < 3 ? 50 : 25;
+			int64_t aHealAmount = (static_cast<int64_t>(aZombie->mBodyMaxHealth) * aHealPercent + 999) / 1000;
+			aZombie->mBodyHealth = std::min(aZombie->mBodyMaxHealth,
+				aZombie->mBodyHealth + static_cast<int>(aHealAmount));
+		}
+	}
+	if (aSunAtSecondStart >= TWO_MILLION_SUN_THRESHOLD)
+	{
+		for (Zombie* aZombie : mZombies)
+		{
+			if (aZombie->mDead || aZombie->IsDeadOrDying() || !aZombie->mIsEating ||
+				(aZombie->mZombieType != ZombieType::ZOMBIE_TRAFFIC_CONE && aZombie->mZombieType != ZombieType::ZOMBIE_PAIL) ||
+				aZombie->mBodyHealth <= 0 || aZombie->mBodyHealth >= aZombie->mBodyMaxHealth)
+				continue;
+
+			aZombie->mBodyHealth = std::min(aZombie->mBodyMaxHealth, aZombie->mBodyHealth + 25);
+		}
+	}
 	bool aHasGoldMagnet = false;
 	for (Plant* aPlant : mPlants)
 	{
@@ -6123,6 +6525,9 @@ void Board::UpdatePlantOverdrive()
 			continue;
 		if (mSunMagnetOverdriveActive && aPlant->mSeedType == SeedType::SEED_SUN_MAGNET && aPlant->mPlantHealth > 1)
 			aPlant->mPlantHealth--;
+		if (aSunAtSecondStart >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&
+			aPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
+			StartSunMagnetRegeneration(aPlant);
 		if (mPumpkinOverdriveActive && aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
 			HealPlant(this, aPlant, 50);
 		if (mTallNutOverdriveActive && aPlant->mSeedType == SeedType::SEED_TALLNUT)
@@ -6135,7 +6540,13 @@ void Board::UpdatePlantOverdrive()
 		if (mChomperOverdriveActive && aPlant->mSeedType == SeedType::SEED_CHOMPER)
 			aSunCost += 100;
 		if (mKernelPultOverdriveActive && aPlant->mSeedType == SeedType::SEED_KERNELPULT)
-			aSunCost += 150;
+			aSunCost += aSunAtSecondStart >= KERNEL_PULT_BUTTER_BARRAGE_SUN_THRESHOLD ? 175 : 150;
+		if (aSunAtSecondStart >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD &&
+			aPlant->mSeedType == SeedType::SEED_WINTERMELON)
+			aSunCost += 200;
+		if (aSunAtSecondStart >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&
+			aPlant->mSeedType == SeedType::SEED_GATLINGPEA)
+			aSunCost += 300;
 	}
 	if (aSunCost > 0)
 		TakeSunMoney(static_cast<int>(std::min<int64_t>(aSunCost, std::numeric_limits<int>::max())));
@@ -6146,8 +6557,45 @@ void Board::ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier, 
 	if (theZombie == nullptr || theFromTier == theToTier)
 		return;
 
-	int aOldMultiplier = ZombieHealthMultiplierForTier(theFromTier);
-	int aNewMultiplier = ZombieHealthMultiplierForTier(theToTier);
+	int aOldMultiplier = ZombieHealthMultiplierForZombie(theZombie, theFromTier);
+	int aNewMultiplier = ZombieHealthMultiplierForZombie(theZombie, theToTier);
+	bool anImpArmorAdded = false;
+	if (theZombie->mZombieType == ZombieType::ZOMBIE_IMP && theFromTier < 4 && theToTier >= 4 &&
+		theZombie->mHelmType == HelmType::HELMTYPE_NONE)
+	{
+		theZombie->mHelmType = HelmType::HELMTYPE_PAIL;
+		theZombie->mHelmHealth = 1100;
+		theZombie->mHelmMaxHealth = 1100;
+		anImpArmorAdded = true;
+		theZombie->mChilledCounter = 0;
+		if (theZombie->mIceTrapCounter > 0)
+			theZombie->RemoveIceTrap();
+		if (theZombie->mButteredCounter > 0)
+		{
+			theZombie->mButteredCounter = 0;
+			theZombie->RemoveButter();
+		}
+	}
+	if (theToTier >= 3 && theZombie->mButteredCounter > 0)
+	{
+		bool anIsGargantuar = theZombie->mZombieType == ZombieType::ZOMBIE_GARGANTUAR ||
+			theZombie->mZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR ||
+			theZombie->mZombieType == ZombieType::ZOMBIE_BULWARK_GARGANTUAR;
+		if (anIsGargantuar)
+		{
+			theZombie->mButteredCounter = 0;
+			theZombie->RemoveButter();
+		}
+		else
+		{
+			theZombie->mButteredCounter = std::min(theZombie->mButteredCounter, 200);
+		}
+	}
+	bool anImpArmorRemoved = theZombie->mZombieType == ZombieType::ZOMBIE_IMP && theFromTier >= 4 && theToTier < 4 &&
+		theZombie->mHelmType == HelmType::HELMTYPE_PAIL;
+	bool aBucketArmorAdded = theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE && theFromTier < 5 && theToTier >= 5 &&
+		theZombie->mHelmType != HelmType::HELMTYPE_PAIL;
+	bool aBucketArmorRemoved = theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE && theFromTier >= 5 && theToTier < 5;
 	auto aScaleHealth = [aOldMultiplier, aNewMultiplier](int32_t& theHealth)
 	{
 		if (theHealth <= 0)
@@ -6157,19 +6605,56 @@ void Board::ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier, 
 	};
 	aScaleHealth(theZombie->mBodyHealth);
 	aScaleHealth(theZombie->mBodyMaxHealth);
-	aScaleHealth(theZombie->mHelmHealth);
-	aScaleHealth(theZombie->mHelmMaxHealth);
+	if (anImpArmorAdded)
+	{
+		auto aScaleNewArmor = [aNewMultiplier](int32_t& theHealth)
+		{
+			int64_t aScaledHealth = static_cast<int64_t>(theHealth) * aNewMultiplier;
+			theHealth = static_cast<int32_t>(std::clamp<int64_t>(aScaledHealth, 1, std::numeric_limits<int32_t>::max()));
+		};
+		aScaleNewArmor(theZombie->mHelmHealth);
+		aScaleNewArmor(theZombie->mHelmMaxHealth);
+	}
+	else if (anImpArmorRemoved)
+	{
+		theZombie->mHelmType = HelmType::HELMTYPE_NONE;
+		theZombie->mHelmHealth = 0;
+		theZombie->mHelmMaxHealth = 0;
+	}
+	else
+	{
+		aScaleHealth(theZombie->mHelmHealth);
+		aScaleHealth(theZombie->mHelmMaxHealth);
+	}
 	aScaleHealth(theZombie->mShieldHealth);
 	aScaleHealth(theZombie->mShieldMaxHealth);
 	aScaleHealth(theZombie->mFlyingHealth);
 	aScaleHealth(theZombie->mFlyingMaxHealth);
+	if (aBucketArmorAdded)
+	{
+		theZombie->mTierBucketArmorMaxHealth = 1100 * aNewMultiplier;
+		theZombie->mTierBucketArmorHealth = theZombie->mTierBucketArmorMaxHealth;
+	}
+	else if (aBucketArmorRemoved)
+	{
+		theZombie->mTierBucketArmorHealth = 0;
+		theZombie->mTierBucketArmorMaxHealth = 0;
+	}
+	else if (theFromTier >= 5 && theToTier >= 5)
+	{
+		aScaleHealth(theZombie->mTierBucketArmorHealth);
+		aScaleHealth(theZombie->mTierBucketArmorMaxHealth);
+	}
 }
 
 int Board::GetZombieExplosiveDamage() const
 {
 	constexpr int aBaseExplosionDamage = 1800;
 	const int aHealthMultiplier = ZombieHealthMultiplierForTier(mZombieStrengthTier);
-	return std::max(1, static_cast<int>(std::lround(aBaseExplosionDamage / std::sqrt(static_cast<double>(aHealthMultiplier)))));
+	constexpr int aMaximumDamageReductionPercent = 75;
+	constexpr int aMinimumExplosionDamage = aBaseExplosionDamage * (100 - aMaximumDamageReductionPercent) / 100;
+	return std::max(aMinimumExplosionDamage,
+		static_cast<int>(std::lround(aBaseExplosionDamage / std::sqrt(static_cast<double>(aHealthMultiplier)))));
 }
 
 static bool IsZombieRainExcludedType(ZombieType theZombieType)
@@ -6335,6 +6820,33 @@ int Board::GetSurvivalFlagsCompleted()
 	return aCurrentWave / aWavesPerFlag + aFlagsCompleted;
 }
 
+int Board::GetFlagsCompletedForSunScaling()
+{
+	if (mApp->IsSurvivalMode())
+		return std::max(0, GetSurvivalFlagsCompleted());
+
+	int aCompletedFlags = mTotalSpawnedWaves / std::max(1, GetNumWavesPerFlag());
+	if (mTotalSpawnedWaves > 0 && IsFlagWave(mCurrentWave - 1) &&
+		mBoardFadeOutCounter < 0 && !mNextSurvivalStageCounter)
+	{
+		--aCompletedFlags;
+	}
+	return std::max(0, aCompletedFlags);
+}
+
+int Board::ScaleSunValueForCompletedFlags(int theSunValue)
+{
+	if (theSunValue <= 0)
+		return 0;
+
+	constexpr int aMaximumSunValue = INT32_MAX - 1000000;
+	long double aMultiplier = std::pow(1.2L, GetFlagsCompletedForSunScaling());
+	long double aScaledValue = std::round(static_cast<long double>(theSunValue) * aMultiplier);
+	if (!std::isfinite(aScaledValue) || aScaledValue >= aMaximumSunValue)
+		return aMaximumSunValue;
+	return static_cast<int>(std::clamp<long double>(aScaledValue, 1.0L, aMaximumSunValue));
+}
+
 void Board::SurvivalSaveScore()
 {
 	if (!mApp->IsSurvivalMode())
@@ -6382,7 +6894,8 @@ void Board::ZombiesWon(Zombie* theZombie)
 			aZombie->mZombiePhase == ZombiePhase::PHASE_RISING_FROM_GRAVE ||
 			aZombie->mZombiePhase == ZombiePhase::PHASE_DANCER_RISING)
 		{
-			if ((aZombie->mZombieType == ZombieType::ZOMBIE_GARGANTUAR || aZombie->mZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR) &&
+			if ((aZombie->mZombieType == ZombieType::ZOMBIE_GARGANTUAR || aZombie->mZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR ||
+				aZombie->mZombieType == ZombieType::ZOMBIE_BULWARK_GARGANTUAR) &&
 				aZombie->IsDeadOrDying() && aZombie->mPosX < 140)
 			{
 				aZombie->DieNoLoot();
@@ -6969,6 +7482,7 @@ void Board::SetTutorialState(TutorialState theTutorialState)
 
 void Board::UpdateGame()
 {
+	Sexy::FrameProfileScope aProfileScope(Sexy::FrameProfileMetric::BOARD_UPDATE);
 	UpdateGameObjects();
 	if (StageHasFog() && mFogBlownCountDown > 0)
 	{
@@ -7614,6 +8128,7 @@ static inline void AddUIRenderItem(std::vector<RenderItem>& theRenderList, Rende
 
 void Board::DrawGameObjects(Graphics* g)
 {
+	Sexy::FrameProfileScope aGatherScope(Sexy::FrameProfileMetric::RENDER_GATHER);
 	mRenderItems.clear();
 
 	{
@@ -7832,7 +8347,36 @@ void Board::DrawGameObjects(Graphics* g)
 		}
 	}
 
+	aGatherScope.Stop();
+	Sexy::FrameProfileBoardCounts aCounts;
+	aCounts.mPlants = { mPlants.mSize, mPlants.mMaxUsedCount, mPlants.mMaxSize };
+	aCounts.mZombies = { mZombies.mSize, mZombies.mMaxUsedCount, mZombies.mMaxSize };
+	aCounts.mProjectiles = { mProjectiles.mSize, mProjectiles.mMaxUsedCount, mProjectiles.mMaxSize };
+	aCounts.mCoins = { mCoins.mSize, mCoins.mMaxUsedCount, mCoins.mMaxSize };
+	aCounts.mGridItems = { mGridItems.mSize, mGridItems.mMaxUsedCount, mGridItems.mMaxSize };
+	aCounts.mMowers = { mLawnMowers.mSize, mLawnMowers.mMaxUsedCount, mLawnMowers.mMaxSize };
+	aCounts.mRenderItems = static_cast<uint32_t>(mRenderItems.size());
+	aCounts.mRenderCapacity = static_cast<uint32_t>(mRenderItems.capacity());
+	if (mApp->mEffectSystem != nullptr)
+	{
+		const auto& aParticles = mApp->mEffectSystem->mParticleHolder;
+		const auto& aReanimations = mApp->mEffectSystem->mReanimationHolder;
+		const auto& anAttachments = mApp->mEffectSystem->mAttachmentHolder;
+		if (aParticles)
+		{
+			aCounts.mParticles = { aParticles->mParticles.mSize, aParticles->mParticles.mMaxUsedCount, aParticles->mParticles.mMaxSize };
+			aCounts.mEmitters = { aParticles->mEmitters.mSize, aParticles->mEmitters.mMaxUsedCount, aParticles->mEmitters.mMaxSize };
+		}
+		if (aReanimations)
+			aCounts.mReanimations = { aReanimations->mReanimations.mSize, aReanimations->mReanimations.mMaxUsedCount, aReanimations->mReanimations.mMaxSize };
+		if (anAttachments)
+			aCounts.mAttachments = { anAttachments->mAttachments.mSize, anAttachments->mAttachments.mMaxUsedCount, anAttachments->mAttachments.mMaxSize };
+	}
+	Sexy::FrameProfiler::Get().SetBoardCounts(aCounts);
+	Sexy::FrameProfileScope aSortScope(Sexy::FrameProfileMetric::RENDER_SORT);
 	std::sort(mRenderItems.begin(), mRenderItems.end(), RenderItemSortFunc);
+	aSortScope.Stop();
+	Sexy::FrameProfileScope aRenderItemScope(Sexy::FrameProfileMetric::RENDER_ITEMS);
 
 	for (size_t i = 0; i < mRenderItems.size(); i++)
 	{
@@ -8990,6 +9534,7 @@ void Board::DrawUITop(Graphics* g)
 
 void Board::Draw(Graphics* g)
 {
+	Sexy::FrameProfileScope aProfileScope(Sexy::FrameProfileMetric::BOARD_DRAW);
 	if (mApp->GetDialog(Dialogs::DIALOG_STORE) || mApp->GetDialog(Dialogs::DIALOG_ALMANAC))
 		return;
 
@@ -10821,7 +11366,9 @@ void Board::DoFwoosh(int theRow)
 			aOriReanim->ReanimationDie();
 		}
 
-		float aPosX = 750.0f * i / 11.0f + 10.0f;
+			float aFirstFlameX = static_cast<float>(GridToPixelX(0, theRow) + 40);
+			float aLastFlameX = static_cast<float>(GridToPixelX(GetNumPlayableColumns() - 1, theRow) + 40);
+			float aPosX = aFirstFlameX + (aLastFlameX - aFirstFlameX) * i / 11.0f;
 		float aPosY = GetPosYBasedOnRow(aPosX + 10.0f, theRow) - 10.0f;
 		Reanimation* aFwoosh = mApp->AddReanimation(aPosX, aPosY, aRenderOrder, ReanimationType::REANIM_JALAPENO_FIRE);
 		aFwoosh->SetFramesForLayer("anim_flame");
@@ -10901,35 +11448,46 @@ bool Board::PlantingRequirementsMet(SeedType theSeedType)
 	}
 }
 
-int Board::KillAllZombiesInRadius(int theRow, int theX, int theY, int theRadius, int theRowRange, bool theBurn, int theDamageRangeFlags, int theExplosiveDamage)
+int Board::KillAllZombiesInRadius(int theRow, int theX, int theY, int theRadius, int theRowRange, bool theBurn, int theDamageRangeFlags, int theExplosiveDamage, bool theQuadraticDamageByTargetCount)
 {
 	int aKilledZombies = 0;
+	int aTargetCount = 0;
+	auto IsAffectedByBlast = [&](Zombie* theZombie)
+	{
+		if (theZombie->mDead || !theZombie->EffectedByDamage(theDamageRangeFlags))
+			return false;
+		Rect aZombieRect = theZombie->GetZombieRect();
+		int aRowDist = theZombie->mRow - theRow;
+		if (theZombie->mZombieType == ZombieType::ZOMBIE_BOSS)
+			aRowDist = 0;
+		return aRowDist <= theRowRange && aRowDist >= -theRowRange &&
+			GetCircleRectOverlap(theX, theY, theRadius, aZombieRect);
+	};
+	if (theQuadraticDamageByTargetCount)
+		for (Zombie* aZombie : mZombies)
+			if (IsAffectedByBlast(aZombie))
+				++aTargetCount;
 	for (Zombie* aZombie : mZombies)
 	{
-		if (aZombie->mDead)
-			continue;
-		if (aZombie->EffectedByDamage(theDamageRangeFlags))
+		if (IsAffectedByBlast(aZombie))
 		{
-			Rect aZombieRect = aZombie->GetZombieRect();
-			int aRowDist = aZombie->mRow - theRow;
-			if (aZombie->mZombieType == ZombieType::ZOMBIE_BOSS)
+			if (theBurn)
 			{
-				aRowDist = 0;
+				aZombie->ApplyBurn();
+				if (theQuadraticDamageByTargetCount && aTargetCount > 1 && !aZombie->IsDeadOrDying())
+				{
+					int aDamageMultiplier = GetQuadraticZombieDamageMultiplier(aZombie, aTargetCount);
+					aZombie->TakeDamage(GetZombieExplosiveDamage() * std::max(0, aDamageMultiplier - 1), 18U);
+				}
 			}
-
-			if (aRowDist <= theRowRange && aRowDist >= -theRowRange && GetCircleRectOverlap(theX, theY, theRadius, aZombieRect))
+			else
 			{
-				if (theBurn)
-				{
-					aZombie->ApplyBurn();
-				}
-				else
-				{
-					aZombie->TakeDamage(theExplosiveDamage > 0 ? theExplosiveDamage : GetZombieExplosiveDamage(), 18U);
-				}
-
-				aKilledZombies++;
+				int aDamage = theExplosiveDamage > 0 ? theExplosiveDamage : GetZombieExplosiveDamage();
+				if (theQuadraticDamageByTargetCount)
+					aDamage *= GetQuadraticZombieDamageMultiplier(aZombie, aTargetCount);
+				aZombie->TakeDamage(aDamage, 18U);
 			}
+			aKilledZombies++;
 		}
 	}
 

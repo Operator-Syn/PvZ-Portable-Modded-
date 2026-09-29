@@ -2089,6 +2089,7 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 				SyncEnumU32Array(c, aProjectile.mPiercedZombieIDs, Projectile::MAX_PIERCING_HITS);
 			});
 			AppendFieldWithSync(aOut, 102U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mPlanternCob); });
+			AppendFieldWithSync(aOut, 103U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mTargetTrackingEnded); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Projectile& aProjectile)
 		{
@@ -2105,6 +2106,8 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 				});
 			else if (aFieldId == 102U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mPlanternCob); });
+			else if (aFieldId == 103U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mTargetTrackingEnded); });
 			if (aProjectile.mPiercedZombieCount < 0 || aProjectile.mPiercedZombieCount > Projectile::MAX_PIERCING_HITS)
 			{
 				aProjectile.mPiercesZombies = false;

@@ -2164,7 +2164,20 @@ void Zombie::UpdateZombieGargantuar()
 					}
 					else
 					{
-						SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
+						PlantsOnLawn aPlantsOnTile;
+						mBoard->GetPlantsOnLawn(aPlant->mPlantCol, aPlant->mRow, &aPlantsOnTile);
+						Plant* aTallNut = aPlantsOnTile.mNormalPlant;
+						if (aTallNut && aTallNut->IsTallNut() &&
+							(aPlant == aTallNut || aPlant == aPlantsOnTile.mPumpkinPlant))
+						{
+							// Keep a Pumpkin shell intact while its layered Tall-nut body absorbs the hit.
+							// Chomper Nut shares the Tall-nut damage behavior through IsTallNut().
+							aTallNut->GargantuarSmashTakeDamage();
+						}
+						else
+						{
+							SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
+						}
 					}
 				}
 
@@ -6713,23 +6726,26 @@ Zombie* Zombie::FindZombieTarget()
 
 void Zombie::SquishAllInSquare(int theX, int theY, ZombieAttackType theAttackType)
 {
-	for (Plant* aPlant : mBoard->mPlants)
+	PlantsOnLawn aPlantsOnTile;
+	mBoard->GetPlantsOnLawn(theX, theY, &aPlantsOnTile);
+	Plant* aPlantLayers[] = {
+		aPlantsOnTile.mPumpkinPlant,
+		aPlantsOnTile.mNormalPlant,
+		aPlantsOnTile.mUnderPlant,
+		aPlantsOnTile.mFlyingPlant
+	};
+	for (Plant* aPlant : aPlantLayers)
 	{
-		if (aPlant->mDead)
+		if (aPlant == nullptr)
 			continue;
-		if (aPlant->mRow == theY && aPlant->mPlantCol == theX)
-		{
-			if (theAttackType == ZombieAttackType::ATTACKTYPE_DRIVE_OVER && aPlant->IsSpiky())
-			{
-				continue;
-			}
+		if (theAttackType == ZombieAttackType::ATTACKTYPE_DRIVE_OVER && aPlant->IsSpiky())
+			continue;
+		if (aPlant->mSeedType == SeedType::SEED_SPIKEROCK)
+			continue;
 
-			if (aPlant->mSeedType != SeedType::SEED_SPIKEROCK)
-			{
-				mBoard->mPlantsEaten++;
-				aPlant->Squish();
-			}
-		}
+		mBoard->mPlantsEaten++;
+		aPlant->Squish();
+		return;
 	}
 }
 

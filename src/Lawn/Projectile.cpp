@@ -35,6 +35,7 @@
 #include "Widget/AchievementsScreen.h"
 #include <algorithm>
 #include <array>
+#include <cstdint>
 
 constinit const ProjectileDefinition gProjectileDefinition[] = {
 	{ .mProjectileType = ProjectileType::PROJECTILE_PEA, .mImageRow = 0, .mDamage = 20 },
@@ -68,6 +69,7 @@ Projectile::Projectile()
 	mPiercesZombies = false;
 	mPiercedZombieCount = 0;
 	mPlanternCob = false;
+	mPlanternAutoCoffeeBean = false;
 	mTargetTrackingEnded = false;
 	mCattailRedirectionCount = 0;
 	std::fill_n(mPiercedZombieIDs, MAX_PIERCING_HITS, ZombieID::ZOMBIEID_NULL);
@@ -106,8 +108,11 @@ void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, in
 	mPiercesZombies = false;
 	mPiercedZombieCount = 0;
 	mPlanternCob = false;
+	mPlanternAutoCoffeeBean = false;
 	mGatlingCherryShot = false;
 	mMillionSunDamage = false;
+	mTwoMillionSunCatTailDamage = false;
+	mWintermelonCherryShot = false;
 	std::fill(std::begin(mPiercedZombieIDs), std::end(mPiercedZombieIDs), ZombieID::ZOMBIEID_NULL);
 	mOnHighGround = mBoard->mGridSquareType[aGridX][theRow] == GridSquareType::GRIDSQUARE_HIGH_GROUND;
 	if (mBoard->StageHasRoof() && theX < 480)
@@ -305,7 +310,15 @@ void Projectile::CheckForCollision()
 		Die();
 		return;
 	}
-	if (mProjectileType == ProjectileType::PROJECTILE_SPIKE &&
+	if (mProjectileType == ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB &&
+		mTargetZombieID == ZombieID::ZOMBIEID_NULL && mTargetTrackingEnded &&
+		((mVelX >= 0.0f && mPosX + mWidth >= mApp->mWidth - 20.0f) ||
+			(mVelX < 0.0f && mPosX <= 20.0f)))
+	{
+		DoImpact(nullptr);
+		return;
+	}
+	if ((mProjectileType == ProjectileType::PROJECTILE_SPIKE || mProjectileType == ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB) &&
 		(mPosY > mApp->mHeight || mPosY + mHeight < 0.0f))
 	{
 		Die();
@@ -540,7 +553,9 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 	for (Zombie* aZombie : anAffectedZombies)
 	{
 		unsigned int aDamageFlags = GetDamageFlags(aZombie);
-		int aDamageMultiplier = aQuadraticWintermelonOverdrive || aQuadraticTwinSunflowerBomb ?
+		bool aApplyQuadraticMultiplier = aQuadraticTwinSunflowerBomb ||
+			(aQuadraticWintermelonOverdrive && aZombie != theZombie);
+		int aDamageMultiplier = aApplyQuadraticMultiplier ?
 			mBoard->GetQuadraticZombieDamageMultiplier(aZombie, static_cast<int>(anAffectedZombies.size())) : 1;
 		if (aZombie == theZombie)
 			aZombie->TakeDamage(aOriginalDamage * aDamageMultiplier, aDamageFlags);
@@ -568,6 +583,17 @@ void Projectile::UpdateLobMotion()
 		mPosY = mBoard->GridToPixelY(aCobTargetCol, mCobTargetRow);
 		mShadowY = mPosY + 67.0f;
 		mRotation = -PI / 2;
+	}
+
+	if (mProjectileType == ProjectileType::PROJECTILE_BASKETBALL && mCobTargetX > 0.0f)
+	{
+		mRow = mCobTargetRow;
+		int aRemainingFlight = std::max(1, 120 - mProjectileAge);
+		float aTargetGroundY = mBoard->GetPosYBasedOnRow(mCobTargetX, mCobTargetRow) + 67.0f;
+		float aProjectileGroundOffset = mShadowY - mPosY;
+		mVelX = (mCobTargetX - mPosX) / aRemainingFlight;
+		mVelY = (aTargetGroundY - aProjectileGroundOffset - mPosY) / aRemainingFlight;
+		mShadowY += mVelY;
 	}
 
 	if ((IsPultProjectile(mProjectileType) || mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB) &&
@@ -716,8 +742,13 @@ void Projectile::UpdateLobMotion()
 	{
 		int aBeforeGargantuarCount = mBoard->GetLiveGargantuarCount();
 		if (mPlanternCob)
+		{
+			int aPlanternCobDamage = std::max(1, mBoard->GetZombieExplosiveDamage() / 2);
+			if (mPlanternAutoCoffeeBean)
+				aPlanternCobDamage = std::max(1, static_cast<int>((static_cast<int64_t>(aPlanternCobDamage) * 85 + 50) / 100));
 			mBoard->KillAllZombiesInRadius(mRow, mPosX + 80, mPosY + 40, 115, 1, false, mDamageRangeFlags,
-				std::max(1, mBoard->GetZombieExplosiveDamage() / 2));
+				aPlanternCobDamage);
+		}
 		else
 			mBoard->KillAllZombiesInRadius(mRow, mPosX + 80, mPosY + 40, 115, 1, true, mDamageRangeFlags);
 		int aAfterGargantuarCount = mBoard->GetLiveGargantuarCount();
@@ -725,7 +756,7 @@ void Projectile::UpdateLobMotion()
 		if (mBoard->mGargantuarsKillsByCornCob >= 2)
 			ReportAchievement::GiveAchievement(mApp, PopcornParty, true);
 		if (mPlanternCob)
-			mBoard->StartPlanternFlame(mRow);
+			mBoard->StartPlanternFlame(mRow, mPlanternAutoCoffeeBean);
 
 		DoImpact(nullptr);
 	}
@@ -744,13 +775,13 @@ void Projectile::UpdateNormalMotion()
 	else if (mMotionType == ProjectileMotion::MOTION_HOMING)
 	{
 		Zombie* aZombie = mBoard->ZombieTryToGet(mTargetZombieID);
-		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && !mTargetTrackingEnded &&
+		if (mProjectileType == ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB && mTargetZombieID != ZombieID::ZOMBIEID_NULL &&
 			(!aZombie || aZombie->IsDeadOrDying() || !aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags))))
 		{
-			Zombie* aClosestTarget = nullptr;
-			float aClosestDistance = 0.0f;
-			if (mCattailRedirectionCount < 1)
+			if (!mTargetTrackingEnded)
 			{
+				Zombie* aClosestTarget = nullptr;
+				float aClosestDistance = 0.0f;
 				for (Zombie* aCandidate : mBoard->mZombies)
 				{
 					if (aCandidate->mDead || aCandidate->IsDeadOrDying() ||
@@ -766,17 +797,114 @@ void Projectile::UpdateNormalMotion()
 						aClosestDistance = aDistance;
 					}
 				}
+
+				if (aClosestTarget != nullptr)
+				{
+					aZombie = aClosestTarget;
+					mTargetZombieID = mBoard->ZombieGetID(aClosestTarget);
+					mTargetTrackingEnded = true;
+				}
+			}
+
+			if (mTargetZombieID == ZombieID::ZOMBIEID_NULL || !aZombie || aZombie->IsDeadOrDying() ||
+				!aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
+			{
+				mTargetTrackingEnded = true;
+				mTargetZombieID = ZombieID::ZOMBIEID_NULL;
+
+				std::array<int, MAX_GRID_SIZE_Y> aUnoccupiedRows{};
+				int aUnoccupiedRowCount = 0;
+				for (int aRow = 0; aRow < mBoard->GetNumPlayableRows(); aRow++)
+				{
+					bool aRowOccupied = mBoard->mPlanternFlameCountdown[aRow] > 0;
+					for (Projectile* aOther : mBoard->mProjectiles)
+					{
+						if (aOther != this && !aOther->mDead &&
+							aOther->mProjectileType == ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB && aOther->mRow == aRow)
+						{
+							aRowOccupied = true;
+							break;
+						}
+					}
+					if (!aRowOccupied)
+						aUnoccupiedRows[aUnoccupiedRowCount++] = aRow;
+				}
+
+				int aLaneRow = aUnoccupiedRowCount > 0
+					? aUnoccupiedRows[Sexy::Rand(aUnoccupiedRowCount)]
+					: Sexy::Rand(mBoard->GetNumPlayableRows());
+				mRow = aLaneRow;
+
+				float aDirectionX = mVelX < 0.0f ? -1.0f : 1.0f;
+				if (std::abs(mVelX) < 0.001f && Sexy::Rand(2) == 0)
+					aDirectionX = -1.0f;
+				float aTargetCenterX = aDirectionX > 0.0f ? mApp->mWidth - 20.0f : 20.0f;
+				float aTargetCenterY = mBoard->GetPosYBasedOnRow(aTargetCenterX, aLaneRow) + 50.0f;
+				float aDeltaX = aTargetCenterX - (mPosX + mWidth / 2.0f);
+				float aDeltaY = aTargetCenterY - (mPosY + mHeight / 2.0f);
+				float aDistance = std::sqrt(aDeltaX * aDeltaX + aDeltaY * aDeltaY);
+				if (aDistance > 0.0f)
+				{
+					mVelX = aDeltaX * 2.0f / aDistance;
+					mVelY = aDeltaY * 2.0f / aDistance;
+				}
+				else
+				{
+					mVelX = aDirectionX * 2.0f;
+					mVelY = 0.0f;
+				}
+			}
+		}
+
+		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && mMotionType == ProjectileMotion::MOTION_HOMING &&
+			!mTargetTrackingEnded &&
+			(!aZombie || aZombie->IsDeadOrDying() || !aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags))))
+		{
+			Zombie* aClosestTarget = nullptr;
+			float aClosestDistance = 0.0f;
+			int aClosestLeftEdgeX = 0;
+			bool aClosestIsBalloon = false;
+			if (mCattailRedirectionCount < 1)
+			{
+				for (Zombie* aCandidate : mBoard->mZombies)
+				{
+					if (aCandidate->mDead || aCandidate->IsDeadOrDying() ||
+						!aCandidate->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
+						continue;
+
+					Rect aCandidateRect = aCandidate->GetZombieRect();
+					float aDistance = Distance2D(mPosX + mWidth / 2.0f, mPosY + mHeight / 2.0f,
+						aCandidateRect.mX + aCandidateRect.mWidth / 2.0f, aCandidateRect.mY + aCandidateRect.mHeight / 2.0f);
+					bool anIsBalloon = aCandidate->mZombieType == ZombieType::ZOMBIE_BALLOON;
+					bool aHigherPriority = aClosestTarget == nullptr;
+					if (aClosestTarget != nullptr)
+					{
+						if (anIsBalloon != aClosestIsBalloon)
+							aHigherPriority = anIsBalloon;
+						else if (aCandidateRect.mX != aClosestLeftEdgeX)
+							aHigherPriority = aCandidateRect.mX < aClosestLeftEdgeX;
+						else
+							aHigherPriority = aDistance < aClosestDistance;
+					}
+					if (aHigherPriority)
+					{
+						aClosestTarget = aCandidate;
+						aClosestDistance = aDistance;
+						aClosestLeftEdgeX = aCandidateRect.mX;
+						aClosestIsBalloon = anIsBalloon;
+					}
+				}
 			}
 
 			if (aClosestTarget != nullptr)
 			{
 				aZombie = aClosestTarget;
 				mTargetZombieID = mBoard->ZombieGetID(aClosestTarget);
-				++mCattailRedirectionCount;
+				mCattailRedirectionCount = 1;
 			}
 			else
 			{
-				// Once no redirect remains available, coast on the last velocity without tracking future waves.
+				// Once its single redirect is spent or no valid target remains, coast without tracking future waves.
 				mTargetZombieID = ZombieID::ZOMBIEID_NULL;
 				mTargetTrackingEnded = true;
 			}
@@ -977,19 +1105,21 @@ void Projectile::DoImpact(Zombie* theZombie)
 		mApp->PlayFoley(FoleyType::FOLEY_JUICY);
 		int aImpactX = static_cast<int>(mPosX + 40.0f);
 		int aImpactY = static_cast<int>(mPosY + mPosZ + 40.0f);
-		mBoard->KillAllZombiesInRadius(mRow, aImpactX, aImpactY, 115, 1, true, mDamageRangeFlags, 0,
-			mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB && mMillionSunDamage);
+		int aImpactRow = theZombie != nullptr ? theZombie->mRow : mRow;
+		mBoard->KillAllZombiesInRadius(aImpactRow, aImpactX, aImpactY, 115, 1, true, mDamageRangeFlags, 0,
+			(mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB && mMillionSunDamage) ||
+			mWintermelonCherryShot);
 		mApp->AddPvzpParticle(aImpactX, aImpactY, static_cast<int>(RenderLayer::RENDER_LAYER_TOP), ParticleEffect::PARTICLE_POWIE);
 		mBoard->ShakeBoard(3, -4);
 		if (mProjectileType == ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB && mBoard->mSunMoney >= 50000)
 		{
 			mApp->PlayFoley(FoleyType::FOLEY_JALAPENO_IGNITE);
 			mApp->PlayFoley(FoleyType::FOLEY_JUICY);
-			mBoard->DoFwoosh(mRow);
-			mBoard->mIceTimer[mRow] = 20;
+			mBoard->DoFwoosh(aImpactRow);
+			mBoard->mIceTimer[aImpactRow] = 20;
 			for (Zombie* aZombie : mBoard->mZombies)
 			{
-				if (!aZombie->mDead && (aZombie->mZombieType == ZombieType::ZOMBIE_BOSS || aZombie->mRow == mRow) &&
+				if (!aZombie->mDead && (aZombie->mZombieType == ZombieType::ZOMBIE_BOSS || aZombie->mRow == aImpactRow) &&
 					aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
 				{
 					aZombie->RemoveColdEffects();
@@ -998,7 +1128,7 @@ void Projectile::DoImpact(Zombie* theZombie)
 			}
 			for (GridItem* aGridItem : mBoard->mGridItems)
 			{
-				if (!aGridItem->mDead && aGridItem->mGridY == mRow && aGridItem->mGridItemType == GridItemType::GRIDITEM_LADDER)
+				if (!aGridItem->mDead && aGridItem->mGridY == aImpactRow && aGridItem->mGridItemType == GridItemType::GRIDITEM_LADDER)
 					aGridItem->GridItemDie();
 			}
 			Zombie* aBossZombie = mBoard->GetBossZombie();
@@ -1031,7 +1161,13 @@ void Projectile::DoImpact(Zombie* theZombie)
 		unsigned int aDamageFlags = GetDamageFlags(theZombie);
 		int aDamage = GetProjectileDef().mDamage;
 		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && mMillionSunDamage)
-			aDamage = aDamage * 3 / 2;
+			aDamage *= 5;
+		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && mTwoMillionSunCatTailDamage)
+		{
+			int64_t aCurrentBodyHealth = std::max(0, theZombie->mBodyHealth);
+			int aCurrentBodyHealthBonus = static_cast<int>((aCurrentBodyHealth * 15 + 999) / 1000);
+			aDamage += std::max(50, aCurrentBodyHealthBonus);
+		}
 		theZombie->TakeDamage(aDamage, aDamageFlags);
 	}
 

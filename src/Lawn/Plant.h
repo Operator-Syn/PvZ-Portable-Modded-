@@ -242,16 +242,17 @@ public:
 	void                    DoSpecial();
 	void                    Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY,
 		int theWintermelonVolleyIndex = -1, bool theFireWintermelonCherryBomb = false, bool theSkipCatTailOverdriveVolley = false,
-		int theKernelPultVolleyIndex = -1, int theKernelPultVolleySize = 0, bool theMillionSunCatTailVolley = false);
+		int theKernelPultVolleyIndex = -1, int theKernelPultVolleySize = 0, bool theMillionSunCatTailVolley = false,
+		bool theTwoMillionSunCatTailVolley = false);
 	Zombie*                 FindTargetZombie(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY,
 		const std::vector<Zombie*>* theExcludedZombies = nullptr);
 	void                    Die();
 	void                    UpdateProductionPlant();
 	void                    UpdatePlanternAttack();
 	bool                    HasPlanternTarget();
-	bool                    PlanternCoffeeBeanVolley();
+	bool                    PlanternCoffeeBeanVolley(bool theAutoCoffeeBean = false);
 	void                    FirePlanternBomb(Zombie* theTarget);
-	bool                    FirePlanternCobBomb(Zombie* theTarget);
+	bool                    FirePlanternCobBomb(Zombie* theTarget, bool theAutoCoffeeBean = false);
 	void                    UpdateShooter();
 	bool                    FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY);
 	void                    LaunchThreepeater();
@@ -318,6 +319,8 @@ public:
 	void                    UpdateReanimColor();
 	bool                    IsUpgradableTo(SeedType theUpgradedType);
 	bool                    IsPartOfUpgradableTo(SeedType theUpgradedType);
+	bool                    IsChomper() const;
+	bool                    IsTallNut() const;
 	void                    UpdateCobCannon();
 	void                    CobCannonFire(int theTargetX, int theTargetY);
 	void                    UpdateGoldMagnetShroom();
@@ -335,6 +338,7 @@ public:
 	void                    UpdateImitater();
 	void                    UpdateReanim();
 	void                    SpikyTakeDamage();
+	void                    GargantuarSmashTakeDamage();
 	bool                    IsSpiky();
 	static void  PreloadPlantResources(SeedType theSeedType);
 	bool         IsInPlay();

@@ -704,7 +704,7 @@ void StoreScreen::Update()
 				mShakeX = 0;
 				if (mHatchTimer > 35)
 				{
-					mShakeY = RandRangeInt(1, 3);
+					mShakeY = static_cast<int>(RandRangeInt(1, 3) * mApp->GetScreenShakeScale());
 				}
 				else
 				{

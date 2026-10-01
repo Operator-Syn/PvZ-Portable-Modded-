@@ -123,6 +123,12 @@ static int ZombieStrengthTierForSun(int theSunAmount)
 	return aTier;
 }
 
+static int ZombieStrengthSunForTier(int theTier)
+{
+	const int aClampedTier = std::clamp(theTier, 0, static_cast<int>(ZOMBIE_STRENGTH_TIERS.size()) - 1);
+	return ZOMBIE_STRENGTH_TIERS[aClampedTier].mSunThreshold;
+}
+
 static int ZombieHealthMultiplierForTier(int theTier)
 {
 	const int aClampedTier = std::clamp(theTier, 0, static_cast<int>(ZOMBIE_STRENGTH_TIERS.size()) - 1);
@@ -151,7 +157,7 @@ static int ZombieHealthMultiplierForZombie(const Zombie* theZombie, int theTier)
 int Board::GetQuadraticZombieDamageMultiplier(const Zombie* theZombie, int theTargetCount) const
 {
 	const int aFullMultiplier = std::max(1, theTargetCount);
-	if (mSunMoney < QUADRATIC_RESISTANCE_SUN_THRESHOLD ||
+	if (mZombieTierSunMoney < QUADRATIC_RESISTANCE_SUN_THRESHOLD ||
 		theZombie == nullptr || theZombie->mZombieType == ZombieType::ZOMBIE_BUNGEE)
 		return aFullMultiplier;
 
@@ -495,6 +501,7 @@ bool Board::LoadGame(const std::string& theFileName)
 	mPumpkinOverdriveActive = false;
 	mTallNutOverdriveActive = false;
 	mZombieStrengthTier = 0;
+	mZombieTierSunMoney = 0;
 	mAutoReuseEndlessSeeds = false;
 	mZombieRainActive = false;
 	mZombieRainCountdown = 0;
@@ -1506,6 +1513,7 @@ void Board::InitLevel()
 	{
 		mSunMoney = 50;
 	}
+	mZombieTierSunMoney = mSunMoney;
 
 	memset(mRowPickingArray, 0, sizeof(mRowPickingArray));
 	for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
@@ -3489,7 +3497,6 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		return aNormalPlant->mOnBungeeState == PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE
 			? PlantingReason::PLANTING_NOT_HERE : PlantingReason::PLANTING_OK;
 	}
-	if (mSunMoney >= PLANT_LAYERING_SUN_THRESHOLD)
 	{
 		if (theSeedType == SeedType::SEED_CATTAIL && aPlantOnLawn.mCatTailCount > 0)
 			return aPlantOnLawn.mCatTailCount < 5 ? PlantingReason::PLANTING_OK : PlantingReason::PLANTING_NOT_HERE;
@@ -3591,7 +3598,7 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	if (aNormalPlant)
 	{
 		bool aIsFumeGloomStack = IsFumeGloomStackType(aNormalPlant->mSeedType);
-		if (mSunMoney >= PLANT_LAYERING_SUN_THRESHOLD && aIsFumeGloomStack &&
+		if (aIsFumeGloomStack &&
 			IsFumeGloomStackType(theSeedType))
 		{
 			if (theSeedType == SeedType::SEED_GLOOMSHROOM &&
@@ -4175,7 +4182,7 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_TWINSUNFLOWER)
 			{
-				aPlantDetails += std::format("\nSun production: sun value compounds by x1.2 per completed flag; stops at >=1,000,000 sun\nOverdrive: Production {} (>1,000 sun; 2x faster); Bomb {} (>=10,000: 10%/event, 300 sun; >=100,000: 30%, 600 sun); Assault {} (>=1,000,000: fires every 112 ticks for 1,200 sun)",
+				aPlantDetails += std::format("\nSun production: sun value compounds by x1.2 per completed flag; stops at >=1,750,000 sun\nOverdrive: Production {} (>1,000 sun; 2x faster); Bomb {} (>=10,000: 10%/event, 300 sun; >=100,000: 30%, 600 sun); Assault {} (>=1,000,000: fires every 112 ticks for 1,200 sun)",
 					mTwinSunflowerProductionOverdriveActive ? "Active" : "Inactive",
 					mTwinSunflowerBombardmentOverdriveActive ? "Active" : "Inactive",
 					mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? "Active" : "Inactive");
@@ -4205,7 +4212,7 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_PLANTERN)
 			{
-				aPlantDetails += std::format("\nSun production: sun value compounds by x1.2 per completed flag; pauses at 5,000,000 sun and resumes below it\nOverdrive: Production {} (>1,000 sun; about 2x faster); Cherry Bomb cadence speeds up 2.5x at >=1,000, >=50,000, and >=1,000,000 sun, capped at 1.5x Peashooter's 150-tick firing interval; >=1,000,000 costs 300 sun/shot (150 below); >=50,000: impacts trigger a Jalapeno flame across the struck lane. Coffee Bean: Cob/targeted lane (500 sun; 1,000 at >=1,000,000), then 5s flames (300 sun/lane/s); >=2,000,000: if Coffee Bean is in the chosen seed bank, all eligible Planterns auto-fire every 3s for 85% damage at the same costs",
+				aPlantDetails += std::format("\nSun production: 5x sun value at >=1,000,000 sun; value compounds by x1.2 per completed flag; pauses at 5,000,000 sun and resumes below it\nOverdrive: Production {} (>1,000 sun; about 2x faster); Cherry Bomb cadence speeds up 2.5x at >=1,000, >=50,000, and >=1,000,000 sun, capped at 1.5x Peashooter's 150-tick firing interval; >=1,000,000 costs 300 sun/shot (150 below); >=50,000: impacts trigger a Jalapeno flame across the struck lane. Coffee Bean: Cob/targeted lane (500 sun; 1,000 at >=1,000,000), then 5s flames (300 sun/lane/s); >=2,000,000: if Coffee Bean is in the chosen seed bank, all eligible Planterns auto-fire every 3s for 85% damage at the same costs",
 					mSunMoney > 1000 ? "Active" : "Inactive");
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_GATLINGPEA)
@@ -4494,7 +4501,6 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	}
 
 	SeedType aPlantingSeedType = GetSeedTypeInCursor();
-	bool aCatTailLayeringTierActive = mSunMoney >= PLANT_LAYERING_SUN_THRESHOLD;
 	int aGridX = PlantingPixelToGridX(x, y, aPlantingSeedType);
 	int aGridY = PlantingPixelToGridY(x, y, aPlantingSeedType);
 
@@ -4691,8 +4697,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	GetPlantsOnLawn(aGridX, aGridY, &aPlantOnLawn);
 	Plant* aNormalPlant = aPlantOnLawn.mNormalPlant;
 	Plant* aPumpkinPlant = aPlantOnLawn.mPumpkinPlant;
-	bool aIsCatTailLayering = aCatTailLayeringTierActive &&
-		aPlantingSeedType == SeedType::SEED_CATTAIL && aPlantOnLawn.mCatTailCount > 0;
+	bool aIsCatTailLayering = aPlantingSeedType == SeedType::SEED_CATTAIL && aPlantOnLawn.mCatTailCount > 0;
 	Plant* aPlantToUpgrade = aNormalPlant;
 	if (aPlantingSeedType == SeedType::SEED_TWINSUNFLOWER && aPlantOnLawn.mSunflowerCount > 0)
 	{
@@ -4704,13 +4709,11 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	{
 		aPlantToUpgrade = FindTopUnupgradedMagnet(this, aGridX, aGridY);
 	}
-	else if (aPlantingSeedType == SeedType::SEED_GLOOMSHROOM &&
-		mSunMoney >= PLANT_LAYERING_SUN_THRESHOLD && aPlantOnLawn.mFumeGloomCount > 0)
+	else if (aPlantingSeedType == SeedType::SEED_GLOOMSHROOM && aPlantOnLawn.mFumeGloomCount > 0)
 	{
 		aPlantToUpgrade = FindTopUnupgradedFumeShroom(this, aGridX, aGridY);
 	}
-	else if (aPlantingSeedType == SeedType::SEED_WINTERMELON &&
-		mSunMoney >= PLANT_LAYERING_SUN_THRESHOLD && aPlantOnLawn.mMelonPultCount > 0)
+	else if (aPlantingSeedType == SeedType::SEED_WINTERMELON && aPlantOnLawn.mMelonPultCount > 0)
 	{
 		aPlantToUpgrade = FindTopUnupgradedMelonPult(this, aGridX, aGridY);
 	}
@@ -5903,7 +5906,7 @@ void Board::SpawnZombieWave()
 			}
 		}
 	}
-	if (mSunMoney >= TWO_MILLION_SUN_THRESHOLD && mZombieAllowed[ZombieType::ZOMBIE_BUNGEE] &&
+	if (mZombieTierSunMoney >= TWO_MILLION_SUN_THRESHOLD && mZombieAllowed[ZombieType::ZOMBIE_BUNGEE] &&
 		!mApp->IsBungeeBlitzLevel() && !aWaveAlreadyHasBungee)
 	{
 		bool anEndlessMode = mApp->IsSurvivalEndless(mApp->mGameMode);
@@ -6639,7 +6642,9 @@ void Board::UpdatePlantOverdrive()
 		return;
 
 	int aSunAtSecondStart = mSunMoney;
-	if (aSunAtSecondStart >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+	mZombieTierSunMoney = std::max({mZombieTierSunMoney, aSunAtSecondStart, ZombieStrengthSunForTier(mZombieStrengthTier)});
+	int aZombieSunTier = mZombieTierSunMoney;
+	if (aZombieSunTier >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
 	{
 		for (Zombie* aZombie : mZombies)
 		{
@@ -6653,7 +6658,7 @@ void Board::UpdatePlantOverdrive()
 				aZombie->mBodyHealth + static_cast<int>(aHealAmount));
 		}
 	}
-	if (aSunAtSecondStart >= TWO_MILLION_SUN_THRESHOLD)
+	if (aZombieSunTier >= TWO_MILLION_SUN_THRESHOLD)
 	{
 		for (Zombie* aZombie : mZombies)
 		{
@@ -6716,7 +6721,7 @@ void Board::UpdatePlantOverdrive()
 				aPlant->mPlantHealth = std::min(aPlant->mPlantHealth, aDesiredMaxHealth);
 		}
 	}
-	int aNewZombieStrengthTier = ZombieStrengthTierForSun(aSunAtSecondStart);
+	int aNewZombieStrengthTier = std::max(mZombieStrengthTier, ZombieStrengthTierForSun(aZombieSunTier));
 	if (aNewZombieStrengthTier != mZombieStrengthTier)
 	{
 		int aPreviousZombieStrengthTier = mZombieStrengthTier;
@@ -6730,7 +6735,7 @@ void Board::UpdatePlantOverdrive()
 			}
 		}
 	}
-	bool aThreeMillionSunDurabilityActive = aSunAtSecondStart >= THREE_MILLION_SUN_THRESHOLD;
+	bool aThreeMillionSunDurabilityActive = aZombieSunTier >= THREE_MILLION_SUN_THRESHOLD;
 	for (Zombie* aZombie : mZombies)
 	{
 		if (aZombie->mDead || aZombie->IsDeadOrDying() ||
@@ -6941,7 +6946,7 @@ void Board::ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier, 
 		if (aRemovedEffect)
 			theZombie->UpdateAnimSpeed();
 	}
-	ApplyThreeMillionSunDurabilityToZombie(theZombie, mSunMoney >= THREE_MILLION_SUN_THRESHOLD);
+	ApplyThreeMillionSunDurabilityToZombie(theZombie, mZombieTierSunMoney >= THREE_MILLION_SUN_THRESHOLD);
 }
 
 void Board::ApplyThreeMillionSunDurabilityToZombie(Zombie* theZombie, bool theApply)
@@ -10927,6 +10932,7 @@ void Board::AddSunMoney(int theAmount)
 {
 	int64_t aNewSunMoney = static_cast<int64_t>(mSunMoney) + theAmount;
 	mSunMoney = static_cast<int32_t>(std::clamp<int64_t>(aNewSunMoney, 0, std::numeric_limits<int32_t>::max()));
+	mZombieTierSunMoney = std::max(mZombieTierSunMoney, mSunMoney);
 	if (mSunMoney >= 8000)
 		ReportAchievement::GiveAchievement(mApp, SunnyDays, true);
 }

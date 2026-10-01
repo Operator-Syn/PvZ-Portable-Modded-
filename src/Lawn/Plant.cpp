@@ -47,6 +47,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <limits>
 #include <vector>
 
 constexpr int BLOVER_ZOMBIE_KNOCKBACK_DISTANCE = 240;
@@ -1139,6 +1140,10 @@ void Plant::UpdateProductionPlant()
 				return;
 			int aBaseValue = aCoin->GetSunValue();
 			int aScaledValue = mBoard->ScaleSunValueForCompletedFlags(aBaseValue);
+			if (mSeedType == SeedType::SEED_PLANTERN &&
+				mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+				aScaledValue = static_cast<int>(std::min<int64_t>(
+					static_cast<int64_t>(aScaledValue) * 5, std::numeric_limits<int32_t>::max()));
 			if (aScaledValue != aBaseValue)
 				aCoin->mSunValueOverride = aScaledValue;
 		};
@@ -1159,7 +1164,7 @@ void Plant::UpdateProductionPlant()
 			AddFlagScaledSun(CoinType::COIN_SUN);
 		}
 		else if (mSeedType == SeedType::SEED_TWINSUNFLOWER &&
-			mBoard->mSunMoney < TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+			mBoard->mSunMoney < TWIN_SUNFLOWER_PRODUCTION_STOP_SUN_THRESHOLD)
 		{
 			AddFlagScaledSun(CoinType::COIN_SUN_150);
 			AddFlagScaledSun(CoinType::COIN_SUN_150);

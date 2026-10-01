@@ -611,7 +611,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 
 		mVelX = 0.6f;
 		mZombiePhase = ZombiePhase::PHASE_BOBSLED_SLIDING;
-		mPhaseCounter = mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? MILLION_SUN_BOBSLED_SLIDE_TICKS : 500;
+		mPhaseCounter = mBoard->mZombieTierSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? MILLION_SUN_BOBSLED_SLIDE_TICKS : 500;
 		mVariant = false;
 
 		if (mFromWave == Zombie::ZOMBIE_WAVE_CUTSCENE)
@@ -2431,7 +2431,7 @@ void Zombie::UpdateZombieGargantuar()
 	{
 		mZombiePhase = ZombiePhase::PHASE_GARGANTUAR_SMASHING;
 		mApp->PlayFoley(FoleyType::FOLEY_LOW_GROAN);
-		float aSmashAnimRate = mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? 48.0f : 16.0f;
+		float aSmashAnimRate = mBoard->mZombieTierSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? 48.0f : 16.0f;
 		PlayZombieReanim("anim_smash", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, aSmashAnimRate);
 	}
 }
@@ -2830,7 +2830,7 @@ void Zombie::UpdateZombieBobsled()
 		{
 			mZombiePhase = ZombiePhase::PHASE_BOBSLED_BOARDING;
 			PlayZombieReanim("anim_jump", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, 20.0f);
-			if (GetBobsledPosition() == 0 && mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+			if (GetBobsledPosition() == 0 && mBoard->mZombieTierSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
 			{
 				for (int i = 0; i < 3; i++)
 				{
@@ -2869,7 +2869,7 @@ void Zombie::UpdateZombieBobsled()
 		}
 	}
 
-	if (mBoard->mSunMoney < TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+	if (mBoard->mZombieTierSunMoney < TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
 		mBoard->mIceTimer[mRow] = std::max(500, mBoard->mIceTimer[mRow]);
 	if (mPosX + 10.0f < mBoard->mIceMinX[mRow] && GetBobsledPosition() == 0)
 	{
@@ -4803,16 +4803,16 @@ void Zombie::UpdatePlaying()
 {
 	PVZP_ASSERT(mBodyHealth > 0 || mZombiePhase == ZombiePhase::PHASE_BOBSLED_CRASHING);
 	bool aDolphinButterException = CanDolphinBeButterStunned(this);
-	if (mBoard->mSunMoney >= TWO_AND_HALF_MILLION_SUN_THRESHOLD &&
+	if (mBoard->mZombieTierSunMoney >= TWO_AND_HALF_MILLION_SUN_THRESHOLD &&
 		mZombieType != ZombieType::ZOMBIE_BUNGEE && !aDolphinButterException && mButteredCounter > 0)
 	{
 		mButteredCounter = 0;
 		RemoveButter();
 	}
 	if (((IsGargantuarType(mZombieType) || IsBulwarkType(mZombieType)) &&
-		mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD) ||
-		(IsConeOrBucketZombie(mZombieType) && mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD) ||
-		mBoard->mSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD)
+		mBoard->mZombieTierSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD) ||
+		(IsConeOrBucketZombie(mZombieType) && mBoard->mZombieTierSunMoney >= TWO_MILLION_SUN_THRESHOLD) ||
+		mBoard->mZombieTierSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD)
 	{
 		bool aWasChilled = mChilledCounter > 0;
 		mChilledCounter = 0;
@@ -6689,7 +6689,7 @@ bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
 
 		if (theAttackType == ZombieAttackType::ATTACKTYPE_CHEW && IsGargantuarType(mZombieType) &&
 			mZombieType != ZombieType::ZOMBIE_BULWARK_GARGANTUAR &&
-			mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&
+			mBoard->mZombieTierSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&
 			mBoard->GetTopPlantAt(thePlant->mPlantCol, thePlant->mRow, PlantPriority::TOPPLANT_EATING_ORDER) == thePlant)
 		{
 			PlantID aPlantID = static_cast<PlantID>(mBoard->mPlants.DataArrayGetID(thePlant));
@@ -6757,7 +6757,7 @@ Plant* Zombie::FindPlantTarget(ZombieAttackType theAttackType)
 	Rect aAttackRect = GetZombieAttackRect();
 	if (theAttackType == ZombieAttackType::ATTACKTYPE_CHEW && IsGargantuarType(mZombieType) &&
 		mZombieType != ZombieType::ZOMBIE_BULWARK_GARGANTUAR &&
-		mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&
+		mBoard->mZombieTierSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&
 		mFirstIgnoredSpikyPlantID == PlantID::PLANTID_NULL)
 	{
 		Plant* aFirstSpikyPlant = nullptr;
@@ -6791,7 +6791,7 @@ Plant* Zombie::FindPlantTarget(ZombieAttackType theAttackType)
 	}
 	if (theAttackType == ZombieAttackType::ATTACKTYPE_CHEW && IsGargantuarType(mZombieType) &&
 		mZombieType != ZombieType::ZOMBIE_BULWARK_GARGANTUAR &&
-		mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+		mBoard->mZombieTierSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
 	{
 		// At the 1m tier, ignore only the first spike plant; choose the next target by distance,
 		// not plant allocation order, so a farther Tallnut cannot be selected through another Spikerock.
@@ -8006,7 +8006,7 @@ void Zombie::DropShield(unsigned int theDamageFlags)
 		}
 
 		mZombiePhase = ZombiePhase::PHASE_NEWSPAPER_MADDENING;
-		if (mBoard != nullptr && mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD)
+		if (mBoard != nullptr && mBoard->mZombieTierSunMoney >= TWO_MILLION_SUN_THRESHOLD)
 		{
 			mBodyHealth = static_cast<int32_t>(std::min<int64_t>(
 				static_cast<int64_t>(mBodyHealth) * 2, std::numeric_limits<int32_t>::max()));
@@ -8517,13 +8517,13 @@ bool Zombie::CanBeChilled()
 	{
 		if (IsSunTierInvulnerable())
 			return false;
-		if (mBoard != nullptr && mBoard->mSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD)
+		if (mBoard != nullptr && mBoard->mZombieTierSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD)
 			return false;
 		if ((IsGargantuarType(mZombieType) || IsBulwarkType(mZombieType)) && mBoard != nullptr &&
-			mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+			mBoard->mZombieTierSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
 			return false;
 		if (IsConeOrBucketZombie(mZombieType) && mBoard != nullptr &&
-			mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD)
+			mBoard->mZombieTierSunMoney >= TWO_MILLION_SUN_THRESHOLD)
 			return false;
 		if (mZombieType == ZombieType::ZOMBIE_IMP && mBoard != nullptr && mBoard->mZombieStrengthTier >= 4)
 			return false;
@@ -8582,7 +8582,7 @@ bool Zombie::CanBeTargetedByPlants(bool theIgnoreSunTierInvulnerability) const
 bool Zombie::IsSunTierInvulnerable() const
 {
 	return mZombieType == ZombieType::ZOMBIE_DOLPHIN_RIDER && mBoard != nullptr &&
-		mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD && !mDolphinFirstLeapComplete;
+		mBoard->mZombieTierSunMoney >= TWO_MILLION_SUN_THRESHOLD && !mDolphinFirstLeapComplete;
 }
 
 bool Zombie::EffectedByDamage(unsigned int theDamageRangeFlags, bool theIgnoreSunTierInvulnerability)
@@ -9031,24 +9031,24 @@ void Zombie::ApplyButter()
 {
 	if (IsSunTierInvulnerable())
 		return;
-	if (mBoard != nullptr && mBoard->mSunMoney >= TWO_AND_HALF_MILLION_SUN_THRESHOLD &&
+	if (mBoard != nullptr && mBoard->mZombieTierSunMoney >= TWO_AND_HALF_MILLION_SUN_THRESHOLD &&
 		mZombieType != ZombieType::ZOMBIE_BUNGEE && !CanDolphinBeButterStunned(this))
 		return;
 	if (IsBulwarkType(mZombieType))
 		return;
 	if ((IsGargantuarType(mZombieType) || IsBulwarkType(mZombieType)) && mBoard != nullptr &&
-		mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+		mBoard->mZombieTierSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
 		return;
 	bool aCanBeButterStunned = CanBeFrozen();
 	if (!aCanBeButterStunned && mZombieType == ZombieType::ZOMBIE_BUNGEE && mBoard != nullptr &&
-		mBoard->mSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD && !IsDeadOrDying() && !mMindControlled &&
+		mBoard->mZombieTierSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD && !IsDeadOrDying() && !mMindControlled &&
 		mZombiePhase == ZombiePhase::PHASE_BUNGEE_AT_BOTTOM)
 	{
 		// Cold slows are disabled at this tier, but grounded Bungees retain their butter-stun exception.
 		aCanBeButterStunned = true;
 	}
 	if (!aCanBeButterStunned && mBoard != nullptr &&
-		mBoard->mSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD && CanDolphinBeButterStunned(this))
+		mBoard->mZombieTierSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD && CanDolphinBeButterStunned(this))
 	{
 		// Dolphin Riders keep the 2m pre-leap immunity; after the first leap, butter still stuns them.
 		aCanBeButterStunned = true;

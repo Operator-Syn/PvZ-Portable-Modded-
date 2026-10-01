@@ -57,7 +57,7 @@ constexpr const int SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS = 10;
 constexpr const int SUN_MAGNET_HIGH_OVERDRIVE_EXTRA_ITEMS = 30;
 constexpr const int SUN_MAGNET_HIGH_OVERDRIVE_SUN_THRESHOLD = 150000;
 constexpr const int TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD = 1000000;
-constexpr const int PLANT_LAYERING_SUN_THRESHOLD = 1000000;
+constexpr const int TWIN_SUNFLOWER_PRODUCTION_STOP_SUN_THRESHOLD = 1750000;
 constexpr const int TWO_MILLION_SUN_THRESHOLD = 2000000;
 constexpr const int TWO_AND_HALF_MILLION_SUN_THRESHOLD = 2500000;
 constexpr const int THREE_MILLION_SUN_THRESHOLD = 3000000;
@@ -236,6 +236,7 @@ public:
 	bool							mPumpkinOverdriveActive = false;
 	bool							mTallNutOverdriveActive = false;
 	int32_t							mZombieStrengthTier = 0;
+	int32_t							mZombieTierSunMoney = 0;
 	bool							mAutoReuseEndlessSeeds = false;
 	bool							mZombieRainActive = false;
 	int32_t							mZombieRainCountdown = 0;

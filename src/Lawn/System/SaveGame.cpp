@@ -1649,6 +1649,7 @@ enum BoardBaseFieldId : uint32_t
 	BOARD_FIELD_SUN_MAGNET_HIGH_EXTRA_ITEMS,
 	BOARD_FIELD_PARTICLE_SHAKE_SCALE,
 	BOARD_FIELD_PLANTERN_FLAME_DAMAGE_PERCENT,
+	BOARD_FIELD_ZOMBIE_TIER_SUN_MONEY,
 	BOARD_FIELD_COUNT
 };
 
@@ -1988,6 +1989,14 @@ static constexpr BoardBaseFieldEntry gBoardBaseFields[] = {
 					aDamagePercent = 100;
 				}
 			}
+		}
+	} },
+	{ BOARD_FIELD_ZOMBIE_TIER_SUN_MONEY, [](PortableSaveContext& c, Board* theBoard){
+		c.SyncInt32(theBoard->mZombieTierSunMoney);
+		if (c.mReading && theBoard->mZombieTierSunMoney < 0)
+		{
+			c.mFailed = true;
+			theBoard->mZombieTierSunMoney = std::max(0, theBoard->mSunMoney);
 		}
 	} },
 };

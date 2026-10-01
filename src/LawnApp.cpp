@@ -314,6 +314,7 @@ void LawnApp::LostFocus()
 
 void LawnApp::WriteToRegistry()
 {
+	RegistryWriteInteger("ScreenShakeMode", static_cast<int>(mScreenShakeMode));
 	if (mPlayerInfo)
 	{
 		RegistryWriteString("CurUser", mPlayerInfo->mName);
@@ -326,6 +327,13 @@ void LawnApp::WriteToRegistry()
 void LawnApp::ReadFromRegistry()
 {
 	SexyApp::ReadFromRegistry();
+	int aScreenShakeMode = static_cast<int>(ScreenShakeMode::NORMAL);
+	if (RegistryReadInteger("ScreenShakeMode", &aScreenShakeMode) &&
+		aScreenShakeMode >= static_cast<int>(ScreenShakeMode::NORMAL) &&
+		aScreenShakeMode <= static_cast<int>(ScreenShakeMode::OFF))
+	{
+		mScreenShakeMode = static_cast<ScreenShakeMode>(aScreenShakeMode);
+	}
 }
 
 bool LawnApp::WriteCurrentUserConfig()
@@ -345,10 +353,10 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
 	//}
 
 	mGameMode = theGameMode;
+	// Keep the Endless pool seed screen's off-board zombie lineup in view without adding playable columns.
 	const bool aWideEndlessPool = theGameMode == GameMode::GAMEMODE_SURVIVAL_ENDLESS_STAGE_3 ||
 		theGameMode == GameMode::GAMEMODE_SURVIVAL_ENDLESS_STAGE_4;
-	SetLogicalSize(aWideEndlessPool ? BOARD_WIDTH + 3 * 80 : BOARD_WIDTH,
-		aWideEndlessPool ? 1000 : BOARD_HEIGHT);
+	SetLogicalSize(aWideEndlessPool ? BOARD_WIDTH + 3 * 80 : BOARD_WIDTH, BOARD_HEIGHT);
 	if (theLookForSavedGame && TryLoadGame())
 		return;
 
@@ -1073,6 +1081,19 @@ bool LawnApp::KillNewOptionsDialog()
 	KillDialog(Dialogs::DIALOG_NEWOPTIONS);
 	ClearUpdateBacklog();
 	return true;
+}
+
+float LawnApp::GetScreenShakeScale() const
+{
+	switch (mScreenShakeMode)
+	{
+	case ScreenShakeMode::REDUCED:
+		return 0.5f;
+	case ScreenShakeMode::OFF:
+		return 0.0f;
+	default:
+		return 1.0f;
+	}
 }
 
 bool LawnApp::KillAlmanacDialog()

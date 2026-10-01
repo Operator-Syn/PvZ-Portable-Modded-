@@ -367,7 +367,7 @@ void MessageWidget::Draw(Graphics* g)
 
 	_Font* aFont = GetFont();
 	_Font* aOutlineFont = nullptr;
-	int aPosX = BOARD_WIDTH / 2;
+	int aPosX = mApp->mWidth / 2;
 	int aPosY = 596;
 	int aTextOffsetY = 0;
 	int aRectHeight = 0;

@@ -117,10 +117,14 @@ public:
 	int32_t                         mIceTrapCounter;
 	bool                            mMindControlled;
 	bool                            mBlowingAway;
+	int32_t                         mBloverKnockbackDistanceRemaining = 0;
 	bool                            mHasHead;
 	bool                            mHasArm;
 	bool                            mHasObject;
 	bool                            mInPool;
+	bool                            mSpawnedByZombieRain = false;
+	bool                            mDolphinFirstLeapComplete;
+	bool                            mThreeMillionSunDurabilityApplied;
 	bool                            mOnHighGround;
 	bool                            mYuckyFace;
 	int32_t                         mYuckyFaceCounter;
@@ -186,8 +190,9 @@ public:
 	void                            ApplyChill(bool theIsIceTrap);
 	void                            UpdateZombieBungee();
 	void                            BungeeLanding();
-	bool                            CanBeTargetedByPlants() const;
-	bool                            EffectedByDamage(unsigned int theDamageRangeFlags);
+	bool                            CanBeTargetedByPlants(bool theIgnoreSunTierInvulnerability = false) const;
+	bool                            IsSunTierInvulnerable() const;
+	bool                            EffectedByDamage(unsigned int theDamageRangeFlags, bool theIgnoreSunTierInvulnerability = false);
 	void                            PickRandomSpeed();
 	void                            UpdateZombiePolevaulter();
 	void                            UpdateZombieDolphinRider();
@@ -274,7 +279,7 @@ public:
 	void                            DropHead(unsigned int theDamageFlags);
 	bool                            CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType);
 	void                            UpdateZombieCatapult();
-	Plant*                          FindCatapultTarget();
+	int                             FindCatapultTargets(Plant** theTargets, int theMaxTargets);
 	void                            ZombieCatapultFire(Plant* thePlant);
 	void                            UpdateClimbingLadder();
 	void                            UpdateZombieGargantuar();

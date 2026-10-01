@@ -26,6 +26,17 @@
 #include "System/ReanimationLawn.h"
 #include "../PvzpLib/PvzpFoley.h"
 #include "../PvzpLib/Reanimator.h"
+#include "../PvzpLib/PvzpStringFile.h"
+#include <format>
+
+static std::string MowerStateEventDetails(Board* theBoard, LawnMower* theMower)
+{
+	return std::format(
+		R"({{"mower_id":{},"mower_type":{},"row_index":{},"lane":{},"state":{},"dead":{},"visible":{},"x":{:.2f},"y":{:.2f}}})",
+		theBoard->mLawnMowers.DataArrayGetID(theMower), static_cast<int>(theMower->mMowerType),
+		theMower->mRow, theMower->mRow + 1, static_cast<int>(theMower->mMowerState),
+		theMower->mDead ? "true" : "false", theMower->mVisible ? "true" : "false", theMower->mPosX, theMower->mPosY);
+}
 
 void LawnMower::LawnMowerInitialize(int theRow)
 {
@@ -167,7 +178,7 @@ void LawnMower::MowZombie(Zombie* theZombie)
 {
 	if (mMowerState == LawnMowerState::MOWER_READY)
 	{
-		StartMower();
+		StartMower(theZombie);
 		mChompCounter = 25;
 	}
 	else if (mMowerState == LawnMowerState::MOWER_TRIGGERED)
@@ -217,6 +228,7 @@ void LawnMower::Update()
 		if (mRollingInCounter == 100)
 		{
 			mMowerState = LawnMowerState::MOWER_READY;
+			mBoard->RecordGameplayEvent("lawn_mower_ready", MowerStateEventDetails(mBoard, this));
 		}
 		return;
 	}
@@ -225,6 +237,16 @@ void LawnMower::Update()
 	{
 		return;
 	}
+	if (!mVisible && mMowerState == LawnMowerState::MOWER_READY && mApp->mGameScene == GameScenes::SCENE_PLAYING)
+	{
+		mVisible = true;
+		if (mPosX < -21.0f)
+			mPosX = -21.0f;
+		mPosY = mBoard->GetPosYBasedOnRow(mPosX + 40.0f, mRow) + 23.0f;
+		mBoard->RecordGameplayEvent("lawn_mower_visibility_recovered", MowerStateEventDetails(mBoard, this));
+	}
+	if (mMowerState == LawnMowerState::MOWER_READY && !mVisible)
+		return;
 
 	Rect aAttackRect = GetLawnMowerAttackRect();
 	for (Zombie* aZombie : mBoard->mZombies)
@@ -241,7 +263,7 @@ void LawnMower::Update()
 			aZombie->mRow - mRow == 0 &&
 			aZombie->mZombiePhase != ZombiePhase::PHASE_ZOMBIE_MOWERED &&
 			!aZombie->IsTangleKelpTarget() &&
-			aZombie->EffectedByDamage(127U))
+			aZombie->EffectedByDamage(127U, aZombie->IsSunTierInvulnerable()))
 		{
 			Rect aZombieRect = aZombie->GetZombieRect();
 			int aOverlap = GetRectOverlap(aAttackRect, aZombieRect);
@@ -392,22 +414,28 @@ void LawnMower::Draw(Graphics* g)
 void LawnMower::Die()
 {
 	mDead = true;
+	mBoard->RecordGameplayEvent("lawn_mower_removed", MowerStateEventDetails(mBoard, this));
 	mApp->RemoveReanimation(mReanimID);
 	if (mBoard->mBonusLawnMowersRemaining > 0 && !mBoard->HasLevelAwardDropped())
 	{
 		LawnMower* aLawnMower = mBoard->mLawnMowers.DataArrayAlloc();
 		aLawnMower->LawnMowerInitialize(mRow);
 		aLawnMower->mMowerState = LawnMowerState::MOWER_ROLLING_IN;
+		mBoard->RecordGameplayEvent("lawn_mower_rolling_in", MowerStateEventDetails(mBoard, aLawnMower));
 		mBoard->mBonusLawnMowersRemaining--;
 	}
 }
 
-void LawnMower::StartMower()
+void LawnMower::StartMower(Zombie* theTriggeringZombie)
 {
 	if (mMowerState == LawnMowerState::MOWER_TRIGGERED)
 	{
 		return;
 	}
+	const int aPreviousState = static_cast<int>(mMowerState);
+	const Rect aMowerAttackRect = GetLawnMowerAttackRect();
+	const Rect aZombieRect = theTriggeringZombie->GetZombieRect();
+	const auto& aZombieDefinition = GetZombieDefinition(theTriggeringZombie->mZombieType);
 
 	Reanimation* aMowerReanim = mApp->ReanimationGet(mReanimID);
 	if (mMowerType == LawnMowerType::LAWNMOWER_POOL)
@@ -424,6 +452,24 @@ void LawnMower::StartMower()
 	mBoard->mWaveRowGotLawnMowered[mRow] = mBoard->mCurrentWave;
 	mBoard->mTriggeredLawnMowers++;
 	mMowerState = LawnMowerState::MOWER_TRIGGERED;
+	const std::string aDetailsJson = std::format(
+		R"({{"mower_id":{},"mower_type":{},"row_index":{},"lane":{},"state_before":{},"state_after":{},"visible":{},"mower_x":{:.2f},"mower_y":{:.2f},"mower_attack_rect":{{"x":{},"y":{},"width":{},"height":{}}},"zombie_id":{},"zombie_type_id":{},"zombie_type":"{}","zombie_row_index":{},"zombie_lane":{},"zombie_phase":{},"zombie_has_head":{},"zombie_sun_tier_invulnerable":{},"zombie_x":{:.2f},"zombie_y":{:.2f},"zombie_rect":{{"x":{},"y":{},"width":{},"height":{}}},"body_hp":{},"helmet_hp":{},"shield_hp":{},"overlap_pixels":{}}})",
+		mBoard->mLawnMowers.DataArrayGetID(this), static_cast<int>(mMowerType), mRow, mRow + 1,
+		aPreviousState, static_cast<int>(mMowerState), mVisible ? "true" : "false", mPosX, mPosY,
+		aMowerAttackRect.mX, aMowerAttackRect.mY, aMowerAttackRect.mWidth, aMowerAttackRect.mHeight,
+		static_cast<int>(mBoard->ZombieGetID(theTriggeringZombie)), static_cast<int>(theTriggeringZombie->mZombieType),
+		aZombieDefinition.mZombieName, theTriggeringZombie->mRow, theTriggeringZombie->mRow + 1,
+		static_cast<int>(theTriggeringZombie->mZombiePhase), theTriggeringZombie->mHasHead ? "true" : "false",
+		theTriggeringZombie->IsSunTierInvulnerable() ? "true" : "false",
+		theTriggeringZombie->mPosX, theTriggeringZombie->mPosY,
+		aZombieRect.mX, aZombieRect.mY, aZombieRect.mWidth, aZombieRect.mHeight,
+		theTriggeringZombie->mBodyHealth, theTriggeringZombie->mHelmHealth, theTriggeringZombie->mShieldHealth,
+		GetRectOverlap(aMowerAttackRect, aZombieRect));
+	mBoard->RecordGameplayEvent("lawn_mower_triggered", aDetailsJson);
+
+	const std::string aZombieName(PvzpStringTranslate(std::format("[{}]", aZombieDefinition.mZombieName)));
+	mBoard->DisplayAdvice(std::format("Mower triggered by {} in lane {}", aZombieName, mRow + 1),
+		MessageStyle::MESSAGE_STYLE_HINT_FAST, AdviceType::ADVICE_NONE);
 }
 
 void LawnMower::SquishMower()
@@ -434,6 +480,7 @@ void LawnMower::SquishMower()
 
 	mMowerState = LawnMowerState::MOWER_SQUISHED;
 	mSquishedCounter = 500;
+	mBoard->RecordGameplayEvent("lawn_mower_squished", MowerStateEventDetails(mBoard, this));
 	mApp->PlayFoley(FoleyType::FOLEY_SQUISH);
 }
 

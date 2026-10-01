@@ -101,7 +101,7 @@ Attachment::~Attachment()
 	AttachmentDie();
 }
 
-void Attachment::Update()
+void Attachment::Update(bool theCollectParallelTasks)
 {
 	PVZP_ASSERT(gEffectSystem);
 
@@ -116,7 +116,7 @@ void Attachment::Update()
 			PvzpParticleSystem* aParticleSystem = gEffectSystem->mParticleHolder->mParticleSystems.DataArrayTryToGet(aAttachEffect->mEffectID);
 			if (aParticleSystem && !aParticleSystem->mDead)
 			{
-				aParticleSystem->Update();
+				aParticleSystem->Update(theCollectParallelTasks);
 				isEmpty = false;
 			}
 			break;
@@ -149,7 +149,7 @@ void Attachment::Update()
 			Attachment* aAttachment = gEffectSystem->mAttachmentHolder->mAttachments.DataArrayTryToGet(aAttachEffect->mEffectID);
 			if (aAttachment)
 			{
-				aAttachment->Update();
+				aAttachment->Update(theCollectParallelTasks);
 				isEmpty = false;
 			}
 			break;
@@ -714,7 +714,7 @@ void AttachmentUpdateAndSetMatrix(AttachmentID& theAttachmentID, SexyTransform2D
 	Attachment* aAttachment = gEffectSystem->mAttachmentHolder->mAttachments.DataArrayTryToGet(static_cast<unsigned int>(theAttachmentID));
 	if (aAttachment)
 	{
-		aAttachment->Update();
+		aAttachment->Update(true);
 		aAttachment->SetMatrix(theMatrix);
 	}
 	else
@@ -732,7 +732,7 @@ void AttachmentUpdateAndMove(AttachmentID& theAttachmentID, float theX, float th
 	Attachment* aAttachment = gEffectSystem->mAttachmentHolder->mAttachments.DataArrayTryToGet(static_cast<unsigned int>(theAttachmentID));
 	if (aAttachment)
 	{
-		aAttachment->Update();
+		aAttachment->Update(true);
 		aAttachment->SetPosition(SexyVector2(theX, theY));
 	}
 	else

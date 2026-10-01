@@ -24,6 +24,7 @@
 #include "PvzpParticle.h"
 #include "EffectSystem.h"
 #include "misc/FrameProfiler.h"
+#include "../LawnApp.h"
 #include "../GameConstants.h"
 #include "graphics/Graphics.h"
 #include "graphics/GLInterface.h"
@@ -275,6 +276,17 @@ static bool IsLowPriorityParticleEffect(ParticleEffect theEffect)
 	}
 }
 
+static float GetGloomCloudQualityScale(int theQualityTier)
+{
+	switch (theQualityTier)
+	{
+	case 1: return 0.75f;
+	case 2: return 0.50f;
+	case 3: return 0.25f;
+	default: return 1.0f;
+	}
+}
+
 #if !defined(__EMSCRIPTEN__)
 class ParticleCalculationWorkers
 {
@@ -303,13 +315,13 @@ public:
 
 	bool Available() const { return !mWorkers.empty(); }
 
-	void Run(PvzpParticleEmitter* theEmitter, const std::vector<PvzpParticle*>& theParticles)
+	void Run(const std::vector<PvzpParticleCalculationTask>& theTasks, size_t theBegin, size_t theEnd)
 	{
 		{
 			std::lock_guard<std::mutex> aLock(mMutex);
-			mEmitter = theEmitter;
-			mParticles = &theParticles;
-			mNextParticle.store(0, std::memory_order_relaxed);
+			mTasks = &theTasks;
+			mBatchEnd = theEnd;
+			mNextParticle.store(theBegin, std::memory_order_relaxed);
 			mWorkersRemaining = mWorkers.size();
 			++mGeneration;
 		}
@@ -317,8 +329,7 @@ public:
 		ProcessParticles();
 		std::unique_lock<std::mutex> aLock(mMutex);
 		mFinished.wait(aLock, [this] { return mWorkersRemaining == 0; });
-		mParticles = nullptr;
-		mEmitter = nullptr;
+		mTasks = nullptr;
 	}
 
 private:
@@ -328,11 +339,14 @@ private:
 		while (true)
 		{
 			const size_t aStart = mNextParticle.fetch_add(aChunkSize, std::memory_order_relaxed);
-			if (aStart >= mParticles->size())
+			if (aStart >= mBatchEnd)
 				return;
-			const size_t anEnd = std::min(aStart + aChunkSize, mParticles->size());
+			const size_t anEnd = std::min(aStart + aChunkSize, mBatchEnd);
 			for (size_t i = aStart; i < anEnd; ++i)
-				mEmitter->CalculateParticleState((*mParticles)[i]);
+			{
+				const auto& aTask = (*mTasks)[i];
+				aTask.mEmitter->CalculateParticleState(aTask.mParticle);
+			}
 		}
 	}
 
@@ -359,8 +373,8 @@ private:
 	std::condition_variable mWake;
 	std::condition_variable mFinished;
 	std::atomic<size_t> mNextParticle{0};
-	PvzpParticleEmitter* mEmitter = nullptr;
-	const std::vector<PvzpParticle*>* mParticles = nullptr;
+	const std::vector<PvzpParticleCalculationTask>* mTasks = nullptr;
+	size_t mBatchEnd = 0;
 	size_t mWorkersRemaining = 0;
 	uint64_t mGeneration = 0;
 	bool mStopping = false;
@@ -387,6 +401,76 @@ static bool IsParticleParallelEnabled()
 	return false;
 }
 #endif
+
+void PvzpParticleHolder::ProcessParticleUpdateBatch()
+{
+	auto& aTasks = mParticleUpdateScratch;
+	if (aTasks.empty())
+		return;
+
+	size_t aValidTaskCount = 0;
+	for (size_t i = 0; i < aTasks.size(); ++i)
+	{
+		auto& aTask = aTasks[i];
+		PvzpParticleEmitter* anEmitter = mEmitters.DataArrayTryToGet(static_cast<unsigned int>(aTask.mEmitterId));
+		PvzpParticle* aParticle = mParticles.DataArrayTryToGet(static_cast<unsigned int>(aTask.mParticleId));
+		if (anEmitter == nullptr || aParticle == nullptr || anEmitter->mEmitterDef == nullptr ||
+			anEmitter->mParticleSystem == nullptr || anEmitter->mParticleSystem->mParticleHolder != this ||
+			anEmitter->mDead || anEmitter->mParticleSystem->mDead ||
+			aParticle->mParticleEmitter != anEmitter || aParticle->mCrossFadeDuration > 0 ||
+			aParticle->mCrossFadeParticleID != ParticleID::PARTICLEID_NULL ||
+			anEmitter->mParticleSystem->mEffectType != aTask.mEffect)
+			continue;
+
+		aTask.mEmitter = anEmitter;
+		aTask.mParticle = aParticle;
+		if (aValidTaskCount != i)
+			aTasks[aValidTaskCount] = aTask;
+		++aValidTaskCount;
+	}
+	aTasks.resize(aValidTaskCount);
+	if (aTasks.empty())
+		return;
+
+#if !defined(__EMSCRIPTEN__)
+	constexpr size_t MINIMUM_PARALLEL_BATCH_SIZE = 1024;
+	constexpr size_t MINIMUM_PARALLEL_EFFECT_SIZE = 512;
+	Sexy::FrameProfiler& aProfiler = Sexy::FrameProfiler::Get();
+	const bool aNeedsEffectTiming = aProfiler.IsDetailed();
+	const bool aBatchLargeEnough = aTasks.size() >= MINIMUM_PARALLEL_BATCH_SIZE;
+	if (aBatchLargeEnough || aNeedsEffectTiming)
+	{
+		std::sort(aTasks.begin(), aTasks.end(), [](const auto& theLeft, const auto& theRight)
+			{ return theLeft.mEffect < theRight.mEffect; });
+		ParticleCalculationWorkers* aWorkers = aBatchLargeEnough ? &GetParticleCalculationWorkers() : nullptr;
+		const bool aParallelWorkersAvailable = aWorkers != nullptr && aWorkers->Available();
+		for (size_t aBegin = 0; aBegin < aTasks.size(); )
+		{
+			size_t anEnd = aBegin + 1;
+			while (anEnd < aTasks.size() && aTasks[anEnd].mEffect == aTasks[aBegin].mEffect)
+				++anEnd;
+			const bool aRunParallel = aParallelWorkersAvailable && anEnd - aBegin >= MINIMUM_PARALLEL_EFFECT_SIZE;
+			const uint64_t aStart = aProfiler.BeginParticleEffect();
+			if (aRunParallel)
+			{
+				aWorkers->Run(aTasks, aBegin, anEnd);
+			}
+			else
+				for (size_t i = aBegin; i < anEnd; ++i)
+					aTasks[i].mEmitter->CalculateParticleState(aTasks[i].mParticle);
+			aProfiler.RecordParticleCalculation(static_cast<int>(aTasks[aBegin].mEffect),
+				static_cast<uint32_t>(anEnd - aBegin), aStart, aRunParallel);
+			aBegin = anEnd;
+		}
+		aTasks.clear();
+		return;
+	}
+#endif
+
+	for (const auto& aTask : aTasks)
+		aTask.mEmitter->CalculateParticleState(aTask.mParticle);
+	aTasks.clear();
+}
 
 PvzpParticleSystem::~PvzpParticleSystem()
 {
@@ -726,17 +810,24 @@ void PvzpParticleEmitter::UpdateParticleField(PvzpParticle* theParticle, Particl
 	{
 		float aLastX = FloatTrackEvaluateFromLastTime(theParticleField->mX, theParticle->mParticleLastTimeValue, aInterpX);
 		float aLastY = FloatTrackEvaluateFromLastTime(theParticleField->mY, theParticle->mParticleLastTimeValue, aInterpY);
+		float aPreviousShakeScale = mParticleSystem->mParticleHolder->mPreviousScreenShakeScale;
+		float aCurrentShakeScale = gLawnApp ? gLawnApp->GetScreenShakeScale() : 1.0f;
+		if (theParticle->mParticleLastTimeValue < 0.0f)
+		{
+			aLastX = 0.0f;
+			aLastY = 0.0f;
+		}
 		// undo the previous frame's shake offset
 		int aLastRandSeed = theParticle->mParticleAge - 1;
 		if (aLastRandSeed == -1)
 			aLastRandSeed = theParticle->mParticleDuration - 1;
 		srand(aLastRandSeed * reinterpret_cast<uintptr_t>(theParticle));
-		theParticle->mPosition.x -= aLastX * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
-		theParticle->mPosition.y -= aLastY * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
+		theParticle->mPosition.x -= aLastX * aPreviousShakeScale * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
+		theParticle->mPosition.y -= aLastY * aPreviousShakeScale * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
 		// apply this frame's random shake offset
 		srand(theParticle->mParticleAge * reinterpret_cast<uintptr_t>(theParticle));
-		theParticle->mPosition.x += x * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
-		theParticle->mPosition.y += y * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
+		theParticle->mPosition.x += x * aCurrentShakeScale * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
+		theParticle->mPosition.y += y * aCurrentShakeScale * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
 		break;
 	}
 	case ParticleFieldType::FIELD_CIRCLE:
@@ -813,12 +904,13 @@ bool PvzpParticleEmitter::CrossFadeParticleToName(PvzpParticle* theParticle, con
 	return CrossFadeParticle(theParticle, aEmitter);
 }
 
-bool PvzpParticleEmitter::UpdateParticle(PvzpParticle* theParticle)
+bool PvzpParticleEmitter::UpdateParticle(PvzpParticle* theParticle, bool theDeferCalculation)
 {
 	if (theParticle->mParticleAge >= theParticle->mParticleDuration)  // particle reached the end of its lifetime
 	{
+		const bool aGloomCloudLifetimeReduced = mParticleSystem->mEffectType == ParticleEffect::PARTICLE_GLOOMCLOUD && mCurrentQualityTier >= 2;
 		if (TestBit(mEmitterDef->mParticleFlags, static_cast<int>(ParticleFlags::PARTICLE_PARTICLE_LOOPS)) &&
-			!(IsLowPriorityParticleEffect(mParticleSystem->mEffectType) && mCurrentQualityTier >= 2))
+			!((IsLowPriorityParticleEffect(mParticleSystem->mEffectType) || aGloomCloudLifetimeReduced) && mCurrentQualityTier >= 2))
 			theParticle->mParticleAge = 0;
 		else if (theParticle->mCrossFadeDuration > 0)
 			theParticle->mParticleAge = theParticle->mParticleDuration - 1;  // hold the particle on its last frame
@@ -829,7 +921,16 @@ bool PvzpParticleEmitter::UpdateParticle(PvzpParticle* theParticle)
 		mParticleSystem->mParticleHolder->mParticles.DataArrayTryToGet(theParticle->mCrossFadeParticleID) == nullptr)
 		return false;  // the cross-fade source is gone; the particle can be deleted
 
-	CalculateParticleState(theParticle);
+	if (theDeferCalculation && theParticle->mCrossFadeDuration <= 0 &&
+		theParticle->mCrossFadeParticleID == ParticleID::PARTICLEID_NULL)
+	{
+		PvzpParticleHolder* aHolder = mParticleSystem->mParticleHolder;
+		const auto anEmitterId = static_cast<ParticleEmitterID>(aHolder->mEmitters.DataArrayGetID(this));
+		const auto aParticleId = static_cast<ParticleID>(aHolder->mParticles.DataArrayGetID(theParticle));
+		aHolder->mParticleUpdateScratch.push_back({ anEmitterId, aParticleId, this, theParticle, mParticleSystem->mEffectType });
+	}
+	else
+		CalculateParticleState(theParticle);
 	return true;
 }
 
@@ -856,7 +957,9 @@ void PvzpParticleEmitter::CalculateParticleState(PvzpParticle* theParticle)
 			theParticle->mAnimationTimeValue += 1.0f;
 	}
 
-	if (IsLowPriorityParticleEffect(mParticleSystem->mEffectType))
+	if (mParticleSystem->mEffectType == ParticleEffect::PARTICLE_GLOOMCLOUD)
+		theParticle->mParticleAge += mCurrentQualityTier >= 3 ? 4 : mCurrentQualityTier >= 2 ? 2 : 1;
+	else if (IsLowPriorityParticleEffect(mParticleSystem->mEffectType))
 		theParticle->mParticleAge += mCurrentQualityTier >= 3 ? 4 : mCurrentQualityTier == 2 ? 2 : 1;
 	else
 		++theParticle->mParticleAge;
@@ -867,19 +970,30 @@ void PvzpParticleEmitter::UpdateSpawning()
 {
 	PvzpParticleEmitter* aCrossFadeEmitter = mParticleSystem->mParticleHolder->mEmitters.DataArrayTryToGet(static_cast<unsigned int>(mCrossFadeEmitterID));
 	PvzpParticleEmitter* aSpawningEmitter = !aCrossFadeEmitter ? this : aCrossFadeEmitter;  // all spawn data is taken from this "primary" emitter
-	mSpawnAccum += aSpawningEmitter->SystemTrackEvaluate(aSpawningEmitter->mEmitterDef->mSpawnRate, ParticleSystemTracks::TRACK_SPAWN_RATE) * 0.01;
+	const bool aIsGloomCloud = mParticleSystem->mEffectType == ParticleEffect::PARTICLE_GLOOMCLOUD;
+	const float aGloomCloudQualityScale = aIsGloomCloud ? GetGloomCloudQualityScale(mCurrentQualityTier) : 1.0f;
+	const float aSpawnRate = aSpawningEmitter->SystemTrackEvaluate(aSpawningEmitter->mEmitterDef->mSpawnRate, ParticleSystemTracks::TRACK_SPAWN_RATE);
+	mSpawnAccum += aSpawnRate * 0.01 * aGloomCloudQualityScale;
 	int aSpawnCount = static_cast<int>(mSpawnAccum);
 	mSpawnAccum -= aSpawnCount;
 
 	int aSpawnMinActive = static_cast<int>(aSpawningEmitter->SystemTrackEvaluate(aSpawningEmitter->mEmitterDef->mSpawnMinActive, ParticleSystemTracks::TRACK_SPAWN_MIN_ACTIVE));
+	if (aIsGloomCloud && aSpawnMinActive > 0 && aGloomCloudQualityScale < 1.0f)
+		aSpawnMinActive = std::max(1, static_cast<int>(std::ceil(aSpawnMinActive * aGloomCloudQualityScale)));
 	if (aSpawnMinActive >= 0 && aSpawnCount < aSpawnMinActive - mParticleList.mSize)
 		aSpawnCount = aSpawnMinActive - mParticleList.mSize;  // spawn at least enough to reach aSpawnMinActive
 	int aSpawnMaxActive = static_cast<int>(aSpawningEmitter->SystemTrackEvaluate(aSpawningEmitter->mEmitterDef->mSpawnMaxActive, ParticleSystemTracks::TRACK_SPAWN_MAX_ACTIVE));
+	if (aIsGloomCloud && aSpawnMaxActive > 0 && aGloomCloudQualityScale < 1.0f)
+		aSpawnMaxActive = std::max(1, static_cast<int>(std::floor(aSpawnMaxActive * aGloomCloudQualityScale)));
 	if (aSpawnMaxActive >= 0 && aSpawnCount > aSpawnMaxActive - mParticleList.mSize)
 		aSpawnCount = aSpawnMaxActive - mParticleList.mSize;  // cap the active count at aSpawnMaxActive
+	bool aSpawnMaxLaunchedAllowsParticle = true;
 	if (FloatTrackIsSet(aSpawningEmitter->mEmitterDef->mSpawnMaxLaunched))
 	{
 		int aSpawnMaxLaunched = aSpawningEmitter->SystemTrackEvaluate(aSpawningEmitter->mEmitterDef->mSpawnMaxLaunched, ParticleSystemTracks::TRACK_SPAWN_MAX_LAUNCHED);
+		if (aIsGloomCloud && aSpawnMaxLaunched > 0 && aGloomCloudQualityScale < 1.0f)
+			aSpawnMaxLaunched = std::max(1, static_cast<int>(std::floor(aSpawnMaxLaunched * aGloomCloudQualityScale)));
+		aSpawnMaxLaunchedAllowsParticle = mParticlesSpawned < aSpawnMaxLaunched;
 		if (aSpawnCount > aSpawnMaxLaunched - mParticlesSpawned)
 			aSpawnCount = aSpawnMaxLaunched - mParticlesSpawned;  // cap at the emitter's total launch limit
 	}
@@ -897,6 +1011,9 @@ void PvzpParticleEmitter::UpdateSpawning()
 			(mCurrentQualityTier == 1 && (aPhase & 3U) == 0))
 			aSpawnCount = 0;
 	}
+	if (aIsGloomCloud && mCurrentQualityTier > 0 && mSystemAge == 0 && mParticleList.mSize == 0 &&
+		aSpawnCount <= 0 && aSpawnRate > 0.0f && aSpawnMaxActive != 0 && aSpawnMaxLaunchedAllowsParticle)
+		aSpawnCount = 1;
 
 	for (int i = 0; i < aSpawnCount; i++)
 	{
@@ -933,7 +1050,7 @@ void PvzpParticleEmitter::DeleteAll()
 	}
 }
 
-void PvzpParticleSystem::Update()
+void PvzpParticleSystem::Update(bool theCollectParallelTasks)
 {
 	Sexy::FrameProfiler& aProfiler = Sexy::FrameProfiler::Get();
 	const uint64_t aProfileStart = aProfiler.BeginParticleEffect();
@@ -948,7 +1065,7 @@ void PvzpParticleSystem::Update()
 			PvzpParticleEmitter* aEmitter = mParticleHolder->mEmitters.DataArrayGet(static_cast<unsigned int>(aNode->mValue));
 			const uint32_t aParticlesBefore = aProfileStart == 0 ? 0 : aEmitter->mParticleList.mSize;
 			const int32_t aSpawnedBefore = aProfileStart == 0 ? 0 : aEmitter->mParticlesSpawned;
-			aEmitter->Update();
+			aEmitter->Update(theCollectParallelTasks);
 			if (aProfileStart != 0)
 			{
 				const uint32_t aSpawnedThisUpdate = static_cast<uint32_t>(std::max(0, aEmitter->mParticlesSpawned - aSpawnedBefore));
@@ -1025,7 +1142,7 @@ static bool EmitterUsesSharedRandomShake(const PvzpEmitterDefinition& theDefinit
 	return false;
 }
 
-void PvzpParticleEmitter::Update()
+void PvzpParticleEmitter::Update(bool theCollectParallelTasks)
 {
 	if (mDead)
 		return;
@@ -1061,54 +1178,17 @@ void PvzpParticleEmitter::Update()
 	for (int i = 0; i < mEmitterDef->mSystemFields.count; i++)
 		UpdateSystemField(&mEmitterDef->mSystemFields.Fields[i], mSystemTimeValue, i);
 	PvzpParticleHolder* aHolder = mParticleSystem->mParticleHolder;
-	const bool anEmitterUsesSharedRandom = EmitterUsesSharedRandomShake(*mEmitterDef);
-	const bool aUseParallelCalculation = IsParticleParallelEnabled() && !anEmitterUsesSharedRandom && mParticleList.mSize >= 512;
-	if (!aUseParallelCalculation)
+	const bool aCanDeferCalculations = theCollectParallelTasks && IsParticleParallelEnabled() && !aDie &&
+		mCrossFadeEmitterID == ParticleEmitterID::PARTICLEEMITTERID_NULL && !EmitterUsesSharedRandomShake(*mEmitterDef);
+	for (PvzpListNode<ParticleID>* aNode = mParticleList.mHead; aNode != nullptr; )
 	{
-		for (PvzpListNode<ParticleID>* aNode = mParticleList.mHead; aNode != nullptr; )
-		{
-			PvzpListNode<ParticleID>* aNext = aNode->mNext;
-			PvzpParticle* aParticle = aHolder->mParticles.DataArrayGet(static_cast<unsigned int>(aNode->mValue));
-			if (!UpdateParticle(aParticle))
-				DeleteParticle(aParticle);
-			aNode = aNext;
-		}
-	}
-	else
-	{
-		aHolder->mParticleIdScratch.clear();
-		for (PvzpListNode<ParticleID>* aNode = mParticleList.mHead; aNode != nullptr; aNode = aNode->mNext)
-			aHolder->mParticleIdScratch.push_back(aNode->mValue);
-		for (ParticleID anId : aHolder->mParticleIdScratch)
-		{
-			PvzpParticle* aParticle = aHolder->mParticles.DataArrayTryToGet(anId);
-			if (aParticle != nullptr && !(
-				aParticle->mParticleAge < aParticle->mParticleDuration &&
-				aParticle->mCrossFadeDuration <= 0 &&
-				aParticle->mCrossFadeParticleID == ParticleID::PARTICLEID_NULL))
-			{
-				if (!UpdateParticle(aParticle))
-					DeleteParticle(aParticle);
-			}
-		}
-		aHolder->mParticleUpdateScratch.clear();
-		for (ParticleID anId : aHolder->mParticleIdScratch)
-		{
-			PvzpParticle* aParticle = aHolder->mParticles.DataArrayTryToGet(anId);
-			if (aParticle != nullptr && aParticle->mParticleAge < aParticle->mParticleDuration &&
-				aParticle->mCrossFadeDuration <= 0 && aParticle->mCrossFadeParticleID == ParticleID::PARTICLEID_NULL)
-				aHolder->mParticleUpdateScratch.push_back(aParticle);
-		}
-		ParticleCalculationWorkers& aWorkers = GetParticleCalculationWorkers();
-		if (aWorkers.Available())
-		{
-			aWorkers.Run(this, aHolder->mParticleUpdateScratch);
-			Sexy::FrameProfiler::Get().RecordParticleParallelBatch(static_cast<int>(mParticleSystem->mEffectType),
-				static_cast<uint32_t>(aHolder->mParticleUpdateScratch.size()));
-		}
-		else
-			for (PvzpParticle* aParticle : aHolder->mParticleUpdateScratch)
-				CalculateParticleState(aParticle);
+		PvzpListNode<ParticleID>* aNext = aNode->mNext;
+		PvzpParticle* aParticle = aHolder->mParticles.DataArrayGet(static_cast<unsigned int>(aNode->mValue));
+		const bool aDeferCalculation = aCanDeferCalculations && aParticle->mCrossFadeDuration <= 0 &&
+			aParticle->mCrossFadeParticleID == ParticleID::PARTICLEID_NULL;
+		if (!UpdateParticle(aParticle, aDeferCalculation))
+			DeleteParticle(aParticle);
+		aNode = aNext;
 	}
 	UpdateSpawning();
 
@@ -1550,6 +1630,7 @@ PvzpParticleHolder::~PvzpParticleHolder()
 
 void PvzpParticleHolder::InitializeHolder()
 {
+	mParticleUpdateScratch.clear();
 	mZamboniSmokeLiveParticles = 0;
 	mVisualQualityTier = 0;
 	mParticleCapacityWarningLogged = false;

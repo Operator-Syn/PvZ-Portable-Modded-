@@ -134,7 +134,7 @@ void ReanimatorCache::GetPlantImageSize(SeedType theSeedType, int& theOffsetX, i
 	theWidth = 120;
 	theHeight = 120;
 
-	if (theSeedType == SeedType::SEED_TALLNUT)
+	if (theSeedType == SeedType::SEED_TALLNUT || theSeedType == SeedType::SEED_CHOMPERNUT)
 	{
 		theOffsetY = -40;
 		theHeight += 40;

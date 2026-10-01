@@ -78,6 +78,11 @@ static bool IsFumeGloomStackType(SeedType theSeedType)
 	return theSeedType == SeedType::SEED_FUMESHROOM || theSeedType == SeedType::SEED_GLOOMSHROOM;
 }
 
+static bool IsMelonPultStackType(SeedType theSeedType)
+{
+	return theSeedType == SeedType::SEED_MELONPULT || theSeedType == SeedType::SEED_WINTERMELON;
+}
+
 struct ZombieStrengthTier
 {
 	int mSunThreshold;
@@ -85,7 +90,7 @@ struct ZombieStrengthTier
 };
 
 // Keep toughness thresholds and multipliers together: extend this table when adding future sun tiers.
-constexpr std::array<ZombieStrengthTier, 8> ZOMBIE_STRENGTH_TIERS = {{
+constexpr std::array<ZombieStrengthTier, 10> ZOMBIE_STRENGTH_TIERS = {{
 	{ 0, 1 },
 	{ 100000, 5 },
 	{ 200000, 10 },
@@ -93,8 +98,13 @@ constexpr std::array<ZombieStrengthTier, 8> ZOMBIE_STRENGTH_TIERS = {{
 	{ 700000, 12 },
 	{ 800000, 12 },
 	{ 1000000, 18 }, // 1.5x the 800k tier; armor uses the same multiplier.
-	{ 2000000, 27 }, // 1.5x the 1m tier; armor and existing type modifiers still apply.
+	{ 2000000, 41 }, // 1.5x the former 27x tier; armor and type modifiers use the same scaling.
+	{ TWO_AND_HALF_MILLION_SUN_THRESHOLD, 62 }, // Advances toughness and armor to the former 5m tier; all zombies receive armor.
+	{ FIVE_MILLION_SUN_THRESHOLD, 62 },
 }};
+
+constexpr int TWO_MILLION_ZOMBIE_TIER_INDEX = 7;
+constexpr int TWO_AND_HALF_MILLION_ZOMBIE_TIER_INDEX = 8;
 
 constexpr int QUADRATIC_RESISTANCE_SUN_THRESHOLD = 900000;
 constexpr int QUADRATIC_RESISTANCE_BASE_TIER_INDEX = 5; // 800k tier immediately below resistance activation.
@@ -123,8 +133,14 @@ static int ZombieHealthMultiplierForZombie(const Zombie* theZombie, int theTier)
 {
 	const int aMultiplier = ZombieHealthMultiplierForTier(theTier);
 	if (theZombie != nullptr &&
-		(theZombie->mZombieType == ZombieType::ZOMBIE_TRAFFIC_CONE || theZombie->mZombieType == ZombieType::ZOMBIE_PAIL) &&
-		theTier >= static_cast<int>(ZOMBIE_STRENGTH_TIERS.size()) - 1)
+		(theZombie->mZombieType == ZombieType::ZOMBIE_TRAFFIC_CONE || theZombie->mZombieType == ZombieType::ZOMBIE_PAIL ||
+			theZombie->mZombieType == ZombieType::ZOMBIE_BULWARK_BUCKET) &&
+		theTier >= TWO_MILLION_ZOMBIE_TIER_INDEX)
+		return aMultiplier * 2;
+	if (theZombie != nullptr && theZombie->mZombieType == ZombieType::ZOMBIE_NEWSPAPER &&
+		(theZombie->mZombiePhase == ZombiePhase::PHASE_NEWSPAPER_MADDENING ||
+			theZombie->mZombiePhase == ZombiePhase::PHASE_NEWSPAPER_MAD) &&
+		theTier >= TWO_MILLION_ZOMBIE_TIER_INDEX)
 		return aMultiplier * 2;
 	if (theZombie != nullptr && (theZombie->mZombieType == ZombieType::ZOMBIE_LADDER ||
 		theZombie->mZombieType == ZombieType::ZOMBIE_IMP) && theTier >= 4)
@@ -158,6 +174,7 @@ Board::Board(LawnApp* theApp)
 {
 	mApp = theApp;
 	mApp->mBoard = this;
+	mPlanternFlameDamagePercent.fill(100);
 
 	mZombies.DataArrayInitialize(MAX_ACTIVE_ZOMBIES, "zombies");
 	mSplashDamageTargets.reserve(MAX_ACTIVE_ZOMBIES);
@@ -484,8 +501,28 @@ bool Board::LoadGame(const std::string& theFileName)
 	mZombieRainPendingCount = 0;
 	mPlanternFlameCountdown.fill(0);
 	mPlanternFlameTick.fill(0);
+	mPlanternFlameDamagePercent.fill(100);
 	if (!LawnLoadGame(this, theFileName))
 		return false;
+	for (LawnMower* aLawnMower : mLawnMowers)
+	{
+		const std::string aDetailsJson = std::format(
+			R"({{"mower_id":{},"mower_type":{},"row_index":{},"lane":{},"state":{},"dead":{},"visible":{},"x":{:.2f},"y":{:.2f}}})",
+			mLawnMowers.DataArrayGetID(aLawnMower), static_cast<int>(aLawnMower->mMowerType), aLawnMower->mRow,
+			aLawnMower->mRow + 1, static_cast<int>(aLawnMower->mMowerState),
+			aLawnMower->mDead ? "true" : "false", aLawnMower->mVisible ? "true" : "false",
+			aLawnMower->mPosX, aLawnMower->mPosY);
+		RecordGameplayEvent("lawn_mower_restored", aDetailsJson);
+	}
+	for (Plant* aPlant : mPlants)
+	{
+		if (!aPlant->mDead && aPlant->mPlantMaxHealth == 300 && aPlant->mPlantHealth > 0)
+		{
+			// Older saves keep the previous default plant health. Preserve lost HP while applying the +200 HP increase.
+			aPlant->mPlantMaxHealth = 500;
+			aPlant->mPlantHealth = std::min(500, aPlant->mPlantHealth + 200);
+		}
+	}
 
 	RestorePlantHealGlowsAfterLoad();
 	LoadBackgroundImages();
@@ -1141,16 +1178,8 @@ void Board::PickBackground()
 	}
 	else if (mBackground == BackgroundType::BACKGROUND_3_POOL || mBackground == BackgroundType::BACKGROUND_ZOMBIQUARIUM || mBackground == BackgroundType::BACKGROUND_4_FOG)
 	{
-		if (StageHasPool() && LawnApp::IsSurvivalEndless(mApp->mGameMode))
-		{
-			for (int y = 3; y <= 6; y++)
-				mPlantRow[y] = PlantRowType::PLANTROW_POOL;
-		}
-		else
-		{
-			mPlantRow[2] = PlantRowType::PLANTROW_POOL;
-			mPlantRow[3] = PlantRowType::PLANTROW_POOL;
-		}
+		mPlantRow[2] = PlantRowType::PLANTROW_POOL;
+		mPlantRow[3] = PlantRowType::PLANTROW_POOL;
 	}
 	else if (mBackground == BackgroundType::BACKGROUND_2_NIGHT || mBackground == BackgroundType::BACKGROUND_5_ROOF ||
 		mBackground == BackgroundType::BACKGROUND_6_BOSS)
@@ -1683,9 +1712,7 @@ void Board::PlaceRake()
 	PvzpWeightedArray aPickArray[MAX_GRID_SIZE_Y];
 	for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
 	{
-		const int aFirstExpandedRow = StageHasPool() ? 6 : 5;
-		const bool aIsNewEndlessRow = mApp->IsSurvivalEndless(mApp->mGameMode) && aRow >= aFirstExpandedRow;
-		if ((aRow != 5 || aIsNewEndlessRow) && mPlantRow[aRow] == PlantRowType::PLANTROW_NORMAL)
+		if (aRow != 5 && mPlantRow[aRow] == PlantRowType::PLANTROW_NORMAL)
 		{
 			aPickArray[aPickCount].mWeight = 1;
 			aPickArray[aPickCount].mItem = aRow;
@@ -1728,6 +1755,12 @@ void Board::InitLawnMowers()
 			LawnMower* aLawnMower = mLawnMowers.DataArrayAlloc();
 			aLawnMower->LawnMowerInitialize(aRow);
 			aLawnMower->mVisible = false;
+			const std::string aDetailsJson = std::format(
+				R"({{"mower_id":{},"mower_type":{},"row_index":{},"lane":{},"state":{},"visible":{},"x":{:.2f},"y":{:.2f}}})",
+				mLawnMowers.DataArrayGetID(aLawnMower), static_cast<int>(aLawnMower->mMowerType), aRow, aRow + 1,
+				static_cast<int>(aLawnMower->mMowerState), aLawnMower->mVisible ? "true" : "false",
+				aLawnMower->mPosX, aLawnMower->mPosY);
+			RecordGameplayEvent("lawn_mower_initialized", aDetailsJson);
 		}
 	}
 }
@@ -2193,7 +2226,46 @@ void Board::DoPlantingEffects(int theGridX, int theGridY, Plant* thePlant)
 
 Plant* Board::AddPlant(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType)
 {
+	Plant* aPlantToFuse = GetTopPlantAt(theGridX, theGridY, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
+	bool aFuseChomperNut = aPlantToFuse != nullptr &&
+		((theSeedType == SeedType::SEED_CHOMPER && aPlantToFuse->mSeedType == SeedType::SEED_TALLNUT) ||
+		 (theSeedType == SeedType::SEED_TALLNUT && aPlantToFuse->mSeedType == SeedType::SEED_CHOMPER));
+	int aFusedHealth = 0;
+	int aFusedMaxHealth = 0;
+	PlantState aFusedChomperState = PlantState::STATE_READY;
+	int aFusedChomperCountdown = 0;
+	ZombieID aFusedTargetZombieID = ZombieID::ZOMBIEID_NULL;
+	if (aFuseChomperNut)
+	{
+		int aIncomingMaxHealth = theSeedType == SeedType::SEED_TALLNUT
+			? (mTallNutOverdriveActive ? 10000 : 8000) : 500;
+		aFusedHealth = aPlantToFuse->mPlantHealth + aIncomingMaxHealth;
+		aFusedMaxHealth = aPlantToFuse->mPlantMaxHealth + aIncomingMaxHealth;
+		if (aPlantToFuse->IsChomper())
+		{
+			aFusedChomperState = aPlantToFuse->mState;
+			aFusedChomperCountdown = aPlantToFuse->mStateCountdown;
+			aFusedTargetZombieID = aPlantToFuse->mTargetZombieID;
+		}
+		aPlantToFuse->Die();
+		theSeedType = SeedType::SEED_CHOMPERNUT;
+		theImitaterType = SeedType::SEED_NONE;
+	}
 	Plant* aPlant = NewPlant(theGridX, theGridY, theSeedType, theImitaterType);
+	if (aFuseChomperNut)
+	{
+		aPlant->mPlantHealth = aFusedHealth;
+		aPlant->mPlantMaxHealth = aFusedMaxHealth;
+		aPlant->mState = aFusedChomperState;
+		aPlant->mStateCountdown = aFusedChomperCountdown;
+		aPlant->mTargetZombieID = aFusedTargetZombieID;
+		if (aFusedChomperState == PlantState::STATE_CHOMPER_BITING || aFusedChomperState == PlantState::STATE_CHOMPER_BITING_MISSED)
+			aPlant->PlayBodyReanim("anim_bite", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, 24.0f);
+		else if (aFusedChomperState == PlantState::STATE_CHOMPER_DIGESTING || aFusedChomperState == PlantState::STATE_CHOMPER_BITING_GOT_ONE)
+			aPlant->PlayBodyReanim("anim_chew", ReanimLoopType::REANIM_LOOP, 0, 15.0f);
+		else if (aFusedChomperState == PlantState::STATE_CHOMPER_SWALLOWING)
+			aPlant->PlayBodyReanim("anim_swallow", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, 12.0f);
+	}
 	DoPlantingEffects(theGridX, theGridY, aPlant);
 	mChallenge->PlantAdded(aPlant);
 
@@ -2267,6 +2339,8 @@ void Board::GetPlantsOnLawn(int theGridX, int theGridY, PlantsOnLawn* thePlantOn
 	thePlantOnLawn->mNormalPlant = nullptr;
 	thePlantOnLawn->mSunflowerCount = 0;
 	thePlantOnLawn->mFumeGloomCount = 0;
+	thePlantOnLawn->mCatTailCount = 0;
+	thePlantOnLawn->mMelonPultCount = 0;
 	thePlantOnLawn->mSunMagnetPlant = nullptr;
 	thePlantOnLawn->mMagnetCount = 0;
 
@@ -2349,6 +2423,20 @@ void Board::GetPlantsOnLawn(int theGridX, int theGridY, PlantsOnLawn* thePlantOn
 				mPlants.DataArrayGetID(aPlant) > mPlants.DataArrayGetID(thePlantOnLawn->mNormalPlant))
 				thePlantOnLawn->mNormalPlant = aPlant;
 		}
+		else if (aSeedType == SeedType::SEED_CATTAIL)
+		{
+			++thePlantOnLawn->mCatTailCount;
+			if (thePlantOnLawn->mNormalPlant == nullptr ||
+				mPlants.DataArrayGetID(aPlant) > mPlants.DataArrayGetID(thePlantOnLawn->mNormalPlant))
+				thePlantOnLawn->mNormalPlant = aPlant;
+		}
+		else if (IsMelonPultStackType(aSeedType))
+		{
+			++thePlantOnLawn->mMelonPultCount;
+			if (thePlantOnLawn->mNormalPlant == nullptr ||
+				mPlants.DataArrayGetID(aPlant) > mPlants.DataArrayGetID(thePlantOnLawn->mNormalPlant))
+				thePlantOnLawn->mNormalPlant = aPlant;
+		}
 		else
 		{
 			PVZP_ASSERT(!thePlantOnLawn->mNormalPlant);
@@ -2420,7 +2508,9 @@ int Board::CountPlantByType(SeedType theSeedType)
 	{
 		if (aPlant->mDead)
 			continue;
-		if (aPlant->mSeedType == theSeedType)
+		if (aPlant->mSeedType == theSeedType ||
+			(theSeedType == SeedType::SEED_CHOMPER && aPlant->mSeedType == SeedType::SEED_CHOMPERNUT) ||
+			(theSeedType == SeedType::SEED_TALLNUT && aPlant->mSeedType == SeedType::SEED_CHOMPERNUT))
 		{
 			aCount++;
 		}
@@ -2609,12 +2699,13 @@ void Board::UpdateSunMagnetCollection()
 	}
 }
 
-void Board::StartPlanternFlame(int theRow)
+void Board::StartPlanternFlame(int theRow, bool theAutoCoffeeBean)
 {
 	if (theRow < 0 || theRow >= MAX_GRID_SIZE_Y)
 		return;
 	mPlanternFlameCountdown[theRow] = 300;
 	mPlanternFlameTick[theRow] = 60;
+	mPlanternFlameDamagePercent[theRow] = theAutoCoffeeBean ? 85 : 100;
 }
 
 void Board::UpdatePlanternFlames()
@@ -2622,13 +2713,17 @@ void Board::UpdatePlanternFlames()
 	for (int aRow = 0; aRow < GetNumPlayableRows(); aRow++)
 	{
 		if (mPlanternFlameCountdown[aRow] <= 0)
+		{
+			mPlanternFlameDamagePercent[aRow] = 100;
 			continue;
+		}
 		--mPlanternFlameCountdown[aRow];
 		--mPlanternFlameTick[aRow];
 		if (mPlanternFlameCountdown[aRow] % 15 == 0)
 		{
 			float aFirstFireX = static_cast<float>(GridToPixelX(0, aRow) + 40);
-			float aLastFireX = static_cast<float>(GridToPixelX(GetNumPlayableColumns() - 1, aRow) + 40);
+			float aLastFireX = static_cast<float>(std::max(
+				GridToPixelX(GetNumPlayableColumns() - 1, aRow) + 40, mApp->mWidth - LAWN_XMIN));
 			float aFireX = RandRangeFloat(aFirstFireX, aLastFireX);
 			float aFireY = static_cast<float>(GetPosYBasedOnRow(aFireX, aRow));
 			Reanimation* aFire = mApp->AddReanimation(aFireX, aFireY, MakeRenderOrder(RenderLayer::RENDER_LAYER_LAWN_MOWER, aRow, 3),
@@ -2652,7 +2747,10 @@ void Board::UpdatePlanternFlames()
 				!aZombie->EffectedByDamage(127U))
 				continue;
 			int aHealth = std::max(1, aZombie->mBodyHealth + aZombie->mHelmHealth + aZombie->mShieldHealth + aZombie->mFlyingHealth);
-			aZombie->TakeDamage(std::max(1, static_cast<int>((static_cast<int64_t>(aHealth) * 2 + 99) / 100)), 127U);
+			int aBaseDamage = std::max(1, static_cast<int>((static_cast<int64_t>(aHealth) * 2 + 99) / 100));
+			int aDamagePercent = std::clamp(mPlanternFlameDamagePercent[aRow], 1, 100);
+			int aDamage = std::max(1, static_cast<int>((static_cast<int64_t>(aBaseDamage) * aDamagePercent + 50) / 100));
+			aZombie->TakeDamage(aDamage, 127U);
 		}
 	}
 }
@@ -3130,6 +3228,21 @@ static Plant* FindTopUnupgradedFumeShroom(Board* theBoard, int theGridX, int the
 	return aTarget;
 }
 
+static Plant* FindTopUnupgradedMelonPult(Board* theBoard, int theGridX, int theGridY)
+{
+	Plant* aTarget = nullptr;
+	for (Plant* aPlant : theBoard->mPlants)
+	{
+		if (aPlant->mDead || aPlant->mPlantCol != theGridX || aPlant->mRow != theGridY || aPlant->NotOnGround() ||
+			aPlant->mOnBungeeState == PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE ||
+			aPlant->mSeedType != SeedType::SEED_MELONPULT || !aPlant->IsUpgradableTo(SeedType::SEED_WINTERMELON))
+			continue;
+		if (aTarget == nullptr || theBoard->mPlants.DataArrayGetID(aPlant) > theBoard->mPlants.DataArrayGetID(aTarget))
+			aTarget = aPlant;
+	}
+	return aTarget;
+}
+
 struct CoffeeBeanColumnPlan
 {
 	std::vector<PlantID> mAffectedPlants;
@@ -3198,12 +3311,79 @@ static int64_t CoffeeBeanColumnSunCost(Board* theBoard, const CoffeeBeanColumnPl
 	if (IsCoffeeBeanChargeableByPlant(theBoard))
 		aSunCost += static_cast<int64_t>(thePlan.mAffectedPlants.size()) *
 			theBoard->GetCurrentPlantCost(SeedType::SEED_INSTANT_COFFEE, SeedType::SEED_NONE);
-	aSunCost += static_cast<int64_t>(thePlan.mPlanterns.size()) * thePlan.mPlanternTargetLaneCount * 500;
+	int aSunCostPerLane = theBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? 1000 : 500;
+	aSunCost += static_cast<int64_t>(thePlan.mPlanterns.size()) * thePlan.mPlanternTargetLaneCount * aSunCostPerLane;
 	return aSunCost;
+}
+
+static bool CoffeeBeanIsInChosenSeedBank(Board* theBoard)
+{
+	if (theBoard->mSeedBank == nullptr || theBoard->HasConveyorBeltSeedBank() || theBoard->mApp->IsSlotMachineLevel())
+		return false;
+	for (int i = 0; i < theBoard->mSeedBank->mNumPackets; i++)
+	{
+		const SeedPacket& aPacket = theBoard->mSeedBank->mSeedPackets[i];
+		if (aPacket.mPacketType == SeedType::SEED_INSTANT_COFFEE ||
+			(aPacket.mPacketType == SeedType::SEED_IMITATER && aPacket.mImitaterType == SeedType::SEED_INSTANT_COFFEE))
+			return true;
+	}
+	return false;
+}
+
+static void AutomaticallyCoffeeBeanPlanterns(Board* theBoard)
+{
+	int64_t aRemainingSun = static_cast<int64_t>(theBoard->mSunMoney) + theBoard->CountSunBeingCollected();
+	int64_t aShadowSunMoney = theBoard->mSunMoney;
+	int aBeanCost = theBoard->mApp->mEasyPlantingCheat ? 0 :
+		theBoard->GetCurrentPlantCost(SeedType::SEED_INSTANT_COFFEE, SeedType::SEED_NONE);
+	for (int aColumn = 0; aColumn < theBoard->GetNumPlayableColumns(); aColumn++)
+	{
+		CoffeeBeanColumnPlan aPlan = BuildCoffeeBeanColumnPlan(theBoard, aColumn);
+		if (aPlan.mPlanterns.empty() || aPlan.mPlanternTargetLaneCount <= 0)
+			continue;
+
+		std::vector<int> aPlanternCosts;
+		int64_t aColumnAvailableSun = aRemainingSun;
+		int64_t aColumnShadowSunMoney = aShadowSunMoney;
+		for (size_t i = 0; i < aPlan.mPlanterns.size(); i++)
+		{
+			int aSunCostPerLane = aColumnShadowSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? 1000 : 500;
+			int64_t aPlanternCost = static_cast<int64_t>(aBeanCost) +
+				static_cast<int64_t>(aPlan.mPlanternTargetLaneCount) * aSunCostPerLane;
+			if (aPlanternCost <= 0 || aColumnAvailableSun < aPlanternCost ||
+				aPlanternCost > std::numeric_limits<int>::max())
+				break;
+			aPlanternCosts.push_back(static_cast<int>(aPlanternCost));
+			aColumnAvailableSun -= aPlanternCost;
+			aColumnShadowSunMoney -= aPlanternCost;
+		}
+		if (aPlanternCosts.empty())
+			continue;
+
+		int aFiredPlanternCount = 0;
+		int64_t aFiredSunCost = 0;
+		for (size_t i = 0; i < aPlanternCosts.size(); i++)
+		{
+			Plant* aPlantern = theBoard->mPlants.DataArrayTryToGet(static_cast<unsigned int>(aPlan.mPlanterns[i]));
+			if (aPlantern == nullptr || aPlantern->mDead || !aPlantern->PlanternCoffeeBeanVolley(true))
+				break;
+			++aFiredPlanternCount;
+			aFiredSunCost += aPlanternCosts[i];
+		}
+		if (aFiredPlanternCount > 0 && aFiredSunCost <= std::numeric_limits<int>::max() &&
+			theBoard->CanTakeSunMoney(static_cast<int>(aFiredSunCost)) &&
+			theBoard->TakeSunMoney(static_cast<int>(aFiredSunCost)))
+		{
+			aRemainingSun -= aFiredSunCost;
+			aShadowSunMoney = theBoard->mSunMoney;
+		}
+	}
 }
 
 PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedType)
 {
+	if (theSeedType == SeedType::SEED_CHOMPERNUT)
+		return PlantingReason::PLANTING_NOT_HERE;
 	if (theGridX < 0 || theGridX >= GetNumPlayableColumns() || theGridY < 0 || theGridY >= MAX_GRID_SIZE_Y)
 	{
 		return PlantingReason::PLANTING_NOT_HERE;
@@ -3302,6 +3482,24 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		return PlantingReason::PLANTING_NOT_HERE;
 	}
 	Plant* aNormalPlant = aPlantOnLawn.mNormalPlant;
+	if (aNormalPlant != nullptr &&
+		((theSeedType == SeedType::SEED_CHOMPER && aNormalPlant->mSeedType == SeedType::SEED_TALLNUT) ||
+		 (theSeedType == SeedType::SEED_TALLNUT && aNormalPlant->mSeedType == SeedType::SEED_CHOMPER)))
+	{
+		return aNormalPlant->mOnBungeeState == PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE
+			? PlantingReason::PLANTING_NOT_HERE : PlantingReason::PLANTING_OK;
+	}
+	if (mSunMoney >= PLANT_LAYERING_SUN_THRESHOLD)
+	{
+		if (theSeedType == SeedType::SEED_CATTAIL && aPlantOnLawn.mCatTailCount > 0)
+			return aPlantOnLawn.mCatTailCount < 5 ? PlantingReason::PLANTING_OK : PlantingReason::PLANTING_NOT_HERE;
+		if (IsMelonPultStackType(theSeedType) && aPlantOnLawn.mMelonPultCount > 0)
+		{
+			if (theSeedType == SeedType::SEED_WINTERMELON && FindTopUnupgradedMelonPult(this, theGridX, theGridY) != nullptr)
+				return PlantingReason::PLANTING_OK;
+			return aPlantOnLawn.mMelonPultCount < 5 ? PlantingReason::PLANTING_OK : PlantingReason::PLANTING_NOT_HERE;
+		}
+	}
 	if (theSeedType == SeedType::SEED_LILYPAD || theSeedType == SeedType::SEED_TANGLEKELP || theSeedType == SeedType::SEED_SEASHROOM)
 	{
 		if (!IsPoolSquare(theGridX, theGridY))
@@ -3368,7 +3566,7 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	{
 		if (theSeedType == SeedType::SEED_CATTAIL)
 		{
-			if (aNormalPlant)
+			if (aNormalPlant || aPlantOnLawn.mFlyingPlant)
 			{
 				return PlantingReason::PLANTING_NOT_HERE;
 			}
@@ -3393,7 +3591,7 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	if (aNormalPlant)
 	{
 		bool aIsFumeGloomStack = IsFumeGloomStackType(aNormalPlant->mSeedType);
-		if (mSunMoney >= TWO_MILLION_SUN_THRESHOLD && aIsFumeGloomStack &&
+		if (mSunMoney >= PLANT_LAYERING_SUN_THRESHOLD && aIsFumeGloomStack &&
 			IsFumeGloomStackType(theSeedType))
 		{
 			if (theSeedType == SeedType::SEED_GLOOMSHROOM &&
@@ -3952,10 +4150,19 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 					aPlantDetails += Plant::GetNameString(SeedType::SEED_CHOMPER);
 			}
 
-			if (aPlant->mSeedType == SeedType::SEED_CHOMPER)
+			if (aPlant->IsChomper())
 			{
 				aPlantDetails += std::format("\nOverdrive: {} (>15,000 sun; digests 2x faster, heals up to 2 forward plants with quadratic group scaling (each gets base heal x recipient count); costs 100 sun/s)",
 					mChomperOverdriveActive ? "Active" : "Inactive");
+				if (aPlant->IsTallNut())
+				{
+					aPlantDetails += std::format("\nTall-nut overdrive: {} (>=10,000 sun; restores 50 HP/s, +25% max HP, costs 200 sun/s)",
+						mTallNutOverdriveActive ? "Active" : "Inactive");
+				}
+			}
+			else if (aPlant->mSeedType == SeedType::SEED_FUMESHROOM || aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM)
+			{
+				aPlantDetails += "\nLayering: up to 5 Fume-shrooms and Gloom-shrooms combined per tile at >=1,000,000 sun";
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_KERNELPULT)
 			{
@@ -3973,10 +4180,13 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 					mTwinSunflowerBombardmentOverdriveActive ? "Active" : "Inactive",
 					mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? "Active" : "Inactive");
 			}
-			else if (aPlant->mSeedType == SeedType::SEED_WINTERMELON)
+			else if (IsMelonPultStackType(aPlant->mSeedType))
 			{
-				aPlantDetails += std::format("\nOverdrive: {} (>=1,000,000 sun; impact damage scales with group size. From 900,000 sun, quadratic scaling is ceil(sqrt(targets)), capped at 4x; cap increases by 2x per doubling of zombie HP. Bungees are exempt; costs 200 sun/s)",
-					mSunMoney >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD ? "Active" : "Inactive");
+				if (aPlant->mSeedType == SeedType::SEED_WINTERMELON)
+					aPlantDetails += std::format("\nLayering: up to 5 Melon-pults and Winter Melons combined per tile at >=1,000,000 sun\nOverdrive: {} (>=1,000,000 sun; 2x attack rate, five spread melons per lob at 5 sun each, 10% Cherry Bomb chance or 35% while sacrificing HP; costs 500 sun/s and loses 10 HP/s to 1 HP. Quadratic splash uses ceil(sqrt(targets)); Bungees exempt)",
+						mSunMoney >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD ? "Active" : "Inactive");
+				else
+					aPlantDetails += "\nLayering: up to 5 Melon-pults and Winter Melons combined per tile at >=1,000,000 sun";
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
 			{
@@ -3990,12 +4200,12 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_CATTAIL)
 			{
-				aPlantDetails += std::format("\nSeed cost: 75 sun\nOverdrive: {} (>=25,000 sun; about 4x attack rate, 6 shots/cycle, 125 sun/projectile; >=1,000,000: 375 sun/projectile and 1.5x damage)",
+				aPlantDetails += std::format("\nSeed cost: 75 sun\nLayering: up to 5 Cat Tails per tile at >=1,000,000 sun\nOverdrive: {} (>=25,000 sun; about 4x attack rate, 6 shots/cycle, 125 sun/projectile; >=1,000,000: 375 sun/projectile and 5x damage; >=2,000,000: 750 sun/projectile, plus 1.5% of target's current body HP as extra damage per hit (minimum 50), and drains 1% max HP/s; this can kill the Cattail)",
 					mCatTailOverdriveActive ? "Active" : "Inactive");
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_PLANTERN)
 			{
-				aPlantDetails += std::format("\nSun production: sun value compounds by x1.2 per completed flag\nOverdrive: Production {} (>1,000 sun; about 2x faster); shoots Cherry Bombs every 2,500 ticks for 150 sun when bank >=1,000; >=1,000,000: 2x attack rate and 300 sun/shot; >=50,000: impacts burn the lane. Coffee Bean: Cob/targeted lane (500 sun; 1,000 at >=1,000,000), then 5s flames (300 sun/lane/s)",
+				aPlantDetails += std::format("\nSun production: sun value compounds by x1.2 per completed flag; pauses at 5,000,000 sun and resumes below it\nOverdrive: Production {} (>1,000 sun; about 2x faster); Cherry Bomb cadence speeds up 2.5x at >=1,000, >=50,000, and >=1,000,000 sun, capped at 1.5x Peashooter's 150-tick firing interval; >=1,000,000 costs 300 sun/shot (150 below); >=50,000: impacts trigger a Jalapeno flame across the struck lane. Coffee Bean: Cob/targeted lane (500 sun; 1,000 at >=1,000,000), then 5s flames (300 sun/lane/s); >=2,000,000: if Coffee Bean is in the chosen seed bank, all eligible Planterns auto-fire every 3s for 85% damage at the same costs",
 					mSunMoney > 1000 ? "Active" : "Inactive");
 			}
 			else if (aPlant->mSeedType == SeedType::SEED_GATLINGPEA)
@@ -4014,7 +4224,11 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 				aPlantDetails += std::format("\nOverdrive: {} (>=5,000 sun; restores 50 HP/s, gains 25% max HP; nearby Pumpkin healing bonus scales quadratically with adjacent Pumpkin count)",
 					mPumpkinOverdriveActive ? "Active" : "Inactive");
 			}
-			else if (aPlant->mSeedType == SeedType::SEED_TALLNUT)
+			else if (aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM)
+			{
+				aPlantDetails += "\nRegeneration: restores 25 HP/s for 150 sun/s; Pumpkin healing bonus applies at >=5,000 sun";
+			}
+			else if (aPlant->IsTallNut())
 			{
 				aPlantDetails += std::format("\nOverdrive: {} (>=10,000 sun; restores 50 HP/s, +25% max HP, costs 200 sun/s)",
 					mTallNutOverdriveActive ? "Active" : "Inactive");
@@ -4280,6 +4494,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	}
 
 	SeedType aPlantingSeedType = GetSeedTypeInCursor();
+	bool aCatTailLayeringTierActive = mSunMoney >= PLANT_LAYERING_SUN_THRESHOLD;
 	int aGridX = PlantingPixelToGridX(x, y, aPlantingSeedType);
 	int aGridY = PlantingPixelToGridY(x, y, aPlantingSeedType);
 
@@ -4476,6 +4691,8 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	GetPlantsOnLawn(aGridX, aGridY, &aPlantOnLawn);
 	Plant* aNormalPlant = aPlantOnLawn.mNormalPlant;
 	Plant* aPumpkinPlant = aPlantOnLawn.mPumpkinPlant;
+	bool aIsCatTailLayering = aCatTailLayeringTierActive &&
+		aPlantingSeedType == SeedType::SEED_CATTAIL && aPlantOnLawn.mCatTailCount > 0;
 	Plant* aPlantToUpgrade = aNormalPlant;
 	if (aPlantingSeedType == SeedType::SEED_TWINSUNFLOWER && aPlantOnLawn.mSunflowerCount > 0)
 	{
@@ -4488,9 +4705,14 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		aPlantToUpgrade = FindTopUnupgradedMagnet(this, aGridX, aGridY);
 	}
 	else if (aPlantingSeedType == SeedType::SEED_GLOOMSHROOM &&
-		mSunMoney >= TWO_MILLION_SUN_THRESHOLD && aPlantOnLawn.mFumeGloomCount > 0)
+		mSunMoney >= PLANT_LAYERING_SUN_THRESHOLD && aPlantOnLawn.mFumeGloomCount > 0)
 	{
 		aPlantToUpgrade = FindTopUnupgradedFumeShroom(this, aGridX, aGridY);
+	}
+	else if (aPlantingSeedType == SeedType::SEED_WINTERMELON &&
+		mSunMoney >= PLANT_LAYERING_SUN_THRESHOLD && aPlantOnLawn.mMelonPultCount > 0)
+	{
+		aPlantToUpgrade = FindTopUnupgradedMelonPult(this, aGridX, aGridY);
 	}
 	if (aPlantToUpgrade && aPlantToUpgrade->IsUpgradableTo(aPlantingSeedType))
 	{
@@ -4523,7 +4745,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 			aRightPlant->Die();
 		}
 	}
-	if (aPlantingSeedType == SeedType::SEED_CATTAIL)
+	if (aPlantingSeedType == SeedType::SEED_CATTAIL && !aIsCatTailLayering)
 	{
 		if (aPlantOnLawn.mUnderPlant)
 		{
@@ -4783,6 +5005,13 @@ bool Board::MouseHitTestPlant(int x, int y, HitResult* theHitResult)
 {
 	if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_COBCANNON_TARGET || mCursorObject->mCursorType == CursorType::CURSOR_TYPE_HAMMER)
 		return false;
+	if (mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
+	{
+		const int aPlayableGridRight = LAWN_XMIN + GetNumPlayableColumns() * 80;
+		const int aPlayableGridBottom = LAWN_YMIN + GetNumPlayableRows() * GetGridRowSpacing();
+		if (x < LAWN_XMIN || x >= aPlayableGridRight || y < LAWN_YMIN || y >= aPlayableGridBottom)
+			return false;
+	}
 
 	Plant* aPlant;
 	aPlant = SpecialPlantHitTest(x, y);
@@ -6040,8 +6269,7 @@ void Board::RestorePlantHealGlowsAfterLoad()
 	{
 		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(anAura->mPlantID));
 		Plant* aChomper = mPlants.DataArrayTryToGet(static_cast<unsigned int>(anAura->mChomperID));
-		bool aChomperIsActive = aChomper != nullptr && !aChomper->mDead && aChomper->IsOnBoard() &&
-			aChomper->mSeedType == SeedType::SEED_CHOMPER;
+		bool aChomperIsActive = aChomper != nullptr && !aChomper->mDead && aChomper->IsOnBoard() && aChomper->IsChomper();
 		if (aPlant == nullptr || !PlantCanRegenerate(aPlant) || !aChomperIsActive ||
 			anAura->mTicksUntilPulse < 1 || anAura->mTicksUntilPulse > 100)
 		{
@@ -6168,7 +6396,7 @@ void Board::UpdatePlantHealGlows()
 	if (mMainCounter % aTicksPerPulse == aTicksPerPulse - 1)
 	{
 		for (Plant* aPlant : mPlants)
-			if (!aPlant->mDead && aPlant->IsOnBoard() && aPlant->mSeedType == SeedType::SEED_CHOMPER)
+			if (!aPlant->mDead && aPlant->IsOnBoard() && aPlant->IsChomper())
 				StartChomperRegeneration(aPlant);
 	}
 
@@ -6272,8 +6500,7 @@ void Board::UpdatePlantHealGlows()
 	{
 		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(anAura->mPlantID));
 		Plant* aChomper = mPlants.DataArrayTryToGet(static_cast<unsigned int>(anAura->mChomperID));
-		bool aChomperIsActive = aChomper != nullptr && !aChomper->mDead && aChomper->IsOnBoard() &&
-			aChomper->mSeedType == SeedType::SEED_CHOMPER;
+		bool aChomperIsActive = aChomper != nullptr && !aChomper->mDead && aChomper->IsOnBoard() && aChomper->IsChomper();
 		if (aPlant == nullptr || !PlantCanRegenerate(aPlant) || !aChomperIsActive)
 		{
 			anAura = mChomperHealAuras.erase(anAura);
@@ -6344,7 +6571,7 @@ void Board::UpdatePlantHealGlows()
 
 void Board::StartChomperRegeneration(Plant* theChomper)
 {
-	if (theChomper == nullptr || theChomper->mDead || !theChomper->IsOnBoard() || theChomper->mSeedType != SeedType::SEED_CHOMPER)
+	if (theChomper == nullptr || theChomper->mDead || !theChomper->IsOnBoard() || !theChomper->IsChomper())
 		return;
 
 	std::vector<Plant*> aTargets;
@@ -6431,7 +6658,8 @@ void Board::UpdatePlantOverdrive()
 		for (Zombie* aZombie : mZombies)
 		{
 			if (aZombie->mDead || aZombie->IsDeadOrDying() || !aZombie->mIsEating ||
-				(aZombie->mZombieType != ZombieType::ZOMBIE_TRAFFIC_CONE && aZombie->mZombieType != ZombieType::ZOMBIE_PAIL) ||
+				(aZombie->mZombieType != ZombieType::ZOMBIE_TRAFFIC_CONE && aZombie->mZombieType != ZombieType::ZOMBIE_PAIL &&
+					aZombie->mZombieType != ZombieType::ZOMBIE_BULWARK_BUCKET) ||
 				aZombie->mBodyHealth <= 0 || aZombie->mBodyHealth >= aZombie->mBodyMaxHealth)
 				continue;
 
@@ -6468,9 +6696,10 @@ void Board::UpdatePlantOverdrive()
 			continue;
 		int aDesiredMaxHealth = 0;
 		bool aOverdriveActive = false;
-		if (aPlant->mSeedType == SeedType::SEED_TALLNUT)
+		if (aPlant->IsTallNut())
 		{
-			aDesiredMaxHealth = mTallNutOverdriveActive ? 10000 : 8000;
+			aDesiredMaxHealth = (mTallNutOverdriveActive ? 10000 : 8000) +
+				(aPlant->mSeedType == SeedType::SEED_CHOMPERNUT ? 500 : 0);
 			aOverdriveActive = mTallNutOverdriveActive;
 		}
 		else if (aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
@@ -6501,6 +6730,14 @@ void Board::UpdatePlantOverdrive()
 			}
 		}
 	}
+	bool aThreeMillionSunDurabilityActive = aSunAtSecondStart >= THREE_MILLION_SUN_THRESHOLD;
+	for (Zombie* aZombie : mZombies)
+	{
+		if (aZombie->mDead || aZombie->IsDeadOrDying() ||
+			aZombie->mThreeMillionSunDurabilityApplied == aThreeMillionSunDurabilityActive)
+			continue;
+		ApplyThreeMillionSunDurabilityToZombie(aZombie, aThreeMillionSunDurabilityActive);
+	}
 	if (!mZombieRainActive && aSunAtSecondStart >= 50000 &&
 		mApp->mGameScene == GameScenes::SCENE_PLAYING && mCurrentWave > 0)
 	{
@@ -6509,6 +6746,28 @@ void Board::UpdatePlantOverdrive()
 		mZombieRainPendingCount = 0;
 	}
 	int64_t aSunCost = 0;
+	int aGloomShroomCount = 0;
+	for (Plant* aPlant : mPlants)
+	{
+		if (PlantCanRegenerate(aPlant) && !aPlant->mSquished &&
+			aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM)
+			++aGloomShroomCount;
+	}
+	int64_t aGloomAvailableSun = static_cast<int64_t>(mSunMoney) + CountSunBeingCollected();
+	int aPaidGloomShroomCount = static_cast<int>(std::min<int64_t>(aGloomShroomCount,
+		std::max<int64_t>(0, aGloomAvailableSun / 150)));
+	int aGloomShroomUpkeep = aPaidGloomShroomCount * 150;
+	if (aGloomShroomUpkeep > 0 && TakeSunMoney(aGloomShroomUpkeep))
+	{
+		int aHealedGloomShroomCount = 0;
+		for (Plant* aPlant : mPlants)
+		{
+			if (PlantCanRegenerate(aPlant) && !aPlant->mSquished &&
+				aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM &&
+				aHealedGloomShroomCount++ < aPaidGloomShroomCount)
+				HealPlant(this, aPlant, 25);
+		}
+	}
 	if (mGoldMagnetOverdriveActive)
 		aSunCost += 250;
 	for (auto anItems = mSunMagnetExtraItems.begin(); anItems != mSunMagnetExtraItems.end();)
@@ -6523,6 +6782,16 @@ void Board::UpdatePlantOverdrive()
 	{
 		if (aPlant->mDead || !aPlant->IsOnBoard() || aPlant->mSquished)
 			continue;
+		if (aSunAtSecondStart >= TWO_MILLION_SUN_THRESHOLD && aPlant->mSeedType == SeedType::SEED_CATTAIL)
+		{
+			int aHealthDrain = std::max(1, (aPlant->mPlantMaxHealth + 99) / 100);
+			aPlant->mPlantHealth -= aHealthDrain;
+			if (aPlant->mPlantHealth <= 0)
+			{
+				aPlant->Die();
+				continue;
+			}
+		}
 		if (mSunMagnetOverdriveActive && aPlant->mSeedType == SeedType::SEED_SUN_MAGNET && aPlant->mPlantHealth > 1)
 			aPlant->mPlantHealth--;
 		if (aSunAtSecondStart >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&
@@ -6530,26 +6799,32 @@ void Board::UpdatePlantOverdrive()
 			StartSunMagnetRegeneration(aPlant);
 		if (mPumpkinOverdriveActive && aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
 			HealPlant(this, aPlant, 50);
-		if (mTallNutOverdriveActive && aPlant->mSeedType == SeedType::SEED_TALLNUT)
+		if (mTallNutOverdriveActive && aPlant->IsTallNut())
 		{
 			HealPlant(this, aPlant, 50);
 			aSunCost += 200;
 		}
 		if (mGoldMagnetOverdriveActive && aPlant->mSeedType == SeedType::SEED_GOLD_MAGNET)
 			aPlant->mPlantHealth = std::max(1, aPlant->mPlantHealth - 25);
-		if (mChomperOverdriveActive && aPlant->mSeedType == SeedType::SEED_CHOMPER)
+		if (mChomperOverdriveActive && aPlant->IsChomper())
 			aSunCost += 100;
 		if (mKernelPultOverdriveActive && aPlant->mSeedType == SeedType::SEED_KERNELPULT)
 			aSunCost += aSunAtSecondStart >= KERNEL_PULT_BUTTER_BARRAGE_SUN_THRESHOLD ? 175 : 150;
 		if (aSunAtSecondStart >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD &&
 			aPlant->mSeedType == SeedType::SEED_WINTERMELON)
-			aSunCost += 200;
+		{
+			aSunCost += 500;
+			aPlant->mPlantHealth = std::max(1, aPlant->mPlantHealth - 10);
+		}
 		if (aSunAtSecondStart >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&
 			aPlant->mSeedType == SeedType::SEED_GATLINGPEA)
 			aSunCost += 300;
 	}
 	if (aSunCost > 0)
 		TakeSunMoney(static_cast<int>(std::min<int64_t>(aSunCost, std::numeric_limits<int>::max())));
+	if (aSunAtSecondStart >= TWO_MILLION_SUN_THRESHOLD && mMainCounter % 300 == 299 &&
+		mApp->mGameScene == GameScenes::SCENE_PLAYING && CoffeeBeanIsInChosenSeedBank(this))
+		AutomaticallyCoffeeBeanPlanterns(this);
 }
 
 void Board::ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier, int theToTier)
@@ -6593,9 +6868,15 @@ void Board::ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier, 
 	}
 	bool anImpArmorRemoved = theZombie->mZombieType == ZombieType::ZOMBIE_IMP && theFromTier >= 4 && theToTier < 4 &&
 		theZombie->mHelmType == HelmType::HELMTYPE_PAIL;
-	bool aBucketArmorAdded = theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE && theFromTier < 5 && theToTier >= 5 &&
-		theZombie->mHelmType != HelmType::HELMTYPE_PAIL;
-	bool aBucketArmorRemoved = theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE && theFromTier >= 5 && theToTier < 5;
+	bool aHasTierBucketArmor = theZombie->mTierBucketArmorMaxHealth > 0 || theZombie->mTierBucketArmorHealth > 0;
+	bool aBucketArmorAdded = theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE && !aHasTierBucketArmor &&
+		((theFromTier < 5 && theToTier >= 5 && theZombie->mHelmType != HelmType::HELMTYPE_PAIL) ||
+		theToTier >= TWO_AND_HALF_MILLION_ZOMBIE_TIER_INDEX);
+	bool aUniversalArmorRemoved = theFromTier >= TWO_AND_HALF_MILLION_ZOMBIE_TIER_INDEX &&
+		theToTier < TWO_AND_HALF_MILLION_ZOMBIE_TIER_INDEX &&
+		theZombie->mHelmType == HelmType::HELMTYPE_PAIL;
+	bool aBucketArmorRemoved = (theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE && theFromTier >= 5 && theToTier < 5) ||
+		aUniversalArmorRemoved;
 	auto aScaleHealth = [aOldMultiplier, aNewMultiplier](int32_t& theHealth)
 	{
 		if (theHealth <= 0)
@@ -6645,6 +6926,52 @@ void Board::ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier, 
 		aScaleHealth(theZombie->mTierBucketArmorHealth);
 		aScaleHealth(theZombie->mTierBucketArmorMaxHealth);
 	}
+	if (theZombie->IsSunTierInvulnerable())
+	{
+		bool aRemovedEffect = theZombie->mChilledCounter > 0 || theZombie->mIceTrapCounter > 0 ||
+			theZombie->mButteredCounter > 0;
+		theZombie->mChilledCounter = 0;
+		if (theZombie->mIceTrapCounter > 0)
+			theZombie->RemoveIceTrap();
+		if (theZombie->mButteredCounter > 0)
+		{
+			theZombie->mButteredCounter = 0;
+			theZombie->RemoveButter();
+		}
+		if (aRemovedEffect)
+			theZombie->UpdateAnimSpeed();
+	}
+	ApplyThreeMillionSunDurabilityToZombie(theZombie, mSunMoney >= THREE_MILLION_SUN_THRESHOLD);
+}
+
+void Board::ApplyThreeMillionSunDurabilityToZombie(Zombie* theZombie, bool theApply)
+{
+	if (theZombie == nullptr || theZombie->mThreeMillionSunDurabilityApplied == theApply)
+		return;
+
+	theZombie->mThreeMillionSunDurabilityApplied = theApply;
+	if (theZombie->mZombieType == ZombieType::ZOMBIE_BUNGEE)
+		return;
+
+	int aOldMultiplier = theApply ? 2 : 3;
+	int aNewMultiplier = theApply ? 3 : 2;
+	auto aScaleHealth = [aOldMultiplier, aNewMultiplier](int32_t& theHealth)
+	{
+		if (theHealth <= 0)
+			return;
+		int64_t aScaledHealth = (static_cast<int64_t>(theHealth) * aNewMultiplier + aOldMultiplier / 2) / aOldMultiplier;
+		theHealth = static_cast<int32_t>(std::clamp<int64_t>(aScaledHealth, 1, std::numeric_limits<int32_t>::max()));
+	};
+	aScaleHealth(theZombie->mBodyHealth);
+	aScaleHealth(theZombie->mBodyMaxHealth);
+	aScaleHealth(theZombie->mHelmHealth);
+	aScaleHealth(theZombie->mHelmMaxHealth);
+	aScaleHealth(theZombie->mShieldHealth);
+	aScaleHealth(theZombie->mShieldMaxHealth);
+	aScaleHealth(theZombie->mFlyingHealth);
+	aScaleHealth(theZombie->mFlyingMaxHealth);
+	aScaleHealth(theZombie->mTierBucketArmorHealth);
+	aScaleHealth(theZombie->mTierBucketArmorMaxHealth);
 }
 
 int Board::GetZombieExplosiveDamage() const
@@ -6783,6 +7110,7 @@ void Board::UpdateZombieRain()
 			mZombieRainPendingCount = static_cast<int32_t>(aSpawns.size() - i);
 			return;
 		}
+		aZombie->mSpawnedByZombieRain = true;
 		if (aSpawn.mType == ZombieType::ZOMBIE_BUNGEE)
 			continue;
 
@@ -6875,10 +7203,53 @@ void Board::PuzzleSaveStreak()
 	}
 }
 
+void Board::RecordGameplayEvent(std::string_view theEvent, std::string_view theDetailsJson)
+{
+	const std::string aDataJson = std::format(
+		R"({{"context":{{"game_mode":{},"level":{},"wave":{},"survival_stage":{},"sun":{},"viewport_width":{},"viewport_height":{},"grid_columns":{},"grid_rows":{}}},"details":{}}})",
+		static_cast<int>(mApp->mGameMode), mLevel, mCurrentWave,
+		mChallenge ? mChallenge->mSurvivalStage : -1, mSunMoney, mApp->mWidth, mApp->mHeight,
+		GetNumPlayableColumns(), GetNumPlayableRows(), theDetailsJson);
+	Sexy::FrameProfiler::Get().RecordGameplayEvent(theEvent, aDataJson);
+}
+
+std::string Board::GetZombieBreachReport() const
+{
+	if (mLastBreachingZombieRow < 0 ||
+		static_cast<int>(mLastBreachingZombieType) >= static_cast<int>(ZombieType::NUM_ZOMBIE_TYPES))
+		return {};
+
+	const auto& aZombieDefinition = GetZombieDefinition(mLastBreachingZombieType);
+	const std::string aZombieName(PvzpStringTranslate(std::format("[{}]", aZombieDefinition.mZombieName)));
+	return std::format("Breached by {} in lane {}", aZombieName, mLastBreachingZombieRow + 1);
+}
+
 void Board::ZombiesWon(Zombie* theZombie)
 {
 	if (mApp->mGameScene == GameScenes::SCENE_ZOMBIES_WON)
 		return;
+
+	mLastBreachingZombieType = theZombie ? theZombie->mZombieType : ZombieType::NUM_ZOMBIE_TYPES;
+	mLastBreachingZombieRow = theZombie ? theZombie->mRow : -1;
+	if (theZombie)
+	{
+		const Rect aZombieRect = theZombie->GetZombieRect();
+		const auto& aZombieDefinition = GetZombieDefinition(theZombie->mZombieType);
+		const std::string aDetailsJson = std::format(
+			R"({{"cause":"zombie_breach","zombie_id":{},"zombie_type_id":{},"zombie_type":"{}","row_index":{},"lane":{},"x":{:.2f},"y":{:.2f},"rect":{{"x":{},"y":{},"width":{},"height":{}}},"phase":{},"has_head":{},"sun_tier_invulnerable":{},"body_hp":{},"helmet_hp":{},"shield_hp":{},"flying_hp":{},"on_board":{}}})",
+			static_cast<int>(ZombieGetID(theZombie)), static_cast<int>(theZombie->mZombieType), aZombieDefinition.mZombieName,
+			theZombie->mRow, theZombie->mRow + 1, theZombie->mPosX, theZombie->mPosY,
+			aZombieRect.mX, aZombieRect.mY, aZombieRect.mWidth, aZombieRect.mHeight,
+			static_cast<int>(theZombie->mZombiePhase), theZombie->mHasHead ? "true" : "false",
+			theZombie->IsSunTierInvulnerable() ? "true" : "false",
+			theZombie->mBodyHealth, theZombie->mHelmHealth, theZombie->mShieldHealth, theZombie->mFlyingHealth,
+			theZombie->IsOnBoard() ? "true" : "false");
+		RecordGameplayEvent("board_breach", aDetailsJson);
+	}
+	else
+	{
+		RecordGameplayEvent("board_loss_without_zombie", R"({"cause":"scripted_or_missing_zombie"})");
+	}
 
 	ClearAdvice(AdviceType::ADVICE_NONE);
 	mApp->mBoardResult = BoardResult::BOARDRESULT_LOST;
@@ -6938,6 +7309,12 @@ void Board::ZombiesWon(Zombie* theZombie)
 		return;
 	}
 
+	if (theZombie)
+	{
+		const std::string aBreachReport = GetZombieBreachReport();
+		if (!aBreachReport.empty())
+			aGameOverMsg = std::format("{}\n\n{}", aGameOverMsg, aBreachReport);
+	}
 	GameOverDialog* aGameOverDialog = new GameOverDialog(aGameOverMsg, true);
 	mApp->AddDialog(Dialogs::DIALOG_GAME_OVER, aGameOverDialog);
 	mApp->mWidgetManager->SetFocus(aGameOverDialog);
@@ -6947,7 +7324,9 @@ void Board::ZombiesWon(Zombie* theZombie)
 	mApp->PlaySample(Sexy::SOUND_LOSEMUSIC);
 
 	ReanimatorEnsureDefinitionLoaded(ReanimationType::REANIM_ZOMBIES_WON, true);
-	Reanimation* aReanim = mApp->AddReanimation(-BOARD_OFFSET, 0, MakeRenderOrder(RenderLayer::RENDER_LAYER_SCREEN_FADE, 0, 0), ReanimationType::REANIM_ZOMBIES_WON);
+	const int aViewportCenterOffset = std::max(0, (mApp->mWidth - BOARD_WIDTH) / 2);
+	Reanimation* aReanim = mApp->AddReanimation(-BOARD_OFFSET + aViewportCenterOffset, 0,
+		MakeRenderOrder(RenderLayer::RENDER_LAYER_SCREEN_FADE, 0, 0), ReanimationType::REANIM_ZOMBIES_WON);
 	aReanim->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
 	aReanim->GetTrackInstanceByName("fullscreen")->mTrackColor = Color::Black;
 	aReanim->SetFramesForLayer("anim_screen");
@@ -7594,7 +7973,15 @@ void Board::Update()
 	{
 		mOutOfMoneyCounter--;
 	}
-	if (mShakeCounter > 0)
+	if (mApp->mScreenShakeMode == LawnApp::ScreenShakeMode::OFF)
+	{
+		mShakeCounter = 0;
+		mShakeAmountX = 0;
+		mShakeAmountY = 0;
+		mX = 0;
+		mY = 0;
+	}
+	else if (mShakeCounter > 0)
 	{
 		mShakeCounter--;
 		if (mShakeCounter == 0)
@@ -7608,8 +7995,9 @@ void Board::Update()
 			{
 				mShakeAmountX = -mShakeAmountX;
 			}
-			mX = PvzpAnimateCurve(12, 0, mShakeCounter, 0, mShakeAmountX, PvzpCurves::CURVE_BOUNCE);
-			mY = PvzpAnimateCurve(12, 0, mShakeCounter, 0, mShakeAmountY, PvzpCurves::CURVE_BOUNCE);
+			float aShakeScale = mApp->GetScreenShakeScale();
+			mX = static_cast<int>(PvzpAnimateCurve(12, 0, mShakeCounter, 0, mShakeAmountX, PvzpCurves::CURVE_BOUNCE) * aShakeScale);
+			mY = static_cast<int>(PvzpAnimateCurve(12, 0, mShakeCounter, 0, mShakeAmountY, PvzpCurves::CURVE_BOUNCE) * aShakeScale);
 		}
 	}
 	if (mCoinBankFadeCount > 0 && mApp->GetDialog(Dialogs::DIALOG_PURCHASE_PACKET_SLOT) == nullptr)
@@ -10199,7 +10587,7 @@ void Board::KeyChar(char theChar)
 			mApp->mEasyPlantingCheat = true;
 			for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
 			{
-				for (int x = 0; x < MAX_GRID_SIZE_Y; x++)
+				for (int x = 0; x < MAX_GRID_SIZE_X; x++)
 				{
 					if (CanPlantAt(x, y, SeedType::SEED_LILYPAD) == PlantingReason::PLANTING_OK)
 					{
@@ -10770,38 +11158,21 @@ bool Board::StageHas6Rows()
 int Board::GetNumPlayableRows()
 {
 	const bool aHasPoolRows = StageHasPool() || mBackground == BackgroundType::BACKGROUND_ZOMBIQUARIUM;
-	const bool aIsEndless = LawnApp::IsSurvivalEndless(mApp->mGameMode);
-	return (aHasPoolRows ? 6 : 5) + (aIsEndless ? (StageHasPool() ? 4 : 2) : 0);
+	return aHasPoolRows ? 6 : 5;
 }
 
 int Board::GetNumPlayableColumns()
 {
-	const bool aWideEndlessPool = LawnApp::IsSurvivalEndless(mApp->mGameMode) && StageHasPool() && mApp->mWidth > BOARD_WIDTH;
-	return aWideEndlessPool ? MAX_GRID_SIZE_X : CLASSIC_GRID_SIZE_X;
+	return CLASSIC_GRID_SIZE_X;
 }
 
 int Board::GetGridRowSpacing()
 {
-	const bool aIsEndless = LawnApp::IsSurvivalEndless(mApp->mGameMode);
-	if (aIsEndless)
-	{
-		if (StageHasRoof())
-			return 57;
-		if (StageHasPool())
-			return mApp->mHeight > BOARD_HEIGHT ? 85 : 50;
-		if (mBackground == BackgroundType::BACKGROUND_ZOMBIQUARIUM)
-			return 60;
-		return 67;
-	}
 	return StageHasRoof() || StageHasPool() ? 85 : 100;
 }
 
 int Board::GetGridRowY(int theGridY)
 {
-	if (LawnApp::IsSurvivalEndless(mApp->mGameMode) && StageHasPool())
-	{
-		return LAWN_YMIN + theGridY * 85;
-	}
 	return LAWN_YMIN + theGridY * GetGridRowSpacing();
 }
 
@@ -10970,22 +11341,7 @@ int Board::PixelToGridY(int theX, int theY)
 			theY -= (4 - aGridX) * 20;
 		}
 	}
-	const int aLastGridRow = LawnApp::IsSurvivalEndless(mApp->mGameMode) ? GetNumPlayableRows() - 1 : StageHasPool() ? 5 : 4;
-	if (LawnApp::IsSurvivalEndless(mApp->mGameMode) && StageHasPool())
-	{
-		int aClosestRow = 0;
-		int aClosestDistance = std::abs(theY - GetGridRowY(0));
-		for (int aRow = 1; aRow <= aLastGridRow; aRow++)
-		{
-			int aDistance = std::abs(theY - GetGridRowY(aRow));
-			if (aDistance < aClosestDistance)
-			{
-				aClosestRow = aRow;
-				aClosestDistance = aDistance;
-			}
-		}
-		return aClosestRow;
-	}
+	const int aLastGridRow = GetNumPlayableRows() - 1;
 	return std::clamp((theY - LAWN_YMIN) / GetGridRowSpacing(), 0, aLastGridRow);
 }
 
@@ -11367,7 +11723,8 @@ void Board::DoFwoosh(int theRow)
 		}
 
 			float aFirstFlameX = static_cast<float>(GridToPixelX(0, theRow) + 40);
-			float aLastFlameX = static_cast<float>(GridToPixelX(GetNumPlayableColumns() - 1, theRow) + 40);
+			float aLastFlameX = static_cast<float>(std::max(
+				GridToPixelX(GetNumPlayableColumns() - 1, theRow) + 40, mApp->mWidth - LAWN_XMIN));
 			float aPosX = aFirstFlameX + (aLastFlameX - aFirstFlameX) * i / 11.0f;
 		float aPosY = GetPosYBasedOnRow(aPosX + 10.0f, theRow) - 10.0f;
 		Reanimation* aFwoosh = mApp->AddReanimation(aPosX, aPosY, aRenderOrder, ReanimationType::REANIM_JALAPENO_FIRE);
@@ -11601,6 +11958,16 @@ bool Board::CanUseGameObject(GameObjectType theGameObject)
 
 void Board::ShakeBoard(int theShakeAmountX, int theShakeAmountY)
 {
+	if (mApp->mScreenShakeMode == LawnApp::ScreenShakeMode::OFF)
+	{
+		mShakeCounter = 0;
+		mShakeAmountX = 0;
+		mShakeAmountY = 0;
+		mX = 0;
+		mY = 0;
+		return;
+	}
+
 	mShakeCounter = 12;
 	mShakeAmountX = theShakeAmountX;
 	mShakeAmountY = theShakeAmountY;

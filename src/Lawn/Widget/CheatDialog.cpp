@@ -21,7 +21,7 @@
 
 #include "CheatDialog.h"
 #include "../../LawnApp.h"
-#include "../LawnCommon.h"
+#include "../Entities/LawnCommon.h"
 #include "ChallengeScreen.h"
 #include "../../Resources.h"
 #include "../../GameConstants.h"

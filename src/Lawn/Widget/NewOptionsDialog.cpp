@@ -19,12 +19,12 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "../Board.h"
-#include "../ToolTipWidget.h"
+#include "../Board/Board.h"
+#include "ToolTipWidget.h"
 #include "GameButton.h"
-#include "../Cutscene.h"
+#include "../Modes/Cutscene.h"
 #include "AlmanacDialog.h"
-#include "../LawnCommon.h"
+#include "../Entities/LawnCommon.h"
 #include "../../LawnApp.h"
 #include "../System/Music.h"
 #include "../../Resources.h"

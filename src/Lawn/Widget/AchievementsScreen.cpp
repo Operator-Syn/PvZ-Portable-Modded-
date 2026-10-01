@@ -20,7 +20,7 @@
  */
 
 #include "AchievementsScreen.h"
-#include "../Board.h"
+#include "../Board/Board.h"
 #include "GameButton.h"
 #include "GameSelector.h"
 #include "../../LawnApp.h"

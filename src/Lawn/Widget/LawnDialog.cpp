@@ -19,11 +19,11 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "../Board.h"
+#include "../Board/Board.h"
 #include "LawnDialog.h"
 #include "GameButton.h"
 #include "../../LawnApp.h"
-#include "../LawnCommon.h"
+#include "../Entities/LawnCommon.h"
 #include "../../Resources.h"
 #include "ChallengeScreen.h"
 #include "../../PvzpLib/PvzpDebug.h"

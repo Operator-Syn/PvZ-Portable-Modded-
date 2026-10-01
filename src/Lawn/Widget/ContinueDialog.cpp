@@ -19,8 +19,8 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "../Board.h"
-#include "../Zombie.h"
+#include "../Board/Board.h"
+#include "../Zombie/Zombie.h"
 #include "GameButton.h"
 #include "../../LawnApp.h"
 #include "ContinueDialog.h"

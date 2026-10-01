@@ -19,8 +19,8 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "../Plant.h"
-#include "../Zombie.h"
+#include "../Plant/Plant.h"
+#include "../Zombie/Zombie.h"
 #include "../../LawnApp.h"
 #include "ReanimationLawn.h"
 #include "../../PvzpLib/PvzpDebug.h"

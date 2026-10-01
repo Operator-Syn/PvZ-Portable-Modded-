@@ -22,7 +22,7 @@
 #include "ZombatarWidget.h"
 #include "GameSelector.h"
 #include "GameButton.h"
-#include "../Zombie.h"
+#include "../Zombie/Zombie.h"
 #include "../System/PlayerInfo.h"
 #include "../System/Zombatar.h"
 #include "../../LawnApp.h"

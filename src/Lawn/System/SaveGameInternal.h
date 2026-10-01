@@ -22,7 +22,7 @@
 #pragma once
 
 #include "SaveGamePortableContext.h"
-#include "../Board.h"
+#include "../Board/Board.h"
 #include "misc/Buffer.h"
 
 namespace SaveGameInternal

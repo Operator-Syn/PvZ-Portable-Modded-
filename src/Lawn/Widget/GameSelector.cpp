@@ -19,18 +19,18 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "../Board.h"
-#include "../LawnCommon.h"
+#include "../Board/Board.h"
+#include "../Entities/LawnCommon.h"
 #include "GameButton.h"
 #include "StoreScreen.h"
 #include "ZombatarWidget.h"
-#include "../ZenGarden.h"
+#include "../Modes/ZenGarden.h"
 #include "GameSelector.h"
 #include "../../LawnApp.h"
 #include "AlmanacDialog.h"
 #include "../../Resources.h"
 #include "../System/Music.h"
-#include "../ToolTipWidget.h"
+#include "ToolTipWidget.h"
 #include "../System/SaveGame.h"
 #include "../../GameConstants.h"
 #include "../System/PlayerInfo.h"

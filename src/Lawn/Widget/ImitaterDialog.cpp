@@ -19,13 +19,13 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "../Plant.h"
+#include "../Plant/Plant.h"
 #include "GameButton.h"
-#include "../SeedPacket.h"
+#include "SeedPacket.h"
 #include "../../LawnApp.h"
 #include "ImitaterDialog.h"
 #include "SeedChooserScreen.h"
-#include "../ToolTipWidget.h"
+#include "ToolTipWidget.h"
 #include "../../GameConstants.h"
 #include "widget/WidgetManager.h"
 

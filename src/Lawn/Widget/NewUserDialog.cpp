@@ -22,7 +22,7 @@
 #include "NewUserDialog.h"
 #include "../../LawnApp.h"
 #include "../../Resources.h"
-#include "../LawnCommon.h"
+#include "../Entities/LawnCommon.h"
 #include "widget/WidgetManager.h"
 
 NewUserDialog::NewUserDialog(LawnApp* theApp, bool isRename) : LawnDialog(

@@ -1,12 +1,12 @@
 add_executable(pvz-rules-tests
 	GameplayRulesTests.cpp
-	../src/Lawn/PlantRules.cpp
-	../src/Lawn/PlantingRules.cpp
-	../src/Lawn/ProjectileRules.cpp
-	../src/Lawn/TargetingRules.cpp
-	../src/Lawn/WaveRules.cpp
-	../src/Lawn/ZombieStatusRules.cpp
-	../src/Lawn/ZombieStrengthRules.cpp
+	../src/Lawn/Plant/PlantRules.cpp
+	../src/Lawn/Rules/PlantingRules.cpp
+	../src/Lawn/Projectile/ProjectileRules.cpp
+	../src/Lawn/Rules/TargetingRules.cpp
+	../src/Lawn/Rules/WaveRules.cpp
+	../src/Lawn/Zombie/ZombieStatusRules.cpp
+	../src/Lawn/Zombie/ZombieStrengthRules.cpp
 	../src/Lawn/System/SaveGameFormat.cpp
 )
 target_compile_features(pvz-rules-tests PRIVATE cxx_std_20)

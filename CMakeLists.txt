@@ -48,7 +48,13 @@ file(GLOB SOURCES CONFIGURE_DEPENDS
 	src/SexyAppFramework/widget/*.cpp
 	src/SexyAppFramework/fcaseopen/*.c
 	src/PvzpLib/*.cpp
-	src/Lawn/*.cpp
+	src/Lawn/Board/*.cpp
+	src/Lawn/Plant/*.cpp
+	src/Lawn/Zombie/*.cpp
+	src/Lawn/Projectile/*.cpp
+	src/Lawn/Rules/*.cpp
+	src/Lawn/Entities/*.cpp
+	src/Lawn/Modes/*.cpp
 	src/Lawn/Widget/*.cpp
 	src/Lawn/System/*.cpp
 )

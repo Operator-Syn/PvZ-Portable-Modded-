@@ -24,7 +24,7 @@
 #include "../System/Music.h"
 #include "ChallengeScreen.h"
 #include "../../Resources.h"
-#include "../ToolTipWidget.h"
+#include "ToolTipWidget.h"
 #include "../System/PlayerInfo.h"
 #include "../../PvzpLib/PvzpDebug.h"
 #include "../../PvzpLib/PvzpFoley.h"

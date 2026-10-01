@@ -23,7 +23,7 @@
 #include "ZombatarWidget.h"
 #include "GameSelector.h"
 #include "GameButton.h"
-#include "../LawnCommon.h"
+#include "../Entities/LawnCommon.h"
 #include "../System/PlayerInfo.h"
 #include "../../LawnApp.h"
 #include "../../Resources.h"

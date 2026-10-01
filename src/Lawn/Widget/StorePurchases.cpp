@@ -21,15 +21,15 @@
 
 #include <cstdint>
 #include <time.h>
-#include "../Coin.h"
-#include "../Board.h"
-#include "../Plant.h"
-#include "../LawnCommon.h"
+#include "../Entities/Coin.h"
+#include "../Board/Board.h"
+#include "../Plant/Plant.h"
+#include "../Entities/LawnCommon.h"
 #include "LawnDialog.h"
 #include "GameButton.h"
 #include "StoreScreen.h"
-#include "../ZenGarden.h"
-#include "../SeedPacket.h"
+#include "../Modes/ZenGarden.h"
+#include "SeedPacket.h"
 #include "../../LawnApp.h"
 #include "../../Resources.h"
 #include "../System/Music.h"

@@ -26,7 +26,7 @@
 #include "imagelib/ImageLib.h"
 #include "graphics/GLImage.h"
 #include "graphics/Image.h"
-#include "Lawn/Plant.h"
+#include "Lawn/Plant/Plant.h"
 #include "PvzpLib/PvzpCommon.h"
 #include "PvzpLib/PvzpDebug.h"
 

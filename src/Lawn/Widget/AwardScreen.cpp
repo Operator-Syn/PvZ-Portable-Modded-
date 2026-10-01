@@ -19,13 +19,13 @@
  * along with PvZ-Portable. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "../Plant.h"
-#include "../Board.h"
+#include "../Plant/Plant.h"
+#include "../Board/Board.h"
 #include "GameButton.h"
 #include "StoreScreen.h"
 #include "AwardScreen.h"
-#include "../ZenGarden.h"
-#include "../SeedPacket.h"
+#include "../Modes/ZenGarden.h"
+#include "SeedPacket.h"
 #include "../../LawnApp.h"
 #include "AlmanacDialog.h"
 #include "../System/Music.h"

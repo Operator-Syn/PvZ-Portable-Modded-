@@ -20,7 +20,7 @@
  */
 
 #include "Music.h"
-#include "../Board.h"
+#include "../Board/Board.h"
 #include "PlayerInfo.h"
 #include "../../LawnApp.h"
 #include "paklib/PakInterface.h"

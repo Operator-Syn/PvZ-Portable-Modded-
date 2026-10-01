@@ -20,11 +20,11 @@
  */
 
 #include <format>
-#include "../Board.h"
-#include "../Plant.h"
-#include "../Zombie.h"
+#include "../Board/Board.h"
+#include "../Plant/Plant.h"
+#include "../Zombie/Zombie.h"
 #include "GameButton.h"
-#include "../SeedPacket.h"
+#include "SeedPacket.h"
 #include "../../LawnApp.h"
 #include "AlmanacDialog.h"
 #include "../../Resources.h"

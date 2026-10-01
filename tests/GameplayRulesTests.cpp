@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-#include "Lawn/PlantRules.h"
-#include "Lawn/PlantingRules.h"
-#include "Lawn/ProjectileRules.h"
-#include "Lawn/TargetingRules.h"
-#include "Lawn/WaveRules.h"
-#include "Lawn/ZombieStatusRules.h"
-#include "Lawn/ZombieStrengthRules.h"
+#include "Lawn/Plant/PlantRules.h"
+#include "Lawn/Rules/PlantingRules.h"
+#include "Lawn/Projectile/ProjectileRules.h"
+#include "Lawn/Rules/TargetingRules.h"
+#include "Lawn/Rules/WaveRules.h"
+#include "Lawn/Zombie/ZombieStatusRules.h"
+#include "Lawn/Zombie/ZombieStrengthRules.h"
 #include "Lawn/Widget/SeedChooserOrder.h"
 #include "Lawn/System/SaveGameFormat.h"
 

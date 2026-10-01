@@ -25,7 +25,7 @@
 #include "DataSync.h"
 #include <algorithm>
 #include "PlayerInfo.h"
-#include "../LawnCommon.h"
+#include "../Entities/LawnCommon.h"
 #include "../Widget/ChallengeScreen.h"
 #include "../../PvzpLib/PvzpDebug.h"
 #include "../../PvzpLib/PvzpCommon.h"

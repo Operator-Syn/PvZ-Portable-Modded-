@@ -32,6 +32,7 @@
               cmake
               ninja
               gcc
+              clang-tools
               pkg-config
             ];
 

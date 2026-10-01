@@ -72,6 +72,13 @@ public:
 class LawnApp : public SexyApp
 {
 public:
+	enum class ScreenShakeMode
+	{
+		NORMAL,
+		REDUCED,
+		OFF,
+	};
+
 	Board*							mBoard;
 	std::unique_ptr<TitleScreen>	mTitleScreen;
 	std::unique_ptr<GameSelector>	mGameSelector;
@@ -94,6 +101,7 @@ public:
 	int								mMaxPlays;
 	int								mMaxTime;
 	bool							mEasyPlantingCheat;
+	ScreenShakeMode				mScreenShakeMode = ScreenShakeMode::NORMAL;
 	std::unique_ptr<PoolEffect>		mPoolEffect;
 	std::unique_ptr<ZenGarden>		mZenGarden;
 	std::unique_ptr<EffectSystem>	mEffectSystem;
@@ -142,6 +150,7 @@ public:
 	~LawnApp() override;
 
 	bool							KillNewOptionsDialog();
+	float							GetScreenShakeScale() const;
 	void							GotFocus() override;
 	void							LostFocus() override;
 	void							InitHook() override;

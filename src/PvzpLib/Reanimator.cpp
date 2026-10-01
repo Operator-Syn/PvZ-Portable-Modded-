@@ -758,7 +758,9 @@ bool Reanimation::DrawTrack(Graphics* g, int theTrackIndex, [[maybe_unused]] int
 	MatrixFromTransform(aTransform, aTransformMatrix);
 	SexyMatrix3Multiply(aMatrix, aTransformMatrix, aMatrix);  // apply the track transform
 	SexyMatrix3Multiply(aMatrix, mOverlayMatrix, aMatrix);  // apply the overlay matrix
-	SexyMatrix3Translation(aMatrix, aTrackInstance->mShakeX + g->mTransX, aTrackInstance->mShakeY + g->mTransY);  // apply track shake and g's translation
+	float aShakeScale = gLawnApp ? gLawnApp->GetScreenShakeScale() : 1.0f;
+	SexyMatrix3Translation(aMatrix, aTrackInstance->mShakeX * aShakeScale + g->mTransX,
+		aTrackInstance->mShakeY * aShakeScale + g->mTransY);  // apply track shake and g's translation
 
 	if (aAtlasImage != nullptr)  // atlas exists, the frame has an image, and no override is set
 	{
@@ -898,7 +900,9 @@ void Reanimation::GetTrackMatrix(int theTrackIndex, SexyTransform2D& theMatrix)
 	MatrixFromTransform(aTransform, aTransformMatrix);
 	SexyMatrix3Multiply(theMatrix, aTransformMatrix, theMatrix);  // apply the track transform
 	SexyMatrix3Multiply(theMatrix, mOverlayMatrix, theMatrix);  // apply the overlay matrix
-	SexyMatrix3Translation(theMatrix, aTrackInstance->mShakeX - 0.5f, aTrackInstance->mShakeY - 0.5f);  // apply track shake
+	float aShakeScale = gLawnApp ? gLawnApp->GetScreenShakeScale() : 1.0f;
+	SexyMatrix3Translation(theMatrix, aTrackInstance->mShakeX * aShakeScale - 0.5f,
+		aTrackInstance->mShakeY * aShakeScale - 0.5f);  // apply track shake
 }
 
 void Reanimation::GetFrameTime(ReanimatorFrameTime* theFrameTime)

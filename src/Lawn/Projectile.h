@@ -79,8 +79,11 @@ public:
 	bool                    mPiercesZombies;
 	int32_t                 mPiercedZombieCount;
 	bool                    mPlanternCob;
+	bool                    mPlanternAutoCoffeeBean = false;
 	bool                    mGatlingCherryShot = false;
 	bool                    mMillionSunDamage = false;
+	bool                    mTwoMillionSunCatTailDamage = false;
+	bool                    mWintermelonCherryShot = false;
 	ZombieID                mPiercedZombieIDs[MAX_PIERCING_HITS];
 
 public:

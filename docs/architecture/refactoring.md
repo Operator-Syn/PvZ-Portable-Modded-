@@ -13,6 +13,24 @@ The refactor starts at `dd02e6c5402b5a1f54b9828ab8ef4f5099c2d984`. The initial t
 | `Plant.cpp` | 6,248 | Initialization, abilities, production, collection, targeting, projectiles, animation, rendering, definitions |
 | `SaveGame.cpp` | 3,298 | File access, format parsing, portable fields, legacy raw decoding, restoration |
 
+## Source layout
+
+`src/Lawn/` groups units by responsibility so the tree stays navigable:
+
+| Folder | Contents |
+| --- | --- |
+| `Board/` | Board orchestration, simulation, placement/input, rendering, waves, and level setup |
+| `Plant/` | Plant lifecycle, abilities, shooting, targeting, animation, rendering, and definitions |
+| `Zombie/` | Zombie behavior families, movement, damage, effects, boss, rendering, and definitions |
+| `Projectile/` | Projectile lifecycle, motion, collision, impact, and rendering |
+| `Rules/` | Shared pure rule seams: placement, wave, and targeting predicates plus thresholds |
+| `Entities/` | Shared world objects and base types (game object, grid item, lawn mower, coin, cursor) |
+| `Modes/` | Challenge, cutscene, and Zen Garden game modes |
+| `Widget/` | Screens, dialogs, and widgets (seed chooser, store, Almanac, and related UI) |
+| `System/` | Save/load, profile, music, and other application services |
+
+Includes are relative to the including file (or path-qualified from `src/`), so moving a unit between folders requires updating its includes and the `CMakeLists.txt` globs. The build globs each folder explicitly.
+
 ## Responsibility map
 
 | Area | Source units and ownership |

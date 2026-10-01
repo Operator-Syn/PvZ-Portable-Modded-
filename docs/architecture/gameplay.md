@@ -6,13 +6,13 @@
 
 `Board` holds the active lawn state and coordinates level updates, game objects, wave progression, placement, and drawing. The main update path is `Board::Update`, which reaches `Board::UpdateGameObjects` for the entity collections. `Board::Draw` delegates ordered game-object gathering/drawing to `Board::DrawGameObjects`.
 
-Start at `src/Lawn/Board.h` for the board's object/state surface and `src/Lawn/Board.cpp` for frame coordination. Placement, waves, combat, input, and drawing have separate units in the [responsibility map](refactoring.md). Board-level targeting helpers and wave/challenge decisions may affect several plant or zombie types; check those consumers before changing shared behavior.
+Start at `src/Lawn/Board/Board.h` for the board's object/state surface and `src/Lawn/Board/Board.cpp` for frame coordination. Placement, waves, combat, input, and drawing have separate units in the [responsibility map](refactoring.md). Board-level targeting helpers and wave/challenge decisions may affect several plant or zombie types; check those consumers before changing shared behavior.
 
 ## Combat flow
 
-1. Plants update through `src/Lawn/Plant.cpp` and its responsibility modules; plant-specific logic selects targets and calls firing or ability helpers.
+1. Plants update through `src/Lawn/Plant/Plant.cpp` and its responsibility modules; plant-specific logic selects targets and calls firing or ability helpers.
 2. The `Projectile*` units separate lifecycle, motion, collisions, impact, and presentation.
-3. Zombies update in `src/Lawn/Zombie.cpp`; type and phase determine movement, attacks, armor/body damage, and susceptibility to effects.
+3. Zombies update in `src/Lawn/Zombie/Zombie.cpp`; type and phase determine movement, attacks, armor/body damage, and susceptibility to effects.
 4. Board helpers coordinate cross-entity effects such as explosions, lane-wide abilities, target queries, and zombie tier changes.
 
 Relevant declarations are in `Plant.h`, `Projectile.h`, and `Zombie.h`. When changing an attack, trace both the projectile creation path and the final impact/damage path; a visible shot does not by itself establish that its collision row, target eligibility, or damage flags are correct.

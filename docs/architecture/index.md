@@ -6,7 +6,7 @@
 
 | Area | Responsibility | Starting points |
 | --- | --- | --- |
-| Gameplay | Board state, plants, zombies, projectiles, waves, challenges, and save integration | [gameplay.md](gameplay.md), `src/Lawn/Board.cpp`, `src/Lawn/Plant.cpp`, `src/Lawn/Zombie.cpp`, `src/Lawn/Projectile.cpp` |
+| Gameplay | Board state, plants, zombies, projectiles, waves, challenges, and save integration | [gameplay.md](gameplay.md), `src/Lawn/Board/Board.cpp`, `src/Lawn/Plant/Plant.cpp`, `src/Lawn/Zombie/Zombie.cpp`, `src/Lawn/Projectile/Projectile.cpp` |
 | Engine and effects | Reanimations, particle systems, trails, attachments, rendering support, and frame profiling | [engine-effects.md](engine-effects.md), `src/PvzpLib/`, `src/SexyAppFramework/graphics/`, `src/SexyAppFramework/misc/FrameProfiler.*` |
 | Persistence | Profile data and portable mid-level save state | [resources, persistence, and platforms](resources-persistence-platforms.md), `src/Lawn/System/SaveGame.cpp` |
 | Resources and platforms | Resource parsing/loading, pak access, platform-specific build targets | [resources, persistence, and platforms](resources-persistence-platforms.md), `src/SexyAppFramework/misc/ResourceManager.*`, `src/SexyAppFramework/paklib/PakInterface.*`, `CMakeLists.txt` |

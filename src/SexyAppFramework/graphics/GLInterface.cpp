@@ -32,6 +32,7 @@
 #include "graphics/Graphics.h"
 #include "graphics/MemoryImage.h"
 #include "SexyAppBase.h"
+#include "misc/FrameProfiler.h"
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
@@ -1297,11 +1298,14 @@ bool GLInterface::PreDraw()
 void GLInterface::Flush()
 {
 	gNumVertices = 0;
+	// Measure CPU time blocked inside the platform swap call, not GPU execution time.
+	FrameProfileScope aSwapWaitScope(FrameProfileMetric::SWAP_WAIT);
 #ifdef __SWITCH__
 	eglSwapBuffers(mApp->mWindow, mApp->mSurface);
 #else
 	SDL_GL_SwapWindow((SDL_Window*)mApp->mWindow);
 #endif
+	aSwapWaitScope.Stop();
 #ifndef __EMSCRIPTEN__
 	// Clear back buffer after swap (content undefined)
 	glClear(GL_COLOR_BUFFER_BIT);

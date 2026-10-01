@@ -25,6 +25,7 @@
 #include "Reanimator.h"
 #include "PvzpParticle.h"
 #include "EffectSystem.h"
+#include "../LawnApp.h"
 #include "misc/FrameProfiler.h"
 #include "../GameConstants.h"
 #include "graphics/GLImage.h"
@@ -104,7 +105,8 @@ void EffectSystem::Update()
 	Sexy::FrameProfileScope aParticleScope(Sexy::FrameProfileMetric::PARTICLE_SYSTEMS_UPDATE, true);
 	for (PvzpParticleSystem* aParticle : mParticleHolder->mParticleSystems)
 		if (!aParticle->mIsAttachment)
-			aParticle->Update();
+			aParticle->Update(true);
+	mParticleHolder->ProcessParticleUpdateBatch();
 	aParticleScope.Stop();
 
 	Sexy::FrameProfileScope aTrailScope(Sexy::FrameProfileMetric::TRAILS_UPDATE, true);
@@ -117,6 +119,10 @@ void EffectSystem::Update()
 	for (Reanimation* aReanim : mReanimationHolder->mReanimations)
 		if (!aReanim->mIsAttachment)
 			aReanim->Update();
+	mParticleHolder->ProcessParticleUpdateBatch();
+	aReanimationScope.Stop();
+	if (gLawnApp != nullptr)
+		mParticleHolder->mPreviousScreenShakeScale = gLawnApp->GetScreenShakeScale();
 }
 
 static TriVertex		gPvzpVertexReservoir[64];

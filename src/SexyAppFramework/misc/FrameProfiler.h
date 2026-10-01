@@ -34,6 +34,7 @@ enum class FrameProfileMetric : uint8_t
 	RENDER_SORT,
 	RENDER_ITEMS,
 	PRESENT,
+	SWAP_WAIT,
 	PLANT_TARGETING,
 	PROJECTILE_IMPACT,
 	PROJECTILE_SPLASH,
@@ -103,7 +104,8 @@ public:
 		uint32_t theParticlesSpawned, uint32_t theLiveParticles, uint32_t theEmitters);
 	void RecordParticleEffectDraw(int theEffect, uint64_t theStart, uint32_t theParticlesVisited,
 		uint32_t theParticlesCulled, uint32_t theTrianglesSubmitted, uint32_t theBatchFlushes);
-	void RecordParticleParallelBatch(int theEffect, uint32_t theParticles);
+	void RecordParticleCalculation(int theEffect, uint32_t theParticles, uint64_t theStartCounter, bool theParallel);
+	void RecordGameplayEvent(std::string_view theEvent, std::string_view theDataJson);
 
 	uint64_t Begin(FrameProfileMetric theMetric);
 	void End(FrameProfileMetric theMetric, uint64_t theStart);
@@ -134,6 +136,7 @@ private:
 		double mRenderSortMs = 0.0;
 		double mRenderItemsMs = 0.0;
 		double mPresentMs = 0.0;
+		double mSwapWaitMs = 0.0;
 		double mPlantTargetingMs = 0.0;
 		double mProjectileImpactMs = 0.0;
 		double mProjectileSplashMs = 0.0;
@@ -170,10 +173,12 @@ private:
 	void StartSlowCapture(const FrameSample& theSample);
 	void CompleteSlowCapture();
 	void WriteLine(const std::string& theLine);
+	void WriteSessionMetadata();
 	void RotateLogIfNeeded(size_t theIncomingBytes);
 
 	std::filesystem::path mPath;
 	std::ofstream mLog;
+	std::string mCommitDate;
 	std::array<uint64_t, METRIC_COUNT> mMetricTicks{};
 	std::array<FrameSample, SAMPLE_RING_SIZE> mSamples{};
 	std::array<FrameSample, SLOW_CAPTURE_PRE_SAMPLES + SLOW_CAPTURE_POST_SAMPLES> mSlowCapture{};
@@ -181,6 +186,7 @@ private:
 	TimingSummary mUpdateSummary;
 	TimingSummary mDrawSummary;
 	TimingSummary mPresentSummary;
+	TimingSummary mSwapWaitSummary;
 	FrameProfileBoardCounts mBoardCounts;
 	std::array<FrameProfileParticleEffect, PARTICLE_EFFECT_COUNT> mParticleEffects{};
 	uint64_t mLastFrameCounter = 0;
@@ -188,11 +194,14 @@ private:
 	uint64_t mNextSlowCaptureAllowed = 0;
 	uint64_t mSlowCaptureTriggerSequence = 0;
 	uint64_t mFrameSequence = 0;
+	uint64_t mSessionID = 0;
 	size_t mSampleWriteIndex = 0;
 	size_t mSamplesStored = 0;
 	size_t mSlowCaptureCount = 0;
 	uint32_t mUpdatesSinceSample = 0;
 	uint32_t mInterpolationUpdatesSinceSample = 0;
+	uint32_t mLogSegmentIndex = 0;
+	int mBuildNumber = 0;
 	double mFrameBudgetMs = 10.0;
 	double mUpdateBacklogMs = 0.0;
 	double mPendingUpdates = 0.0;
@@ -201,6 +210,7 @@ private:
 	int mVisualQualityTier = 0;
 	bool mInitialized = false;
 	bool mDetailed = false;
+	bool mParticleParallelEnabled = false;
 	bool mSlowCaptureActive = false;
 };
 

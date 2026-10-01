@@ -187,6 +187,15 @@ void SeedPacket::Update()
 		FlashIfReady();
 	}
 
+	if (!mActive && mRefreshing && mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD)
+	{
+		mRefreshCounter = 0;
+		mRefreshTime = 0;
+		mRefreshing = false;
+		Activate();
+		FlashIfReady();
+	}
+
 	if (!mActive && mRefreshing)
 	{
 		int aNewRefreshTime = mTimesUsed == 0
@@ -921,8 +930,19 @@ void SeedPacket::WasPlanted()
 	else
 	{
 		mTimesUsed++;
-		mRefreshing = true;
-		mRefreshTime = Plant::GetRefreshTime(mPacketType, mImitaterType);
+		if (mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD)
+		{
+			mRefreshCounter = 0;
+			mRefreshTime = 0;
+			mRefreshing = false;
+			Activate();
+			FlashIfReady();
+		}
+		else
+		{
+			mRefreshing = true;
+			mRefreshTime = Plant::GetRefreshTime(mPacketType, mImitaterType);
+		}
 	}
 }
 
@@ -1150,6 +1170,9 @@ void SeedPacket::SetPacketType(SeedType theSeedType, SeedType theImitaterType)
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED || mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM || mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_LAST_STAND ||
 		mApp->IsIZombieLevel() || mApp->IsScaryPotterLevel() || mApp->IsWhackAZombieLevel() || (mApp->IsSurvivalMode() && mBoard->mChallenge->mSurvivalStage > 0))
+		return;
+
+	if (mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD)
 		return;
 
 	mRefreshTime = GetInitialRefreshTime(mPacketType, mImitaterType, mApp->IsSurvivalMode());

@@ -1647,6 +1647,8 @@ enum BoardBaseFieldId : uint32_t
 	BOARD_FIELD_SPIKEWEED_OVERDRIVE_STATE,
 	BOARD_FIELD_PLANTERN_FLAMES,
 	BOARD_FIELD_SUN_MAGNET_HIGH_EXTRA_ITEMS,
+	BOARD_FIELD_PARTICLE_SHAKE_SCALE,
+	BOARD_FIELD_PLANTERN_FLAME_DAMAGE_PERCENT,
 	BOARD_FIELD_COUNT
 };
 
@@ -1665,54 +1667,6 @@ static void SyncBoardGridRows(PortableSaveContext& theContext, int theFirstRow, 
 		{
 			theSync(x, y);
 		}
-	}
-}
-
-static void SyncExpandedBoardRowsRange(PortableSaveContext& theContext, Board* theBoard, int theFirstRow, int theRowCount)
-{
-	SyncBoardGridRows(theContext, theFirstRow, theRowCount,
-		[&](int x, int y){ SyncEnum32(theContext, theBoard->mGridSquareType[x][y]); });
-	SyncBoardGridRows(theContext, theFirstRow, theRowCount,
-		[&](int x, int y){ theContext.SyncInt32(theBoard->mGridCelLook[x][y]); });
-	SyncBoardGridRows(theContext, theFirstRow, theRowCount,
-		[&](int x, int y){
-			theContext.SyncInt32(theBoard->mGridCelOffset[x][y][0]);
-			theContext.SyncInt32(theBoard->mGridCelOffset[x][y][1]);
-		});
-	SyncBoardGridRows(theContext, theFirstRow + 1, theRowCount,
-		[&](int x, int y){ theContext.SyncInt32(theBoard->mGridCelFog[x][y]); });
-	SyncEnum32Array(theContext, &theBoard->mPlantRow[theFirstRow], theRowCount);
-	SyncInt32Array(theContext, &theBoard->mWaveRowGotLawnMowered[theFirstRow], theRowCount);
-	SyncInt32Array(theContext, &theBoard->mIceMinX[theFirstRow], theRowCount);
-	SyncInt32Array(theContext, &theBoard->mIceTimer[theFirstRow], theRowCount);
-	SyncEnumU32Array(theContext, &theBoard->mIceParticleID[theFirstRow], theRowCount);
-	SyncPvzpSmoothArrayList(theContext, &theBoard->mRowPickingArray[theFirstRow], theRowCount);
-	SyncEnumU32Array(theContext, &theBoard->mFwooshID[theFirstRow][0], theRowCount * 12);
-}
-
-static void SyncExpandedBoardRows(PortableSaveContext& theContext, Board* theBoard)
-{
-	SyncExpandedBoardRowsRange(theContext, theBoard, LEGACY_BOARD_GRID_SIZE_Y, 2);
-}
-
-static void SyncFinalExpandedBoardRows(PortableSaveContext& theContext, Board* theBoard)
-{
-	SyncExpandedBoardRowsRange(theContext, theBoard, LEGACY_BOARD_GRID_SIZE_Y + 2, 2);
-}
-
-static void SyncExpandedBoardColumns(PortableSaveContext& theContext, Board* theBoard)
-{
-	for (int x = LEGACY_BOARD_GRID_SIZE_X; x < MAX_GRID_SIZE_X; x++)
-	{
-		for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
-		{
-			SyncEnum32(theContext, theBoard->mGridSquareType[x][y]);
-			theContext.SyncInt32(theBoard->mGridCelLook[x][y]);
-			theContext.SyncInt32(theBoard->mGridCelOffset[x][y][0]);
-			theContext.SyncInt32(theBoard->mGridCelOffset[x][y][1]);
-		}
-		for (int y = 0; y <= MAX_GRID_SIZE_Y; y++)
-			theContext.SyncInt32(theBoard->mGridCelFog[x][y]);
 	}
 }
 
@@ -1834,7 +1788,7 @@ static void SyncZombieStrengthAndRainState(PortableSaveContext& theContext, Boar
 	theContext.SyncBool(theBoard->mZombieRainActive);
 	theContext.SyncInt32(theBoard->mZombieRainCountdown);
 	theContext.SyncInt32(theBoard->mZombieRainPendingCount);
-	if (theContext.mReading && (theBoard->mZombieStrengthTier < 0 || theBoard->mZombieStrengthTier > 6 ||
+	if (theContext.mReading && (theBoard->mZombieStrengthTier < 0 || theBoard->mZombieStrengthTier > 9 ||
 		theBoard->mZombieRainCountdown < 0 || theBoard->mZombieRainCountdown > 3000 ||
 		theBoard->mZombieRainPendingCount < 0 || theBoard->mZombieRainPendingCount > 50))
 	{
@@ -1995,10 +1949,10 @@ static constexpr BoardBaseFieldEntry gBoardBaseFields[] = {
 	{ BOARD_FIELD_DIAMONDS_COLLECTED, [](PortableSaveContext& c, Board* theBoard){ c.SyncUInt32(theBoard->mDiamondsCollected); } },
 	{ BOARD_FIELD_POTTED_PLANTS_COLLECTED, [](PortableSaveContext& c, Board* theBoard){ c.SyncUInt32(theBoard->mPottedPlantsCollected); } },
 	{ BOARD_FIELD_CHOCOLATE_COLLECTED, [](PortableSaveContext& c, Board* theBoard){ c.SyncUInt32(theBoard->mChocolateCollected); } },
-	{ BOARD_FIELD_EXPANDED_BOARD_ROWS, SyncExpandedBoardRows },
-	{ BOARD_FIELD_FINAL_EXPANDED_BOARD_ROWS, SyncFinalExpandedBoardRows },
+	{ BOARD_FIELD_EXPANDED_BOARD_ROWS, [](PortableSaveContext&, Board*){} },
+	{ BOARD_FIELD_FINAL_EXPANDED_BOARD_ROWS, [](PortableSaveContext&, Board*){} },
 	{ BOARD_FIELD_PLANT_HEAL_GLOWS, SyncPlantHealGlows },
-	{ BOARD_FIELD_EXPANDED_BOARD_COLUMNS, SyncExpandedBoardColumns },
+	{ BOARD_FIELD_EXPANDED_BOARD_COLUMNS, [](PortableSaveContext&, Board*){} },
 	{ BOARD_FIELD_PLANT_HEAL_VISUALS, SyncPlantHealVisuals },
 	{ BOARD_FIELD_CHOMPER_HEAL_AURAS, SyncChomperHealAuras },
 	{ BOARD_FIELD_PLANT_OVERDRIVE_STATE, [](PortableSaveContext& c, Board* theBoard){ c.SyncBool(theBoard->mChomperOverdriveActive); c.SyncBool(theBoard->mKernelPultOverdriveActive); } },
@@ -2013,6 +1967,29 @@ static constexpr BoardBaseFieldEntry gBoardBaseFields[] = {
 	{ BOARD_FIELD_SPIKEWEED_OVERDRIVE_STATE, [](PortableSaveContext& c, Board* theBoard){ c.SyncBool(theBoard->mSpikeweedOverdriveActive); } },
 	{ BOARD_FIELD_PLANTERN_FLAMES, [](PortableSaveContext& c, Board* theBoard){ SyncInt32Array(c, theBoard->mPlanternFlameCountdown.data(), MAX_GRID_SIZE_Y); SyncInt32Array(c, theBoard->mPlanternFlameTick.data(), MAX_GRID_SIZE_Y); } },
 	{ BOARD_FIELD_SUN_MAGNET_HIGH_EXTRA_ITEMS, SyncSunMagnetHighExtraItems },
+	{ BOARD_FIELD_PARTICLE_SHAKE_SCALE, [](PortableSaveContext& c, Board* theBoard){
+		auto& aScale = theBoard->mApp->mEffectSystem->mParticleHolder->mPreviousScreenShakeScale;
+		c.SyncFloat(aScale);
+		if (c.mReading && !(aScale >= 0.0f && aScale <= 1.0f))
+		{
+			c.mFailed = true;
+			aScale = 1.0f;
+		}
+	} },
+	{ BOARD_FIELD_PLANTERN_FLAME_DAMAGE_PERCENT, [](PortableSaveContext& c, Board* theBoard){
+		SyncInt32Array(c, theBoard->mPlanternFlameDamagePercent.data(), MAX_GRID_SIZE_Y);
+		if (c.mReading)
+		{
+			for (int32_t& aDamagePercent : theBoard->mPlanternFlameDamagePercent)
+			{
+				if (aDamagePercent != 85 && aDamagePercent != 100)
+				{
+					c.mFailed = true;
+					aDamagePercent = 100;
+				}
+			}
+		}
+	} },
 };
 
 // The enum is contiguous starting at 1: the table must cover every id, in id order, so readers can index it directly.
@@ -2071,6 +2048,10 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 				c.SyncInt32(aZombie.mTierBucketArmorMaxHealth);
 			});
 			AppendFieldWithSync(aOut, 102U, [&](PortableSaveContext& c){ SyncEnumU32(c, aZombie.mFirstIgnoredSpikyPlantID); });
+			AppendFieldWithSync(aOut, 103U, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mDolphinFirstLeapComplete); });
+			AppendFieldWithSync(aOut, 104U, [&](PortableSaveContext& c){ c.SyncInt32(aZombie.mBloverKnockbackDistanceRemaining); });
+			AppendFieldWithSync(aOut, 105U, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mThreeMillionSunDurabilityApplied); });
+			AppendFieldWithSync(aOut, 106U, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mSpawnedByZombieRain); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Zombie& aZombie)
 		{
@@ -2086,8 +2067,16 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 				});
 			else if (aFieldId == 102U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncEnumU32(c, aZombie.mFirstIgnoredSpikyPlantID); });
+			else if (aFieldId == 103U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mDolphinFirstLeapComplete); });
+			else if (aFieldId == 104U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aZombie.mBloverKnockbackDistanceRemaining); });
+			else if (aFieldId == 105U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mThreeMillionSunDurabilityApplied); });
+			else if (aFieldId == 106U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mSpawnedByZombieRain); });
 			if (aZombie.mTierBucketArmorHealth < 0 || aZombie.mTierBucketArmorMaxHealth < 0 ||
-				aZombie.mTierBucketArmorMaxHealth > 1100 * 27 ||
+				aZombie.mTierBucketArmorMaxHealth > 1100 * 124 ||
 				aZombie.mTierBucketArmorHealth > aZombie.mTierBucketArmorMaxHealth ||
 				theBoard->mZombieStrengthTier < 5 || aZombie.mZombieType == ZombieType::ZOMBIE_BUNGEE)
 			{
@@ -2165,6 +2154,9 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 			AppendFieldWithSync(aOut, 104U, [&](PortableSaveContext& c){ c.SyncInt32(aProjectile.mCattailRedirectionCount); });
 			AppendFieldWithSync(aOut, 105U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mGatlingCherryShot); });
 			AppendFieldWithSync(aOut, 106U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mMillionSunDamage); });
+			AppendFieldWithSync(aOut, 107U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mWintermelonCherryShot); });
+			AppendFieldWithSync(aOut, 108U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mTwoMillionSunCatTailDamage); });
+			AppendFieldWithSync(aOut, 109U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mPlanternAutoCoffeeBean); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Projectile& aProjectile)
 		{
@@ -2189,6 +2181,12 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mGatlingCherryShot); });
 			else if (aFieldId == 106U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mMillionSunDamage); });
+			else if (aFieldId == 107U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mWintermelonCherryShot); });
+			else if (aFieldId == 108U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mTwoMillionSunCatTailDamage); });
+			else if (aFieldId == 109U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mPlanternAutoCoffeeBean); });
 				if (aProjectile.mCattailRedirectionCount < 0)
 					aProjectile.mCattailRedirectionCount = 0;
 				else if (aProjectile.mCattailRedirectionCount > 1)
@@ -2538,447 +2536,6 @@ static bool ReadChunkV4(uint32_t theChunkType, const unsigned char* theData, siz
 
 static void FixBoardAfterLoad(Board* theBoard)
 {
-	if (LawnApp::IsSurvivalEndless(theBoard->mApp->mGameMode) && theBoard->StageHasPool() &&
-		(theBoard->mPlantRow[4] != PlantRowType::PLANTROW_POOL || theBoard->mPlantRow[5] != PlantRowType::PLANTROW_POOL))
-	{
-		int aLegacyRowSpacing = 60;
-		int aLegacyRowCount = 6;
-		float aTopMowerY = -1.0f;
-		float aBottomMowerY = -1.0f;
-		for (LawnMower* aMower : theBoard->mLawnMowers)
-		{
-			aLegacyRowCount = std::max(aLegacyRowCount, std::min(aMower->mRow + 1, MAX_GRID_SIZE_Y));
-			if (aMower->mRow == 0)
-				aTopMowerY = aMower->mPosY;
-			else if (aMower->mRow == 5)
-				aBottomMowerY = aMower->mPosY;
-		}
-		if (aTopMowerY >= 0.0f && aBottomMowerY > aTopMowerY)
-		{
-			int aMeasuredSpacing = static_cast<int>((aBottomMowerY - aTopMowerY) / 5.0f + 0.5f);
-			if (aMeasuredSpacing >= 50 && aMeasuredSpacing <= 90)
-				aLegacyRowSpacing = aMeasuredSpacing;
-		}
-
-		aLegacyRowSpacing = std::clamp(aLegacyRowSpacing, 50, 90);
-		float aLegacyRowY[MAX_GRID_SIZE_Y];
-		for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
-			aLegacyRowY[y] = LAWN_YMIN + aLegacyRowSpacing * y;
-		for (LawnMower* aMower : theBoard->mLawnMowers)
-		{
-			if (aMower->mRow >= 0 && aMower->mRow < MAX_GRID_SIZE_Y)
-				aLegacyRowY[aMower->mRow] = aMower->mPosY - 23.0f;
-		}
-		auto aNewRow = [](int theOldRow)
-		{
-			return std::clamp(theOldRow >= 4 ? theOldRow + 2 : theOldRow, 0, MAX_GRID_SIZE_Y - 1);
-		};
-		auto aRowDelta = [&](int theOldRow)
-		{
-			int aSafeOldRow = std::clamp(theOldRow, 0, MAX_GRID_SIZE_Y - 1);
-			return theBoard->GetGridRowY(aNewRow(aSafeOldRow)) - static_cast<int>(aLegacyRowY[aSafeOldRow] + 0.5f);
-		};
-		auto aNearestLegacyRow = [&](float theY)
-		{
-			int aRow = 0;
-			float aDistance = std::abs(theY - aLegacyRowY[0]);
-			for (int y = 1; y < std::min(aLegacyRowCount, theBoard->GetNumPlayableRows()); y++)
-			{
-				float aCandidateDistance = std::abs(theY - aLegacyRowY[y]);
-				if (aCandidateDistance < aDistance)
-				{
-					aRow = y;
-					aDistance = aCandidateDistance;
-				}
-			}
-			return aRow;
-		};
-		auto aShiftReanimation = [&](ReanimationID theId, int theRowShift)
-		{
-			if (Reanimation* aReanim = theBoard->mApp->ReanimationTryToGet(theId))
-				aReanim->mRenderOrder += theRowShift * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
-		};
-		for (Plant* aPlant : theBoard->mPlants)
-		{
-			int aOldRow = aPlant->mRow;
-			int aDeltaY = aRowDelta(aOldRow);
-			aPlant->mRow = aNewRow(aOldRow);
-			aPlant->mStartRow = aNewRow(aPlant->mStartRow);
-			aPlant->mRenderOrder = aPlant->CalcRenderOrder();
-			int aRowShift = aPlant->mRow - aOldRow;
-			aShiftReanimation(aPlant->mBodyReanimID, aRowShift);
-			aShiftReanimation(aPlant->mHeadReanimID, aRowShift);
-			aShiftReanimation(aPlant->mHeadReanimID2, aRowShift);
-			aShiftReanimation(aPlant->mHeadReanimID3, aRowShift);
-			aShiftReanimation(aPlant->mBlinkReanimID, aRowShift);
-			aShiftReanimation(aPlant->mLightReanimID, aRowShift);
-			aShiftReanimation(aPlant->mSleepingReanimID, aRowShift);
-			aPlant->mY += aDeltaY;
-			aPlant->mPlantRect.mY += aDeltaY;
-			aPlant->mPlantAttackRect.mY += aDeltaY;
-			if (aPlant->mTargetY >= LAWN_YMIN)
-			{
-				int aTargetRow = aNearestLegacyRow(static_cast<float>(aPlant->mTargetY));
-				aPlant->mTargetY += aRowDelta(aTargetRow);
-			}
-			for (MagnetItem& aMagnetItem : aPlant->mMagnetItems)
-				aMagnetItem.mPosY += aDeltaY;
-		}
-		for (Zombie* aZombie : theBoard->mZombies)
-		{
-			int aOldRow = aZombie->mRow;
-			int aDeltaY = aRowDelta(aOldRow);
-			aZombie->SetRow(aNewRow(aOldRow));
-			aShiftReanimation(aZombie->mBodyReanimID, aZombie->mRow - aOldRow);
-			aShiftReanimation(aZombie->mBossFireBallReanimID, aZombie->mRow - aOldRow);
-			aShiftReanimation(aZombie->mSpecialHeadReanimID, aZombie->mRow - aOldRow);
-			aShiftReanimation(aZombie->mMoweredReanimID, aZombie->mRow - aOldRow);
-			aShiftReanimation(aZombie->mZombatarHeadReanimID, aZombie->mRow - aOldRow);
-			aZombie->mPosY += aDeltaY;
-			aZombie->mY += aDeltaY;
-			aZombie->mZombieRect.mY += aDeltaY;
-			aZombie->mZombieAttackRect.mY += aDeltaY;
-		}
-		for (Projectile* aProjectile : theBoard->mProjectiles)
-		{
-			int aOldRow = aProjectile->mRow;
-			int aDeltaY = aRowDelta(aOldRow);
-			aProjectile->mRow = aNewRow(aOldRow);
-			aProjectile->mRenderOrder += (aProjectile->mRow - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
-			aProjectile->mPosY += aDeltaY;
-			aProjectile->mShadowY += aDeltaY;
-		}
-		for (Coin* aCoin : theBoard->mCoins)
-		{
-			if (aCoin->mPosY < LAWN_YMIN || aCoin->mPosY > theBoard->mApp->mHeight)
-				continue;
-			int aRow = aNearestLegacyRow(aCoin->mPosY);
-			int aDeltaY = aRowDelta(aRow);
-			int aNewCoinRow = aNewRow(aRow);
-			aCoin->mRow = aNewCoinRow;
-			aCoin->mRenderOrder += (aNewCoinRow - aRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
-			aCoin->mPosY += aDeltaY;
-			aCoin->mCollectY += aDeltaY;
-			aCoin->mGroundY += aDeltaY;
-		}
-		for (LawnMower* aMower : theBoard->mLawnMowers)
-		{
-			int aOldRow = aMower->mRow;
-			int aDeltaY = aRowDelta(aOldRow);
-			aMower->mRow = aNewRow(aOldRow);
-			aMower->mRenderOrder += (aMower->mRow - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
-			aMower->mPosY += aDeltaY;
-			if (Reanimation* aReanim = theBoard->mApp->ReanimationGet(aMower->mReanimID))
-				aReanim->mRenderOrder = aMower->mRenderOrder;
-		}
-		for (GridItem* aGridItem : theBoard->mGridItems)
-		{
-			int aOldRow = aGridItem->mGridY;
-			int aDeltaY = aRowDelta(aOldRow);
-			aGridItem->mGridY = aNewRow(aOldRow);
-			aGridItem->mRenderOrder += (aGridItem->mGridY - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
-			aShiftReanimation(aGridItem->mGridItemReanimID, aGridItem->mGridY - aOldRow);
-			aGridItem->mPosY += aDeltaY;
-			aGridItem->mGoalY += aDeltaY;
-			for (int i = 0; i < std::clamp(aGridItem->mMotionTrailCount, 0, NUM_MOTION_TRAIL_FRAMES); i++)
-				aGridItem->mMotionTrailFrames[i].mPosY += aDeltaY;
-		}
-
-		for (int y = theBoard->GetNumPlayableRows() - 1; y >= 6; y--)
-		{
-			int aOldRow = y - 2;
-			theBoard->mWaveRowGotLawnMowered[y] = theBoard->mWaveRowGotLawnMowered[aOldRow];
-			theBoard->mIceMinX[y] = theBoard->mIceMinX[aOldRow];
-			theBoard->mIceTimer[y] = theBoard->mIceTimer[aOldRow];
-			theBoard->mIceParticleID[y] = theBoard->mIceParticleID[aOldRow];
-			theBoard->mRowPickingArray[y] = theBoard->mRowPickingArray[aOldRow];
-			theBoard->mRowPickingArray[y].mItem = y;
-			std::copy_n(theBoard->mFwooshID[aOldRow], 12, theBoard->mFwooshID[y]);
-			for (ReanimationID aFwooshId : theBoard->mFwooshID[y])
-			{
-				if (Reanimation* aFwoosh = theBoard->mApp->ReanimationTryToGet(aFwooshId))
-				{
-					aFwoosh->mOverlayMatrix.m12 += aRowDelta(aOldRow);
-					aFwoosh->mRenderOrder += 2 * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
-				}
-			}
-			for (int x = 0; x < MAX_GRID_SIZE_X; x++)
-			{
-				theBoard->mGridCelLook[x][y] = theBoard->mGridCelLook[x][aOldRow];
-				theBoard->mGridCelOffset[x][y][0] = theBoard->mGridCelOffset[x][aOldRow][0];
-				theBoard->mGridCelOffset[x][y][1] = theBoard->mGridCelOffset[x][aOldRow][1];
-				theBoard->mGridCelFog[x][y] = theBoard->mGridCelFog[x][aOldRow];
-			}
-		}
-		for (int y = 0; y < theBoard->GetNumPlayableRows(); y++)
-		{
-			bool aPoolRow = y >= 2 && y < 6;
-			theBoard->mPlantRow[y] = aPoolRow ? PlantRowType::PLANTROW_POOL : PlantRowType::PLANTROW_NORMAL;
-			theBoard->mWaveRowGotLawnMowered[y] = y >= 4 && y < 6 ? -100 : theBoard->mWaveRowGotLawnMowered[y];
-			theBoard->mIceMinX[y] = y >= 4 && y < 6 ? BOARD_ICE_START : theBoard->mIceMinX[y];
-			theBoard->mIceTimer[y] = y >= 4 && y < 6 ? 0 : theBoard->mIceTimer[y];
-			theBoard->mIceParticleID[y] = y >= 4 && y < 6 ? ParticleSystemID::PARTICLESYSTEMID_NULL : theBoard->mIceParticleID[y];
-			if (y >= 4 && y < 6)
-			{
-				theBoard->mRowPickingArray[y] = PvzpSmoothArray{};
-				theBoard->mRowPickingArray[y].mItem = y;
-				std::fill_n(theBoard->mFwooshID[y], 12, ReanimationID::REANIMATIONID_NULL);
-			}
-			for (int x = 0; x < MAX_GRID_SIZE_X; x++)
-			{
-				theBoard->mGridSquareType[x][y] = aPoolRow ? GridSquareType::GRIDSQUARE_POOL : GridSquareType::GRIDSQUARE_GRASS;
-			}
-		}
-		for (int x = 0; x < MAX_GRID_SIZE_X; x++)
-		{
-			theBoard->mGridCelFog[x][4] = theBoard->mGridCelFog[x][2];
-			theBoard->mGridCelFog[x][5] = theBoard->mGridCelFog[x][3];
-		}
-		for (int y = 0; y < theBoard->GetNumPlayableRows(); y++)
-		{
-			bool aHasMower = false;
-			for (LawnMower* aMower : theBoard->mLawnMowers)
-			{
-				if (aMower->mRow == y)
-				{
-					aHasMower = true;
-					break;
-				}
-			}
-			if (!aHasMower)
-			{
-				LawnMower* aMower = theBoard->mLawnMowers.DataArrayAlloc();
-				aMower->LawnMowerInitialize(y);
-			}
-		}
-	}
-
-	// The previous expanded Endless pool layout used rows 2-5 for water and rows 0-1/6-9 for land.
-	// Move that layout to rows 0-2/7-9 for land and rows 3-6 for water. Row 6 becomes the new top lane.
-	const bool aHasOldExpandedPoolLayout =
-		theBoard->mPlantRow[2] == PlantRowType::PLANTROW_POOL &&
-		theBoard->mPlantRow[3] == PlantRowType::PLANTROW_POOL &&
-		theBoard->mPlantRow[4] == PlantRowType::PLANTROW_POOL &&
-		theBoard->mPlantRow[5] == PlantRowType::PLANTROW_POOL &&
-		theBoard->mPlantRow[6] != PlantRowType::PLANTROW_POOL;
-	if (LawnApp::IsSurvivalEndless(theBoard->mApp->mGameMode) && theBoard->StageHasPool() && aHasOldExpandedPoolLayout)
-	{
-		constexpr int aOldRowForNewRow[MAX_GRID_SIZE_Y] = { 0, 1, 6, 2, 3, 4, 5, 7, 8, 9 };
-		auto aNewRow = [](int theOldRow)
-		{
-			theOldRow = std::clamp(theOldRow, 0, MAX_GRID_SIZE_Y - 1);
-			if (theOldRow == 6)
-				return 2;
-			if (theOldRow >= 2 && theOldRow <= 5)
-				return theOldRow + 1;
-			return theOldRow;
-		};
-
-		float aOldRowY[MAX_GRID_SIZE_Y];
-		for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
-			aOldRowY[y] = static_cast<float>(theBoard->GetGridRowY(y));
-		for (LawnMower* aMower : theBoard->mLawnMowers)
-		{
-			if (aMower->mRow >= 0 && aMower->mRow < MAX_GRID_SIZE_Y)
-				aOldRowY[aMower->mRow] = aMower->mPosY - 23.0f;
-		}
-		auto aRowDelta = [&](int theOldRow)
-		{
-			int aSafeOldRow = std::clamp(theOldRow, 0, MAX_GRID_SIZE_Y - 1);
-			return theBoard->GetGridRowY(aNewRow(aSafeOldRow)) - static_cast<int>(aOldRowY[aSafeOldRow] + 0.5f);
-		};
-		auto aNearestOldRow = [&](float theY)
-		{
-			int aRow = 0;
-			float aDistance = std::abs(theY - aOldRowY[0]);
-			for (int y = 1; y < MAX_GRID_SIZE_Y; y++)
-			{
-				float aCandidateDistance = std::abs(theY - aOldRowY[y]);
-				if (aCandidateDistance < aDistance)
-				{
-					aRow = y;
-					aDistance = aCandidateDistance;
-				}
-			}
-			return aRow;
-		};
-		auto aShiftReanimation = [&](ReanimationID theId, int theRowShift)
-		{
-			if (Reanimation* aReanim = theBoard->mApp->ReanimationTryToGet(theId))
-				aReanim->mRenderOrder += theRowShift * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
-		};
-
-		for (Plant* aPlant : theBoard->mPlants)
-		{
-			int aOldRow = aPlant->mRow;
-			int aNewPlantRow = aNewRow(aOldRow);
-			int aDeltaY = aRowDelta(aOldRow);
-			aPlant->mRow = aNewPlantRow;
-			if (aPlant->mStartRow >= 0 && aPlant->mStartRow < MAX_GRID_SIZE_Y)
-				aPlant->mStartRow = aNewRow(aPlant->mStartRow);
-			aPlant->mRenderOrder = aPlant->CalcRenderOrder();
-			int aRowShift = aNewPlantRow - aOldRow;
-			aShiftReanimation(aPlant->mBodyReanimID, aRowShift);
-			aShiftReanimation(aPlant->mHeadReanimID, aRowShift);
-			aShiftReanimation(aPlant->mHeadReanimID2, aRowShift);
-			aShiftReanimation(aPlant->mHeadReanimID3, aRowShift);
-			aShiftReanimation(aPlant->mBlinkReanimID, aRowShift);
-			aShiftReanimation(aPlant->mLightReanimID, aRowShift);
-			aShiftReanimation(aPlant->mSleepingReanimID, aRowShift);
-			aPlant->mY += aDeltaY;
-			aPlant->mPlantRect.mY += aDeltaY;
-			aPlant->mPlantAttackRect.mY += aDeltaY;
-			if (aPlant->mTargetY >= LAWN_YMIN)
-				aPlant->mTargetY += aRowDelta(aNearestOldRow(static_cast<float>(aPlant->mTargetY)));
-			for (MagnetItem& aMagnetItem : aPlant->mMagnetItems)
-				aMagnetItem.mPosY += aDeltaY;
-		}
-		for (Zombie* aZombie : theBoard->mZombies)
-		{
-			int aOldRow = aZombie->mRow;
-			int aNewZombieRow = aNewRow(aOldRow);
-			int aDeltaY = aRowDelta(aOldRow);
-			aZombie->SetRow(aNewZombieRow);
-			int aRowShift = aNewZombieRow - aOldRow;
-			aShiftReanimation(aZombie->mBodyReanimID, aRowShift);
-			aShiftReanimation(aZombie->mBossFireBallReanimID, aRowShift);
-			aShiftReanimation(aZombie->mSpecialHeadReanimID, aRowShift);
-			aShiftReanimation(aZombie->mMoweredReanimID, aRowShift);
-			aShiftReanimation(aZombie->mZombatarHeadReanimID, aRowShift);
-			aZombie->mPosY += aDeltaY;
-			aZombie->mY += aDeltaY;
-			aZombie->mZombieRect.mY += aDeltaY;
-			aZombie->mZombieAttackRect.mY += aDeltaY;
-		}
-		for (Projectile* aProjectile : theBoard->mProjectiles)
-		{
-			int aOldRow = aProjectile->mRow;
-			int aNewProjectileRow = aNewRow(aOldRow);
-			int aDeltaY = aRowDelta(aOldRow);
-			aProjectile->mRow = aNewProjectileRow;
-			aProjectile->mRenderOrder += (aNewProjectileRow - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
-			aProjectile->mPosY += aDeltaY;
-			aProjectile->mShadowY += aDeltaY;
-		}
-		for (Coin* aCoin : theBoard->mCoins)
-		{
-			if (aCoin->mPosY < LAWN_YMIN || aCoin->mPosY > theBoard->mApp->mHeight)
-				continue;
-			int aOldRow = aNearestOldRow(aCoin->mPosY);
-			int aNewCoinRow = aNewRow(aOldRow);
-			int aDeltaY = aRowDelta(aOldRow);
-			aCoin->mRow = aNewCoinRow;
-			aCoin->mRenderOrder += (aNewCoinRow - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
-			aCoin->mPosY += aDeltaY;
-			aCoin->mCollectY += aDeltaY;
-			aCoin->mGroundY += aDeltaY;
-		}
-		for (LawnMower* aMower : theBoard->mLawnMowers)
-		{
-			int aOldRow = aMower->mRow;
-			int aNewMowerRow = aNewRow(aOldRow);
-			int aDeltaY = aRowDelta(aOldRow);
-			aMower->mRow = aNewMowerRow;
-			aMower->mRenderOrder += (aNewMowerRow - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
-			aMower->mPosY += aDeltaY;
-			if (Reanimation* aReanim = theBoard->mApp->ReanimationGet(aMower->mReanimID))
-				aReanim->mRenderOrder = aMower->mRenderOrder;
-		}
-		for (GridItem* aGridItem : theBoard->mGridItems)
-		{
-			int aOldRow = aGridItem->mGridY;
-			int aNewGridRow = aNewRow(aOldRow);
-			int aDeltaY = aRowDelta(aOldRow);
-			aGridItem->mGridY = aNewGridRow;
-			aGridItem->mRenderOrder += (aNewGridRow - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
-			aShiftReanimation(aGridItem->mGridItemReanimID, aNewGridRow - aOldRow);
-			aGridItem->mPosY += aDeltaY;
-			aGridItem->mGoalY += aDeltaY;
-			for (int i = 0; i < std::clamp(aGridItem->mMotionTrailCount, 0, NUM_MOTION_TRAIL_FRAMES); i++)
-				aGridItem->mMotionTrailFrames[i].mPosY += aDeltaY;
-		}
-
-		std::array<PlantRowType, MAX_GRID_SIZE_Y> aOldPlantRow;
-		std::array<int32_t, MAX_GRID_SIZE_Y> aOldWaveRowGotLawnMowered;
-		std::array<int32_t, MAX_GRID_SIZE_Y> aOldIceMinX;
-		std::array<int32_t, MAX_GRID_SIZE_Y> aOldIceTimer;
-		std::array<ParticleSystemID, MAX_GRID_SIZE_Y> aOldIceParticleID;
-		std::array<PvzpSmoothArray, MAX_GRID_SIZE_Y> aOldRowPickingArray;
-		std::array<std::array<ReanimationID, 12>, MAX_GRID_SIZE_Y> aOldFwooshID;
-		std::copy_n(theBoard->mPlantRow, MAX_GRID_SIZE_Y, aOldPlantRow.begin());
-		std::copy_n(theBoard->mWaveRowGotLawnMowered, MAX_GRID_SIZE_Y, aOldWaveRowGotLawnMowered.begin());
-		std::copy_n(theBoard->mIceMinX, MAX_GRID_SIZE_Y, aOldIceMinX.begin());
-		std::copy_n(theBoard->mIceTimer, MAX_GRID_SIZE_Y, aOldIceTimer.begin());
-		std::copy_n(theBoard->mIceParticleID, MAX_GRID_SIZE_Y, aOldIceParticleID.begin());
-		std::copy_n(theBoard->mRowPickingArray, MAX_GRID_SIZE_Y, aOldRowPickingArray.begin());
-		for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
-			std::copy_n(theBoard->mFwooshID[y], 12, aOldFwooshID[y].begin());
-
-		for (int newRow = 0; newRow < MAX_GRID_SIZE_Y; newRow++)
-		{
-			int oldRow = aOldRowForNewRow[newRow];
-			theBoard->mPlantRow[newRow] = aOldPlantRow[oldRow];
-			theBoard->mWaveRowGotLawnMowered[newRow] = aOldWaveRowGotLawnMowered[oldRow];
-			theBoard->mIceMinX[newRow] = aOldIceMinX[oldRow];
-			theBoard->mIceTimer[newRow] = aOldIceTimer[oldRow];
-			theBoard->mIceParticleID[newRow] = aOldIceParticleID[oldRow];
-			theBoard->mRowPickingArray[newRow] = aOldRowPickingArray[oldRow];
-			theBoard->mRowPickingArray[newRow].mItem = newRow;
-			std::copy_n(aOldFwooshID[oldRow].begin(), 12, theBoard->mFwooshID[newRow]);
-		}
-		for (int oldRow = 0; oldRow < MAX_GRID_SIZE_Y; oldRow++)
-		{
-			int newRow = aNewRow(oldRow);
-			int aRowShift = newRow - oldRow;
-			int aDeltaY = aRowDelta(oldRow);
-			for (ReanimationID aFwooshId : aOldFwooshID[oldRow])
-			{
-				if (Reanimation* aFwoosh = theBoard->mApp->ReanimationTryToGet(aFwooshId))
-				{
-					aFwoosh->mOverlayMatrix.m12 += aDeltaY;
-					aFwoosh->mRenderOrder += aRowShift * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
-				}
-			}
-		}
-		for (int x = 0; x < MAX_GRID_SIZE_X; x++)
-		{
-			std::array<GridSquareType, MAX_GRID_SIZE_Y> aOldGridSquareType;
-			std::array<int32_t, MAX_GRID_SIZE_Y> aOldGridCelLook;
-			std::array<std::array<int32_t, 2>, MAX_GRID_SIZE_Y> aOldGridCelOffset;
-			std::array<int32_t, MAX_GRID_SIZE_Y + 1> aOldGridCelFog;
-			std::copy_n(theBoard->mGridSquareType[x], MAX_GRID_SIZE_Y, aOldGridSquareType.begin());
-			std::copy_n(theBoard->mGridCelLook[x], MAX_GRID_SIZE_Y, aOldGridCelLook.begin());
-			for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
-			{
-				for (int axis = 0; axis < 2; axis++)
-					aOldGridCelOffset[y][axis] = theBoard->mGridCelOffset[x][y][axis];
-			}
-			std::copy_n(theBoard->mGridCelFog[x], MAX_GRID_SIZE_Y + 1, aOldGridCelFog.begin());
-			for (int newRow = 0; newRow < MAX_GRID_SIZE_Y; newRow++)
-			{
-				int oldRow = aOldRowForNewRow[newRow];
-				theBoard->mGridSquareType[x][newRow] = aOldGridSquareType[oldRow];
-				theBoard->mGridCelLook[x][newRow] = aOldGridCelLook[oldRow];
-				theBoard->mGridCelOffset[x][newRow][0] = aOldGridCelOffset[oldRow][0];
-				theBoard->mGridCelOffset[x][newRow][1] = aOldGridCelOffset[oldRow][1];
-				theBoard->mGridCelFog[x][newRow] = aOldGridCelFog[oldRow];
-			}
-		}
-	}
-
-	if (LawnApp::IsSurvivalEndless(theBoard->mApp->mGameMode) && theBoard->StageHasPool() &&
-		theBoard->mApp->mWidth > BOARD_WIDTH)
-	{
-		for (int x = LEGACY_BOARD_GRID_SIZE_X; x < MAX_GRID_SIZE_X; x++)
-		{
-			for (int y = 0; y < theBoard->GetNumPlayableRows(); y++)
-			{
-				theBoard->mGridSquareType[x][y] = theBoard->mPlantRow[y] == PlantRowType::PLANTROW_POOL ?
-					GridSquareType::GRIDSQUARE_POOL : GridSquareType::GRIDSQUARE_GRASS;
-			}
-		}
-	}
-
 	{
 		for (Plant* aPlant : theBoard->mPlants)
 		{

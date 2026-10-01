@@ -1098,6 +1098,7 @@ enum SeedType : int32_t
 	SEED_LEFTPEATER,
 	SEED_SUN_MAGNET,
 	SEED_CHOMPERNUT,
+	SEED_ALFONSE,  // test plant backed by a plain cel-strip image instead of a reanimation
 	NUM_SEED_TYPES,
 	SEED_BEGHOULED_BUTTON_SHUFFLE,
 	SEED_BEGHOULED_BUTTON_CRATER,

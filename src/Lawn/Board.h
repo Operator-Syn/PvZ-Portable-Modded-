@@ -35,6 +35,7 @@
 #include "widget/ButtonListener.h"
 
 #include "Plant.h"
+#include "SunThresholds.h"
 #include "Zombie.h"
 #include "Projectile.h"
 #include "Coin.h"
@@ -55,17 +56,7 @@ constexpr const size_t INITIAL_RENDER_ITEM_CAPACITY = 2048;
 constexpr const int PROGRESS_METER_COUNTER = 150;
 constexpr const int SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS = 10;
 constexpr const int SUN_MAGNET_HIGH_OVERDRIVE_EXTRA_ITEMS = 30;
-constexpr const int SUN_MAGNET_HIGH_OVERDRIVE_SUN_THRESHOLD = 150000;
-constexpr const int TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD = 1000000;
-constexpr const int TWIN_SUNFLOWER_PRODUCTION_STOP_SUN_THRESHOLD = 1750000;
-constexpr const int TWO_MILLION_SUN_THRESHOLD = 2000000;
-constexpr const int TWO_AND_HALF_MILLION_SUN_THRESHOLD = 2500000;
-constexpr const int THREE_MILLION_SUN_THRESHOLD = 3000000;
-constexpr const int THREE_AND_HALF_MILLION_SUN_THRESHOLD = 3500000;
-constexpr const int FIVE_MILLION_SUN_THRESHOLD = 5000000;
 constexpr const int TWIN_SUNFLOWER_ASSAULT_INTERVAL = 225;
-constexpr const int KERNEL_PULT_BUTTER_BARRAGE_SUN_THRESHOLD = 500000;
-constexpr const int WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD = 1000000;
 
 constexpr int GetSunMagnetExtraItemCapacity(int theSunMoney)
 {
@@ -122,7 +113,6 @@ public:
 		int							mBoardGridY;
 	};
 };
-bool RenderItemSortFunc(const RenderItem& theItem1, const RenderItem& theItem2);
 
 struct ZombiePicker
 {

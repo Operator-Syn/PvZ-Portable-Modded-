@@ -369,5 +369,6 @@ public:
 	const char*         mPlantName;
 };
 extern const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES];
+extern Image* gAlfonsePlantImages[1];  // test plant cel-strip; filled in during Init resource load
 
 const PlantDefinition& GetPlantDefinition(SeedType theSeedType);

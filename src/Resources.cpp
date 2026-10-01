@@ -23,6 +23,12 @@
 #include <cstring>
 #include "Resources.h"
 #include "misc/ResourceManager.h"
+#include "imagelib/ImageLib.h"
+#include "graphics/GLImage.h"
+#include "graphics/Image.h"
+#include "Lawn/Plant.h"
+#include "PvzpLib/PvzpCommon.h"
+#include "PvzpLib/PvzpDebug.h"
 
 using namespace Sexy;
 
@@ -1127,6 +1133,22 @@ bool Sexy::ExtractInitResources(ResourceManager* theManager)
 	{
 		return false;
 	}
+
+	// Test-only plant art, loaded from the resource folder instead of main.pak.
+	// properties/ is gitignored, so this stays out of commits; a missing file just
+	// leaves the seed unplantable rather than aborting startup.
+	IMAGE_ALFONSE_PLANT = gSexyAppBase->GetImage("properties/alfonse.png");
+	if (IMAGE_ALFONSE_PLANT != nullptr)
+	{
+		IMAGE_ALFONSE_PLANT->mNumCols = 24;  // 24 poses laid out as a single horizontal strip
+		IMAGE_ALFONSE_PLANT->mNumRows = 1;
+		PvzpMarkImageForSanding(IMAGE_ALFONSE_PLANT);
+		gAlfonsePlantImages[0] = IMAGE_ALFONSE_PLANT;  // the SEED_ALFONSE definition reads this slot
+	}
+	else
+	{
+		PvzpLogLn("properties/alfonse.png not found; test seed will not render");
+	}
 	return true;
 }
 
@@ -1312,6 +1334,7 @@ Image* Sexy::IMAGE_PACKET_PLANTS;
 Image* Sexy::IMAGE_PEA_PARTICLES;
 Image* Sexy::IMAGE_PEA_SHADOWS;
 Image* Sexy::IMAGE_PEA_SPLATS;
+Image* Sexy::IMAGE_ALFONSE_PLANT;
 Image* Sexy::IMAGE_PHONOGRAPH;
 Image* Sexy::IMAGE_PINATA;
 Image* Sexy::IMAGE_PLANTSHADOW;

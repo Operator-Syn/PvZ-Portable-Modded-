@@ -23,8 +23,12 @@
 #define __SAVEGAMECONTEXT_H__
 
 #include <string>
+#include "SaveGameFormat.h"
 
 class Board;
+
+SaveGameFormat::Result LawnLoadGameDetailed(Board* theBoard, const std::string& theFilePath);
+SaveGameFormat::Result LawnSaveGameDetailed(Board* theBoard, const std::string& theFilePath);
 
 bool				LawnLoadGame(Board* theBoard, const std::string& theFilePath);
 bool				LawnSaveGame(Board* theBoard, const std::string& theFilePath);

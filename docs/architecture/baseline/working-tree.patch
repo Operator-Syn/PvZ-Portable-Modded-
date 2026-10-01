@@ -1,0 +1,3319 @@
+diff --git a/src/Lawn/Board.cpp b/src/Lawn/Board.cpp
+index 51c0595..6d9cac9 100644
+--- a/src/Lawn/Board.cpp
++++ b/src/Lawn/Board.cpp
+@@ -85,7 +85,7 @@ struct ZombieStrengthTier
+ };
+ 
+ // Keep toughness thresholds and multipliers together: extend this table when adding future sun tiers.
+-constexpr std::array<ZombieStrengthTier, 8> ZOMBIE_STRENGTH_TIERS = {{
++constexpr std::array<ZombieStrengthTier, 10> ZOMBIE_STRENGTH_TIERS = {{
+ 	{ 0, 1 },
+ 	{ 100000, 5 },
+ 	{ 200000, 10 },
+@@ -93,9 +93,14 @@ constexpr std::array<ZombieStrengthTier, 8> ZOMBIE_STRENGTH_TIERS = {{
+ 	{ 700000, 12 },
+ 	{ 800000, 12 },
+ 	{ 1000000, 18 }, // 1.5x the 800k tier; armor uses the same multiplier.
+-	{ 2000000, 27 }, // 1.5x the 1m tier; armor and existing type modifiers still apply.
++	{ 2000000, 41 }, // 1.5x the former 27x tier; armor and type modifiers use the same scaling.
++	{ TWO_AND_HALF_MILLION_SUN_THRESHOLD, 62 }, // Advances toughness and armor to the former 5m tier; all zombies receive armor.
++	{ FIVE_MILLION_SUN_THRESHOLD, 62 },
+ }};
+ 
++constexpr int TWO_MILLION_ZOMBIE_TIER_INDEX = 7;
++constexpr int TWO_AND_HALF_MILLION_ZOMBIE_TIER_INDEX = 8;
++
+ constexpr int QUADRATIC_RESISTANCE_SUN_THRESHOLD = 900000;
+ constexpr int QUADRATIC_RESISTANCE_BASE_TIER_INDEX = 5; // 800k tier immediately below resistance activation.
+ constexpr int QUADRATIC_RESISTANCE_BASE_CAP = 4;
+@@ -123,8 +128,14 @@ static int ZombieHealthMultiplierForZombie(const Zombie* theZombie, int theTier)
+ {
+ 	const int aMultiplier = ZombieHealthMultiplierForTier(theTier);
+ 	if (theZombie != nullptr &&
+-		(theZombie->mZombieType == ZombieType::ZOMBIE_TRAFFIC_CONE || theZombie->mZombieType == ZombieType::ZOMBIE_PAIL) &&
+-		theTier >= static_cast<int>(ZOMBIE_STRENGTH_TIERS.size()) - 1)
++		(theZombie->mZombieType == ZombieType::ZOMBIE_TRAFFIC_CONE || theZombie->mZombieType == ZombieType::ZOMBIE_PAIL ||
++			theZombie->mZombieType == ZombieType::ZOMBIE_BULWARK_BUCKET) &&
++		theTier >= TWO_MILLION_ZOMBIE_TIER_INDEX)
++		return aMultiplier * 2;
++	if (theZombie != nullptr && theZombie->mZombieType == ZombieType::ZOMBIE_NEWSPAPER &&
++		(theZombie->mZombiePhase == ZombiePhase::PHASE_NEWSPAPER_MADDENING ||
++			theZombie->mZombiePhase == ZombiePhase::PHASE_NEWSPAPER_MAD) &&
++		theTier >= TWO_MILLION_ZOMBIE_TIER_INDEX)
+ 		return aMultiplier * 2;
+ 	if (theZombie != nullptr && (theZombie->mZombieType == ZombieType::ZOMBIE_LADDER ||
+ 		theZombie->mZombieType == ZombieType::ZOMBIE_IMP) && theTier >= 4)
+@@ -1141,16 +1152,8 @@ void Board::PickBackground()
+ 	}
+ 	else if (mBackground == BackgroundType::BACKGROUND_3_POOL || mBackground == BackgroundType::BACKGROUND_ZOMBIQUARIUM || mBackground == BackgroundType::BACKGROUND_4_FOG)
+ 	{
+-		if (StageHasPool() && LawnApp::IsSurvivalEndless(mApp->mGameMode))
+-		{
+-			for (int y = 3; y <= 6; y++)
+-				mPlantRow[y] = PlantRowType::PLANTROW_POOL;
+-		}
+-		else
+-		{
+-			mPlantRow[2] = PlantRowType::PLANTROW_POOL;
+-			mPlantRow[3] = PlantRowType::PLANTROW_POOL;
+-		}
++		mPlantRow[2] = PlantRowType::PLANTROW_POOL;
++		mPlantRow[3] = PlantRowType::PLANTROW_POOL;
+ 	}
+ 	else if (mBackground == BackgroundType::BACKGROUND_2_NIGHT || mBackground == BackgroundType::BACKGROUND_5_ROOF ||
+ 		mBackground == BackgroundType::BACKGROUND_6_BOSS)
+@@ -1683,9 +1686,7 @@ void Board::PlaceRake()
+ 	PvzpWeightedArray aPickArray[MAX_GRID_SIZE_Y];
+ 	for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
+ 	{
+-		const int aFirstExpandedRow = StageHasPool() ? 6 : 5;
+-		const bool aIsNewEndlessRow = mApp->IsSurvivalEndless(mApp->mGameMode) && aRow >= aFirstExpandedRow;
+-		if ((aRow != 5 || aIsNewEndlessRow) && mPlantRow[aRow] == PlantRowType::PLANTROW_NORMAL)
++		if (aRow != 5 && mPlantRow[aRow] == PlantRowType::PLANTROW_NORMAL)
+ 		{
+ 			aPickArray[aPickCount].mWeight = 1;
+ 			aPickArray[aPickCount].mItem = aRow;
+@@ -2628,7 +2629,8 @@ void Board::UpdatePlanternFlames()
+ 		if (mPlanternFlameCountdown[aRow] % 15 == 0)
+ 		{
+ 			float aFirstFireX = static_cast<float>(GridToPixelX(0, aRow) + 40);
+-			float aLastFireX = static_cast<float>(GridToPixelX(GetNumPlayableColumns() - 1, aRow) + 40);
++			float aLastFireX = static_cast<float>(std::max(
++				GridToPixelX(GetNumPlayableColumns() - 1, aRow) + 40, mApp->mWidth - LAWN_XMIN));
+ 			float aFireX = RandRangeFloat(aFirstFireX, aLastFireX);
+ 			float aFireY = static_cast<float>(GetPosYBasedOnRow(aFireX, aRow));
+ 			Reanimation* aFire = mApp->AddReanimation(aFireX, aFireY, MakeRenderOrder(RenderLayer::RENDER_LAYER_LAWN_MOWER, aRow, 3),
+@@ -3975,7 +3977,7 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
+ 			}
+ 			else if (aPlant->mSeedType == SeedType::SEED_WINTERMELON)
+ 			{
+-				aPlantDetails += std::format("\nOverdrive: {} (>=1,000,000 sun; impact damage scales with group size. From 900,000 sun, quadratic scaling is ceil(sqrt(targets)), capped at 4x; cap increases by 2x per doubling of zombie HP. Bungees are exempt; costs 200 sun/s)",
++				aPlantDetails += std::format("\nOverdrive: {} (>=1,000,000 sun; 2x attack rate, five spread melons per lob at 5 sun each, 10% Cherry Bomb chance or 35% while sacrificing HP; costs 500 sun/s and loses 10 HP/s to 1 HP. Quadratic splash uses ceil(sqrt(targets)); Bungees exempt)",
+ 					mSunMoney >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD ? "Active" : "Inactive");
+ 			}
+ 			else if (aPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
+@@ -3990,12 +3992,12 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
+ 			}
+ 			else if (aPlant->mSeedType == SeedType::SEED_CATTAIL)
+ 			{
+-				aPlantDetails += std::format("\nSeed cost: 75 sun\nOverdrive: {} (>=25,000 sun; about 4x attack rate, 6 shots/cycle, 125 sun/projectile; >=1,000,000: 375 sun/projectile and 1.5x damage)",
++				aPlantDetails += std::format("\nSeed cost: 75 sun\nOverdrive: {} (>=25,000 sun; about 4x attack rate, 6 shots/cycle, 125 sun/projectile; >=1,000,000: 375 sun/projectile and 5x damage; >=2,000,000: 750 sun/projectile, +0.05% of target's current body HP per hit, and drains 1% max HP/s; this can kill the Cattail)",
+ 					mCatTailOverdriveActive ? "Active" : "Inactive");
+ 			}
+ 			else if (aPlant->mSeedType == SeedType::SEED_PLANTERN)
+ 			{
+-				aPlantDetails += std::format("\nSun production: sun value compounds by x1.2 per completed flag\nOverdrive: Production {} (>1,000 sun; about 2x faster); shoots Cherry Bombs every 2,500 ticks for 150 sun when bank >=1,000; >=1,000,000: 2x attack rate and 300 sun/shot; >=50,000: impacts burn the lane. Coffee Bean: Cob/targeted lane (500 sun; 1,000 at >=1,000,000), then 5s flames (300 sun/lane/s)",
++				aPlantDetails += std::format("\nSun production: sun value compounds by x1.2 per completed flag; pauses at 5,000,000 sun and resumes below it\nOverdrive: Production {} (>1,000 sun; about 2x faster); Cherry Bomb cadence speeds up 2.5x at >=1,000, >=50,000, and >=1,000,000 sun, capped at 1.5x Peashooter's 150-tick firing interval; >=1,000,000 costs 300 sun/shot (150 below); >=50,000: impacts trigger a Jalapeno flame across the struck lane. Coffee Bean: Cob/targeted lane (500 sun; 1,000 at >=1,000,000), then 5s flames (300 sun/lane/s)",
+ 					mSunMoney > 1000 ? "Active" : "Inactive");
+ 			}
+ 			else if (aPlant->mSeedType == SeedType::SEED_GATLINGPEA)
+@@ -6431,7 +6433,8 @@ void Board::UpdatePlantOverdrive()
+ 		for (Zombie* aZombie : mZombies)
+ 		{
+ 			if (aZombie->mDead || aZombie->IsDeadOrDying() || !aZombie->mIsEating ||
+-				(aZombie->mZombieType != ZombieType::ZOMBIE_TRAFFIC_CONE && aZombie->mZombieType != ZombieType::ZOMBIE_PAIL) ||
++				(aZombie->mZombieType != ZombieType::ZOMBIE_TRAFFIC_CONE && aZombie->mZombieType != ZombieType::ZOMBIE_PAIL &&
++					aZombie->mZombieType != ZombieType::ZOMBIE_BULWARK_BUCKET) ||
+ 				aZombie->mBodyHealth <= 0 || aZombie->mBodyHealth >= aZombie->mBodyMaxHealth)
+ 				continue;
+ 
+@@ -6501,6 +6504,14 @@ void Board::UpdatePlantOverdrive()
+ 			}
+ 		}
+ 	}
++	bool aThreeMillionSunDurabilityActive = aSunAtSecondStart >= THREE_MILLION_SUN_THRESHOLD;
++	for (Zombie* aZombie : mZombies)
++	{
++		if (aZombie->mDead || aZombie->IsDeadOrDying() ||
++			aZombie->mThreeMillionSunDurabilityApplied == aThreeMillionSunDurabilityActive)
++			continue;
++		ApplyThreeMillionSunDurabilityToZombie(aZombie, aThreeMillionSunDurabilityActive);
++	}
+ 	if (!mZombieRainActive && aSunAtSecondStart >= 50000 &&
+ 		mApp->mGameScene == GameScenes::SCENE_PLAYING && mCurrentWave > 0)
+ 	{
+@@ -6523,6 +6534,16 @@ void Board::UpdatePlantOverdrive()
+ 	{
+ 		if (aPlant->mDead || !aPlant->IsOnBoard() || aPlant->mSquished)
+ 			continue;
++		if (aSunAtSecondStart >= TWO_MILLION_SUN_THRESHOLD && aPlant->mSeedType == SeedType::SEED_CATTAIL)
++		{
++			int aHealthDrain = std::max(1, (aPlant->mPlantMaxHealth + 99) / 100);
++			aPlant->mPlantHealth -= aHealthDrain;
++			if (aPlant->mPlantHealth <= 0)
++			{
++				aPlant->Die();
++				continue;
++			}
++		}
+ 		if (mSunMagnetOverdriveActive && aPlant->mSeedType == SeedType::SEED_SUN_MAGNET && aPlant->mPlantHealth > 1)
+ 			aPlant->mPlantHealth--;
+ 		if (aSunAtSecondStart >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&
+@@ -6543,7 +6564,10 @@ void Board::UpdatePlantOverdrive()
+ 			aSunCost += aSunAtSecondStart >= KERNEL_PULT_BUTTER_BARRAGE_SUN_THRESHOLD ? 175 : 150;
+ 		if (aSunAtSecondStart >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD &&
+ 			aPlant->mSeedType == SeedType::SEED_WINTERMELON)
+-			aSunCost += 200;
++		{
++			aSunCost += 500;
++			aPlant->mPlantHealth = std::max(1, aPlant->mPlantHealth - 10);
++		}
+ 		if (aSunAtSecondStart >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&
+ 			aPlant->mSeedType == SeedType::SEED_GATLINGPEA)
+ 			aSunCost += 300;
+@@ -6593,9 +6617,15 @@ void Board::ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier,
+ 	}
+ 	bool anImpArmorRemoved = theZombie->mZombieType == ZombieType::ZOMBIE_IMP && theFromTier >= 4 && theToTier < 4 &&
+ 		theZombie->mHelmType == HelmType::HELMTYPE_PAIL;
+-	bool aBucketArmorAdded = theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE && theFromTier < 5 && theToTier >= 5 &&
+-		theZombie->mHelmType != HelmType::HELMTYPE_PAIL;
+-	bool aBucketArmorRemoved = theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE && theFromTier >= 5 && theToTier < 5;
++	bool aHasTierBucketArmor = theZombie->mTierBucketArmorMaxHealth > 0 || theZombie->mTierBucketArmorHealth > 0;
++	bool aBucketArmorAdded = theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE && !aHasTierBucketArmor &&
++		((theFromTier < 5 && theToTier >= 5 && theZombie->mHelmType != HelmType::HELMTYPE_PAIL) ||
++		theToTier >= TWO_AND_HALF_MILLION_ZOMBIE_TIER_INDEX);
++	bool aUniversalArmorRemoved = theFromTier >= TWO_AND_HALF_MILLION_ZOMBIE_TIER_INDEX &&
++		theToTier < TWO_AND_HALF_MILLION_ZOMBIE_TIER_INDEX &&
++		theZombie->mHelmType == HelmType::HELMTYPE_PAIL;
++	bool aBucketArmorRemoved = (theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE && theFromTier >= 5 && theToTier < 5) ||
++		aUniversalArmorRemoved;
+ 	auto aScaleHealth = [aOldMultiplier, aNewMultiplier](int32_t& theHealth)
+ 	{
+ 		if (theHealth <= 0)
+@@ -6645,6 +6675,52 @@ void Board::ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier,
+ 		aScaleHealth(theZombie->mTierBucketArmorHealth);
+ 		aScaleHealth(theZombie->mTierBucketArmorMaxHealth);
+ 	}
++	if (theZombie->IsSunTierInvulnerable())
++	{
++		bool aRemovedEffect = theZombie->mChilledCounter > 0 || theZombie->mIceTrapCounter > 0 ||
++			theZombie->mButteredCounter > 0;
++		theZombie->mChilledCounter = 0;
++		if (theZombie->mIceTrapCounter > 0)
++			theZombie->RemoveIceTrap();
++		if (theZombie->mButteredCounter > 0)
++		{
++			theZombie->mButteredCounter = 0;
++			theZombie->RemoveButter();
++		}
++		if (aRemovedEffect)
++			theZombie->UpdateAnimSpeed();
++	}
++	ApplyThreeMillionSunDurabilityToZombie(theZombie, mSunMoney >= THREE_MILLION_SUN_THRESHOLD);
++}
++
++void Board::ApplyThreeMillionSunDurabilityToZombie(Zombie* theZombie, bool theApply)
++{
++	if (theZombie == nullptr || theZombie->mThreeMillionSunDurabilityApplied == theApply)
++		return;
++
++	theZombie->mThreeMillionSunDurabilityApplied = theApply;
++	if (theZombie->mZombieType == ZombieType::ZOMBIE_BUNGEE)
++		return;
++
++	int aOldMultiplier = theApply ? 2 : 3;
++	int aNewMultiplier = theApply ? 3 : 2;
++	auto aScaleHealth = [aOldMultiplier, aNewMultiplier](int32_t& theHealth)
++	{
++		if (theHealth <= 0)
++			return;
++		int64_t aScaledHealth = (static_cast<int64_t>(theHealth) * aNewMultiplier + aOldMultiplier / 2) / aOldMultiplier;
++		theHealth = static_cast<int32_t>(std::clamp<int64_t>(aScaledHealth, 1, std::numeric_limits<int32_t>::max()));
++	};
++	aScaleHealth(theZombie->mBodyHealth);
++	aScaleHealth(theZombie->mBodyMaxHealth);
++	aScaleHealth(theZombie->mHelmHealth);
++	aScaleHealth(theZombie->mHelmMaxHealth);
++	aScaleHealth(theZombie->mShieldHealth);
++	aScaleHealth(theZombie->mShieldMaxHealth);
++	aScaleHealth(theZombie->mFlyingHealth);
++	aScaleHealth(theZombie->mFlyingMaxHealth);
++	aScaleHealth(theZombie->mTierBucketArmorHealth);
++	aScaleHealth(theZombie->mTierBucketArmorMaxHealth);
+ }
+ 
+ int Board::GetZombieExplosiveDamage() const
+@@ -7594,7 +7670,15 @@ void Board::Update()
+ 	{
+ 		mOutOfMoneyCounter--;
+ 	}
+-	if (mShakeCounter > 0)
++	if (mApp->mScreenShakeMode == LawnApp::ScreenShakeMode::OFF)
++	{
++		mShakeCounter = 0;
++		mShakeAmountX = 0;
++		mShakeAmountY = 0;
++		mX = 0;
++		mY = 0;
++	}
++	else if (mShakeCounter > 0)
+ 	{
+ 		mShakeCounter--;
+ 		if (mShakeCounter == 0)
+@@ -7608,8 +7692,9 @@ void Board::Update()
+ 			{
+ 				mShakeAmountX = -mShakeAmountX;
+ 			}
+-			mX = PvzpAnimateCurve(12, 0, mShakeCounter, 0, mShakeAmountX, PvzpCurves::CURVE_BOUNCE);
+-			mY = PvzpAnimateCurve(12, 0, mShakeCounter, 0, mShakeAmountY, PvzpCurves::CURVE_BOUNCE);
++			float aShakeScale = mApp->GetScreenShakeScale();
++			mX = static_cast<int>(PvzpAnimateCurve(12, 0, mShakeCounter, 0, mShakeAmountX, PvzpCurves::CURVE_BOUNCE) * aShakeScale);
++			mY = static_cast<int>(PvzpAnimateCurve(12, 0, mShakeCounter, 0, mShakeAmountY, PvzpCurves::CURVE_BOUNCE) * aShakeScale);
+ 		}
+ 	}
+ 	if (mCoinBankFadeCount > 0 && mApp->GetDialog(Dialogs::DIALOG_PURCHASE_PACKET_SLOT) == nullptr)
+@@ -10199,7 +10284,7 @@ void Board::KeyChar(char theChar)
+ 			mApp->mEasyPlantingCheat = true;
+ 			for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
+ 			{
+-				for (int x = 0; x < MAX_GRID_SIZE_Y; x++)
++				for (int x = 0; x < MAX_GRID_SIZE_X; x++)
+ 				{
+ 					if (CanPlantAt(x, y, SeedType::SEED_LILYPAD) == PlantingReason::PLANTING_OK)
+ 					{
+@@ -10770,38 +10855,21 @@ bool Board::StageHas6Rows()
+ int Board::GetNumPlayableRows()
+ {
+ 	const bool aHasPoolRows = StageHasPool() || mBackground == BackgroundType::BACKGROUND_ZOMBIQUARIUM;
+-	const bool aIsEndless = LawnApp::IsSurvivalEndless(mApp->mGameMode);
+-	return (aHasPoolRows ? 6 : 5) + (aIsEndless ? (StageHasPool() ? 4 : 2) : 0);
++	return aHasPoolRows ? 6 : 5;
+ }
+ 
+ int Board::GetNumPlayableColumns()
+ {
+-	const bool aWideEndlessPool = LawnApp::IsSurvivalEndless(mApp->mGameMode) && StageHasPool() && mApp->mWidth > BOARD_WIDTH;
+-	return aWideEndlessPool ? MAX_GRID_SIZE_X : CLASSIC_GRID_SIZE_X;
++	return CLASSIC_GRID_SIZE_X;
+ }
+ 
+ int Board::GetGridRowSpacing()
+ {
+-	const bool aIsEndless = LawnApp::IsSurvivalEndless(mApp->mGameMode);
+-	if (aIsEndless)
+-	{
+-		if (StageHasRoof())
+-			return 57;
+-		if (StageHasPool())
+-			return mApp->mHeight > BOARD_HEIGHT ? 85 : 50;
+-		if (mBackground == BackgroundType::BACKGROUND_ZOMBIQUARIUM)
+-			return 60;
+-		return 67;
+-	}
+ 	return StageHasRoof() || StageHasPool() ? 85 : 100;
+ }
+ 
+ int Board::GetGridRowY(int theGridY)
+ {
+-	if (LawnApp::IsSurvivalEndless(mApp->mGameMode) && StageHasPool())
+-	{
+-		return LAWN_YMIN + theGridY * 85;
+-	}
+ 	return LAWN_YMIN + theGridY * GetGridRowSpacing();
+ }
+ 
+@@ -10970,22 +11038,7 @@ int Board::PixelToGridY(int theX, int theY)
+ 			theY -= (4 - aGridX) * 20;
+ 		}
+ 	}
+-	const int aLastGridRow = LawnApp::IsSurvivalEndless(mApp->mGameMode) ? GetNumPlayableRows() - 1 : StageHasPool() ? 5 : 4;
+-	if (LawnApp::IsSurvivalEndless(mApp->mGameMode) && StageHasPool())
+-	{
+-		int aClosestRow = 0;
+-		int aClosestDistance = std::abs(theY - GetGridRowY(0));
+-		for (int aRow = 1; aRow <= aLastGridRow; aRow++)
+-		{
+-			int aDistance = std::abs(theY - GetGridRowY(aRow));
+-			if (aDistance < aClosestDistance)
+-			{
+-				aClosestRow = aRow;
+-				aClosestDistance = aDistance;
+-			}
+-		}
+-		return aClosestRow;
+-	}
++	const int aLastGridRow = GetNumPlayableRows() - 1;
+ 	return std::clamp((theY - LAWN_YMIN) / GetGridRowSpacing(), 0, aLastGridRow);
+ }
+ 
+@@ -11367,7 +11420,8 @@ void Board::DoFwoosh(int theRow)
+ 		}
+ 
+ 			float aFirstFlameX = static_cast<float>(GridToPixelX(0, theRow) + 40);
+-			float aLastFlameX = static_cast<float>(GridToPixelX(GetNumPlayableColumns() - 1, theRow) + 40);
++			float aLastFlameX = static_cast<float>(std::max(
++				GridToPixelX(GetNumPlayableColumns() - 1, theRow) + 40, mApp->mWidth - LAWN_XMIN));
+ 			float aPosX = aFirstFlameX + (aLastFlameX - aFirstFlameX) * i / 11.0f;
+ 		float aPosY = GetPosYBasedOnRow(aPosX + 10.0f, theRow) - 10.0f;
+ 		Reanimation* aFwoosh = mApp->AddReanimation(aPosX, aPosY, aRenderOrder, ReanimationType::REANIM_JALAPENO_FIRE);
+@@ -11601,6 +11655,16 @@ bool Board::CanUseGameObject(GameObjectType theGameObject)
+ 
+ void Board::ShakeBoard(int theShakeAmountX, int theShakeAmountY)
+ {
++	if (mApp->mScreenShakeMode == LawnApp::ScreenShakeMode::OFF)
++	{
++		mShakeCounter = 0;
++		mShakeAmountX = 0;
++		mShakeAmountY = 0;
++		mX = 0;
++		mY = 0;
++		return;
++	}
++
+ 	mShakeCounter = 12;
+ 	mShakeAmountX = theShakeAmountX;
+ 	mShakeAmountY = theShakeAmountY;
+diff --git a/src/Lawn/Board.h b/src/Lawn/Board.h
+index 75bc0c3..7f7bc68 100644
+--- a/src/Lawn/Board.h
++++ b/src/Lawn/Board.h
+@@ -42,8 +42,8 @@
+ using namespace Sexy;
+ 
+ constexpr const int CLASSIC_GRID_SIZE_X = 9;
+-constexpr const int MAX_GRID_SIZE_X = 12;
+-constexpr const int MAX_GRID_SIZE_Y = 10;
++constexpr const int MAX_GRID_SIZE_X = CLASSIC_GRID_SIZE_X;
++constexpr const int MAX_GRID_SIZE_Y = 6;
+ constexpr const int MAX_ACTIVE_ZOMBIES = 4096;
+ constexpr const int MAX_ZOMBIES_IN_WAVE = 50;
+ constexpr const int MAX_ZOMBIE_WAVES = 100;
+@@ -56,6 +56,10 @@ constexpr const int SUN_MAGNET_HIGH_OVERDRIVE_EXTRA_ITEMS = 30;
+ constexpr const int SUN_MAGNET_HIGH_OVERDRIVE_SUN_THRESHOLD = 150000;
+ constexpr const int TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD = 1000000;
+ constexpr const int TWO_MILLION_SUN_THRESHOLD = 2000000;
++constexpr const int TWO_AND_HALF_MILLION_SUN_THRESHOLD = 2500000;
++constexpr const int THREE_MILLION_SUN_THRESHOLD = 3000000;
++constexpr const int THREE_AND_HALF_MILLION_SUN_THRESHOLD = 3500000;
++constexpr const int FIVE_MILLION_SUN_THRESHOLD = 5000000;
+ constexpr const int TWIN_SUNFLOWER_ASSAULT_INTERVAL = 225;
+ constexpr const int KERNEL_PULT_BUTTER_BARRAGE_SUN_THRESHOLD = 500000;
+ constexpr const int WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD = 1000000;
+@@ -416,6 +420,7 @@ public:
+ 	void							UpdatePlantOverdrive();
+ 	void							UpdateZombieRain();
+ 	void							ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier, int theToTier);
++	void							ApplyThreeMillionSunDurabilityToZombie(Zombie* theZombie, bool theApply);
+ 	int							GetZombieExplosiveDamage() const;
+ 	int							GetQuadraticZombieDamageMultiplier(const Zombie* theZombie, int theTargetCount) const;
+ 	MagnetItem*						GetSunMagnetExtraItems(PlantID thePlantID, bool theCreate);
+diff --git a/src/Lawn/CutScene.cpp b/src/Lawn/CutScene.cpp
+index 8448c57..f53d133 100644
+--- a/src/Lawn/CutScene.cpp
++++ b/src/Lawn/CutScene.cpp
+@@ -94,7 +94,7 @@ static const int	TimeIntro_FadeOut				= 10890;
+ static const int	TimeIntro_FadeOutEnd			= 11890;
+ static const int	TimeIntro_End					= 13890;
+ static const int	TimeLawnMowerDuration			= 250;
+-static const int	TimeLawnMowerStart[MAX_GRID_SIZE_Y]	= { 6300, 6250, 6200, 6150, 6100, 6050, 6000, 5950, 5900, 5850 };
++static const int	TimeLawnMowerStart[MAX_GRID_SIZE_Y]	= { 6300, 6250, 6200, 6150, 6100, 6050 };
+ 
+ CutScene::CutScene()
+ {
+diff --git a/src/Lawn/Plant.cpp b/src/Lawn/Plant.cpp
+index d32f917..484b0b6 100644
+--- a/src/Lawn/Plant.cpp
++++ b/src/Lawn/Plant.cpp
+@@ -49,8 +49,12 @@
+ #include <format>
+ #include <vector>
+ 
+-constexpr int BLOVER_ZOMBIE_KNOCKBACK_DISTANCE = 120;
++constexpr int BLOVER_ZOMBIE_KNOCKBACK_DISTANCE = 240;
+ constexpr int BLOVER_ZOMBIE_KNOCKBACK_COST = 125;
++constexpr int WINTER_MELON_OVERDRIVE_VOLLEY_SIZE = 5;
++constexpr int WINTER_MELON_OVERDRIVE_PROJECTILE_COST = 5;
++constexpr int WINTER_MELON_OVERDRIVE_BASE_CHERRY_CHANCE_PERCENT = 10;
++constexpr int WINTER_MELON_OVERDRIVE_SACRIFICE_CHERRY_CHANCE_PERCENT = 35;
+ 
+ constinit const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {
+ 	{ .mSeedType = SeedType::SEED_PEASHOOTER,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_PEASHOOTER,    .mPacketIndex = 0,  .mSeedCost = 100, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 150,  .mPlantName = "PEASHOOTER" },
+@@ -691,6 +695,20 @@ void Plant::SpikyTakeDamage()
+ 	}
+ }
+ 
++void Plant::GargantuarSmashTakeDamage()
++{
++	if (mSeedType != SeedType::SEED_TALLNUT)
++		return;
++
++	mPlantHealth -= 50;
++	mRecentlyEatenCountdown = 50;
++	if (mPlantHealth <= 0)
++	{
++		mApp->PlayFoley(FoleyType::FOLEY_SQUISH);
++		Die();
++	}
++}
++
+ bool Plant::IsSpiky()
+ {
+ 	return mSeedType == SeedType::SEED_SPIKEWEED || mSeedType == SeedType::SEED_SPIKEROCK;
+@@ -1034,6 +1052,8 @@ void Plant::UpdateProductionPlant()
+ {
+ 	if (!IsInPlay() || mApp->IsIZombieLevel() || mApp->mGameMode == GameMode::GAMEMODE_UPSELL || mApp->mGameMode == GameMode::GAMEMODE_INTRO)
+ 		return;
++	if (mSeedType == SeedType::SEED_PLANTERN && mBoard->mSunMoney >= FIVE_MILLION_SUN_THRESHOLD)
++		return;
+ 
+ 	if (mBoard->HasLevelAwardDropped())
+ 		return;
+@@ -1170,15 +1190,29 @@ void Plant::FirePlanternBomb(Zombie* theTarget)
+ 	if (aProjectile == nullptr)
+ 		return;
+ 	aProjectile->mMotionType = ProjectileMotion::MOTION_HOMING;
+-	aProjectile->mVelX = 2.0f;
+-	aProjectile->mTargetZombieID = mBoard->ZombieGetID(theTarget);
+-	aProjectile->mDamageRangeFlags = 127;
+ 	aProjectile->mWidth = 80;
+ 	aProjectile->mHeight = 80;
++	Rect aTargetRect = theTarget->GetZombieRect();
++	SexyVector2 aInitialDirection(theTarget->ZombieTargetLeadX(0.0f) - (aOriginX + aProjectile->mWidth / 2.0f),
++		aTargetRect.mY + aTargetRect.mHeight / 2.0f - (aOriginY + aProjectile->mHeight / 2.0f));
++	float aDirectionLength = std::sqrt(aInitialDirection.x * aInitialDirection.x + aInitialDirection.y * aInitialDirection.y);
++	if (aDirectionLength > 0.0f)
++	{
++		aProjectile->mVelX = aInitialDirection.x * 2.0f / aDirectionLength;
++		aProjectile->mVelY = aInitialDirection.y * 2.0f / aDirectionLength;
++	}
++	else
++	{
++		aProjectile->mVelX = 2.0f;
++		aProjectile->mVelY = 0.0f;
++	}
++	aProjectile->mTargetZombieID = mBoard->ZombieGetID(theTarget);
++	aProjectile->mDamageRangeFlags = 127;
+ 
+ 	Reanimation* aCherryBombReanim = mApp->AddReanimation(aOriginX, aOriginY, aProjectile->mRenderOrder, ReanimationType::REANIM_CHERRYBOMB);
+ 	aCherryBombReanim->mLoopType = ReanimLoopType::REANIM_LOOP;
+ 	aCherryBombReanim->mAnimRate = 10.0f;
++	aCherryBombReanim->OverrideScale(0.5f, 0.5f);
+ 	if (aCherryBombReanim->TrackExists("anim_idle"))
+ 		aCherryBombReanim->SetFramesForLayer("anim_idle");
+ 	AttachReanim(aProjectile->mAttachmentID, aCherryBombReanim, 0.0f, 0.0f);
+@@ -1249,7 +1283,15 @@ void Plant::UpdatePlanternAttack()
+ 		}
+ 
+ 		FirePlanternBomb(aTarget);
+-		mStateCountdown = aMillionSunTier ? 1250 : 2500;
++		int aAttackInterval = aMillionSunTier ? 500 : 1000;
++		if (mBoard->mSunMoney >= 1000)
++			aAttackInterval = std::max(1, aAttackInterval * 2 / 5);
++		if (mBoard->mSunMoney >= 50000)
++			aAttackInterval = std::max(1, aAttackInterval * 2 / 5);
++		if (aMillionSunTier)
++			aAttackInterval = std::max(1, aAttackInterval * 2 / 5);
++		int aPlanternMaxSpeedInterval = GetPlantDefinition(SeedType::SEED_PEASHOOTER).mLaunchRate * 3 / 2;
++		mStateCountdown = std::max(aAttackInterval, aPlanternMaxSpeedInterval);
+ 	}
+ }
+ 
+@@ -3017,6 +3059,16 @@ void Plant::UpdateAbilities()
+ 			mLaunchRate = aDesiredLaunchRate;
+ 		}
+ 	}
++	else if (mSeedType == SeedType::SEED_WINTERMELON)
++	{
++		int aDesiredLaunchRate = mBoard->mSunMoney >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD ? 150 : 300;
++		if ((mLaunchRate == 300 || mLaunchRate == 150) && mLaunchRate != aDesiredLaunchRate)
++		{
++			mLaunchCounter = std::clamp((mLaunchCounter * aDesiredLaunchRate + mLaunchRate / 2) / mLaunchRate,
++				0, aDesiredLaunchRate);
++			mLaunchRate = aDesiredLaunchRate;
++		}
++	}
+ 	else if (mSeedType == SeedType::SEED_TWINSUNFLOWER || mSeedType == SeedType::SEED_PLANTERN)
+ 	{
+ 		int aDesiredLaunchRate = mBoard->mTwinSunflowerProductionOverdriveActive ? 312 : 625;
+@@ -3266,7 +3318,7 @@ void Plant::UpdateReanim()
+ 
+ 	UpdateReanimColor();
+ 
+-	float aOffsetX = mShakeOffsetX;
++	float aOffsetX = mShakeOffsetX * mApp->GetScreenShakeScale();
+ 	float aOffsetY = PlantDrawHeightOffset(mBoard, this, mSeedType, mPlantCol, mRow);
+ 	float aScaleX = 1.0f, aScaleY = 1.0f;
+ 	if ((mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BIG_TIME) &&
+@@ -4235,7 +4287,7 @@ float PlantDrawHeightOffset(Board* theBoard, Plant* thePlant, SeedType theSeedTy
+ 	else if (theSeedType == SeedType::SEED_SPIKEWEED || theSeedType == SeedType::SEED_SPIKEROCK)
+ 	{
+ 		int aBottomRow = 4;
+-		if (theBoard && (theBoard->StageHas6Rows() || LawnApp::IsSurvivalEndless(theBoard->mApp->mGameMode)))
++		if (theBoard && theBoard->StageHas6Rows())
+ 		{
+ 			aBottomRow = theBoard->GetNumPlayableRows() - 1;
+ 		}
+@@ -4257,8 +4309,7 @@ float PlantDrawHeightOffset(Board* theBoard, Plant* thePlant, SeedType theSeedTy
+ 		{
+ 			aHeightOffset += 0.0f;
+ 		}
+-		else if (theRow == aBottomRow && theCol >= 7 && theBoard &&
+-			(theBoard->StageHas6Rows() || LawnApp::IsSurvivalEndless(theBoard->mApp->mGameMode)))
++		else if (theRow == aBottomRow && theCol >= 7 && theBoard && theBoard->StageHas6Rows())
+ 		{
+ 			aHeightOffset += 1.0f;
+ 		}
+@@ -4640,8 +4691,8 @@ void Plant::Draw(Graphics* g)
+ 			aPumpkinReanim->DrawRenderGroup(&aPumpkinGraphics, 1);
+ 		}
+ 
+-		aOffsetX += mShakeOffsetX;
+-		aOffsetY += mShakeOffsetY;
++		aOffsetX += mShakeOffsetX * mApp->GetScreenShakeScale();
++		aOffsetY += mShakeOffsetY * mApp->GetScreenShakeScale();
+ 		if (IsInPlay() && mApp->IsIZombieLevel())
+ 		{
+ 			mBoard->mChallenge->IZombieDrawPlant(g, this);
+@@ -4942,14 +4993,11 @@ void Plant::BlowAwayFliers()
+ 		if (!mBoard->TakeSunMoney(BLOVER_ZOMBIE_KNOCKBACK_COST))
+ 			break;
+ 
+-		// Preserve Blover's full balloon removal; push every other zombie 1.5 tiles back.
++		// Preserve Blover's full balloon removal; push every other zombie 3 tiles back.
+ 		if (aZombie->mZombiePhase == ZombiePhase::PHASE_BALLOON_FLYING)
+ 			aZombie->mBlowingAway = true;
+ 		else
+-		{
+-			aZombie->mPosX += BLOVER_ZOMBIE_KNOCKBACK_DISTANCE;
+-			aZombie->mX = static_cast<int>(aZombie->mPosX);
+-		}
++			aZombie->mBloverKnockbackDistanceRemaining += BLOVER_ZOMBIE_KNOCKBACK_DISTANCE;
+ 	}
+ 
+ 	mApp->PlaySample(SOUND_BLOVER);
+@@ -5156,13 +5204,15 @@ void Plant::CobCannonFire(int theTargetX, int theTargetY)
+ 
+ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon,
+ 	int theWintermelonVolleyIndex, bool theFireWintermelonCherryBomb, bool theSkipCatTailOverdriveVolley,
+-	int theKernelPultVolleyIndex, int theKernelPultVolleySize, bool theMillionSunCatTailVolley)
++	int theKernelPultVolleyIndex, int theKernelPultVolleySize, bool theMillionSunCatTailVolley,
++	bool theTwoMillionSunCatTailVolley)
+ {
+ 	if (mSeedType == SeedType::SEED_CATTAIL && mBoard->mCatTailOverdriveActive && !theSkipCatTailOverdriveVolley)
+ 	{
+ 		constexpr int aVolleySize = 6;
+ 		bool aMillionSunTier = mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD;
+-		int aProjectileCost = aMillionSunTier ? 375 : 125;
++		bool aTwoMillionSunTier = mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD;
++		int aProjectileCost = aTwoMillionSunTier ? 750 : aMillionSunTier ? 375 : 125;
+ 		if (theTargetZombie == nullptr || mBoard->mProjectiles.mMaxSize - mBoard->mProjectiles.mSize < aVolleySize ||
+ 			mBoard->mSunMoney < aVolleySize * aProjectileCost)
+ 			return;
+@@ -5170,13 +5220,48 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
+ 		{
+ 			if (!mBoard->TakeSunMoney(aProjectileCost))
+ 				return;
+-			Fire(theTargetZombie, theRow, thePlantWeapon, -1, false, true, -1, 0, aMillionSunTier);
++			Fire(theTargetZombie, theRow, thePlantWeapon, -1, false, true, -1, 0, aMillionSunTier, aTwoMillionSunTier);
+ 		}
+ 		return;
+ 	}
+ 
+ 	if (mSeedType == SeedType::SEED_WINTERMELON && theWintermelonVolleyIndex == -1 && !theFireWintermelonCherryBomb)
+ 	{
++		if (mBoard->mSunMoney >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD)
++		{
++			if (theTargetZombie == nullptr)
++				return;
++			int aCherryBombChance = mPlantHealth > 1
++				? WINTER_MELON_OVERDRIVE_SACRIFICE_CHERRY_CHANCE_PERCENT
++				: WINTER_MELON_OVERDRIVE_BASE_CHERRY_CHANCE_PERCENT;
++			if (Rand(100) < aCherryBombChance)
++			{
++				Fire(theTargetZombie, theRow, thePlantWeapon, -2, true);
++				return;
++			}
++
++			if (mBoard->mProjectiles.mMaxSize - mBoard->mProjectiles.mSize < WINTER_MELON_OVERDRIVE_VOLLEY_SIZE ||
++				!mBoard->TakeSunMoney(WINTER_MELON_OVERDRIVE_VOLLEY_SIZE * WINTER_MELON_OVERDRIVE_PROJECTILE_COST))
++				return;
++
++			std::vector<Zombie*> aVolleyTargets;
++			aVolleyTargets.reserve(WINTER_MELON_OVERDRIVE_VOLLEY_SIZE);
++			aVolleyTargets.push_back(theTargetZombie);
++			while (static_cast<int>(aVolleyTargets.size()) < WINTER_MELON_OVERDRIVE_VOLLEY_SIZE)
++			{
++				Zombie* aNextTarget = FindTargetZombie(theRow, thePlantWeapon, &aVolleyTargets);
++				if (aNextTarget == nullptr)
++					break;
++				aVolleyTargets.push_back(aNextTarget);
++			}
++
++			for (int i = 0; i < WINTER_MELON_OVERDRIVE_VOLLEY_SIZE; i++)
++			{
++				Fire(aVolleyTargets[static_cast<size_t>(i) % aVolleyTargets.size()], theRow, thePlantWeapon, i);
++			}
++			return;
++		}
++
+ 		int aSpecialShotRoll = Rand(10000);
+ 		if (aSpecialShotRoll < 200)
+ 		{
+@@ -5421,8 +5506,12 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
+ 	Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder - 1, theRow, aProjectileType);
+ 	if (aProjectile == nullptr)
+ 		return;
++	if (mSeedType == SeedType::SEED_WINTERMELON && theFireWintermelonCherryBomb)
++		aProjectile->mWintermelonCherryShot = true;
+ 	if (mSeedType == SeedType::SEED_CATTAIL && theMillionSunCatTailVolley)
+ 		aProjectile->mMillionSunDamage = true;
++	if (mSeedType == SeedType::SEED_CATTAIL && theTwoMillionSunCatTailVolley)
++		aProjectile->mTwoMillionSunCatTailDamage = true;
+ 	if (mSeedType == SeedType::SEED_GATLINGPEA && aProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB)
+ 	{
+ 		aProjectile->mGatlingCherryShot = true;
+@@ -5631,7 +5720,8 @@ Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, const st
+ 			}
+ 		}
+ 
+-		bool aCanTargetAcrossLanes = mSeedType == SeedType::SEED_CATTAIL || IsAutomaticPult(mSeedType);
++		bool aCanTargetAcrossLanes = mSeedType == SeedType::SEED_CATTAIL || mSeedType == SeedType::SEED_PLANTERN ||
++			IsAutomaticPult(mSeedType);
+ 		if (!aCanTargetAcrossLanes)
+ 		{
+ 		if (mSeedType == SeedType::SEED_GLOOMSHROOM)
+diff --git a/src/Lawn/Plant.h b/src/Lawn/Plant.h
+index 18e17c4..c8733b2 100644
+--- a/src/Lawn/Plant.h
++++ b/src/Lawn/Plant.h
+@@ -242,7 +242,8 @@ public:
+ 	void                    DoSpecial();
+ 	void                    Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY,
+ 		int theWintermelonVolleyIndex = -1, bool theFireWintermelonCherryBomb = false, bool theSkipCatTailOverdriveVolley = false,
+-		int theKernelPultVolleyIndex = -1, int theKernelPultVolleySize = 0, bool theMillionSunCatTailVolley = false);
++		int theKernelPultVolleyIndex = -1, int theKernelPultVolleySize = 0, bool theMillionSunCatTailVolley = false,
++		bool theTwoMillionSunCatTailVolley = false);
+ 	Zombie*                 FindTargetZombie(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY,
+ 		const std::vector<Zombie*>* theExcludedZombies = nullptr);
+ 	void                    Die();
+@@ -335,6 +336,7 @@ public:
+ 	void                    UpdateImitater();
+ 	void                    UpdateReanim();
+ 	void                    SpikyTakeDamage();
++	void                    GargantuarSmashTakeDamage();
+ 	bool                    IsSpiky();
+ 	static void  PreloadPlantResources(SeedType theSeedType);
+ 	bool         IsInPlay();
+diff --git a/src/Lawn/Projectile.cpp b/src/Lawn/Projectile.cpp
+index 400db40..aa52180 100644
+--- a/src/Lawn/Projectile.cpp
++++ b/src/Lawn/Projectile.cpp
+@@ -35,6 +35,7 @@
+ #include "Widget/AchievementsScreen.h"
+ #include <algorithm>
+ #include <array>
++#include <cstdint>
+ 
+ constinit const ProjectileDefinition gProjectileDefinition[] = {
+ 	{ .mProjectileType = ProjectileType::PROJECTILE_PEA, .mImageRow = 0, .mDamage = 20 },
+@@ -108,6 +109,8 @@ void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, in
+ 	mPlanternCob = false;
+ 	mGatlingCherryShot = false;
+ 	mMillionSunDamage = false;
++	mTwoMillionSunCatTailDamage = false;
++	mWintermelonCherryShot = false;
+ 	std::fill(std::begin(mPiercedZombieIDs), std::end(mPiercedZombieIDs), ZombieID::ZOMBIEID_NULL);
+ 	mOnHighGround = mBoard->mGridSquareType[aGridX][theRow] == GridSquareType::GRIDSQUARE_HIGH_GROUND;
+ 	if (mBoard->StageHasRoof() && theX < 480)
+@@ -305,7 +308,15 @@ void Projectile::CheckForCollision()
+ 		Die();
+ 		return;
+ 	}
+-	if (mProjectileType == ProjectileType::PROJECTILE_SPIKE &&
++	if (mProjectileType == ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB &&
++		mTargetZombieID == ZombieID::ZOMBIEID_NULL && mTargetTrackingEnded &&
++		((mVelX >= 0.0f && mPosX + mWidth >= mApp->mWidth - 20.0f) ||
++			(mVelX < 0.0f && mPosX <= 20.0f)))
++	{
++		DoImpact(nullptr);
++		return;
++	}
++	if ((mProjectileType == ProjectileType::PROJECTILE_SPIKE || mProjectileType == ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB) &&
+ 		(mPosY > mApp->mHeight || mPosY + mHeight < 0.0f))
+ 	{
+ 		Die();
+@@ -540,7 +551,9 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
+ 	for (Zombie* aZombie : anAffectedZombies)
+ 	{
+ 		unsigned int aDamageFlags = GetDamageFlags(aZombie);
+-		int aDamageMultiplier = aQuadraticWintermelonOverdrive || aQuadraticTwinSunflowerBomb ?
++		bool aApplyQuadraticMultiplier = aQuadraticTwinSunflowerBomb ||
++			(aQuadraticWintermelonOverdrive && aZombie != theZombie);
++		int aDamageMultiplier = aApplyQuadraticMultiplier ?
+ 			mBoard->GetQuadraticZombieDamageMultiplier(aZombie, static_cast<int>(anAffectedZombies.size())) : 1;
+ 		if (aZombie == theZombie)
+ 			aZombie->TakeDamage(aOriginalDamage * aDamageMultiplier, aDamageFlags);
+@@ -570,6 +583,17 @@ void Projectile::UpdateLobMotion()
+ 		mRotation = -PI / 2;
+ 	}
+ 
++	if (mProjectileType == ProjectileType::PROJECTILE_BASKETBALL && mCobTargetX > 0.0f)
++	{
++		mRow = mCobTargetRow;
++		int aRemainingFlight = std::max(1, 120 - mProjectileAge);
++		float aTargetGroundY = mBoard->GetPosYBasedOnRow(mCobTargetX, mCobTargetRow) + 67.0f;
++		float aProjectileGroundOffset = mShadowY - mPosY;
++		mVelX = (mCobTargetX - mPosX) / aRemainingFlight;
++		mVelY = (aTargetGroundY - aProjectileGroundOffset - mPosY) / aRemainingFlight;
++		mShadowY += mVelY;
++	}
++
+ 	if ((IsPultProjectile(mProjectileType) || mProjectileType == ProjectileType::PROJECTILE_CHERRYBOMB) &&
+ 		mTargetZombieID != ZombieID::ZOMBIEID_NULL)
+ 	{
+@@ -744,6 +768,87 @@ void Projectile::UpdateNormalMotion()
+ 	else if (mMotionType == ProjectileMotion::MOTION_HOMING)
+ 	{
+ 		Zombie* aZombie = mBoard->ZombieTryToGet(mTargetZombieID);
++		if (mProjectileType == ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB && mTargetZombieID != ZombieID::ZOMBIEID_NULL &&
++			(!aZombie || aZombie->IsDeadOrDying() || !aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags))))
++		{
++			if (!mTargetTrackingEnded)
++			{
++				Zombie* aClosestTarget = nullptr;
++				float aClosestDistance = 0.0f;
++				for (Zombie* aCandidate : mBoard->mZombies)
++				{
++					if (aCandidate->mDead || aCandidate->IsDeadOrDying() ||
++						!aCandidate->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
++						continue;
++
++					Rect aCandidateRect = aCandidate->GetZombieRect();
++					float aDistance = Distance2D(mPosX + mWidth / 2.0f, mPosY + mHeight / 2.0f,
++						aCandidateRect.mX + aCandidateRect.mWidth / 2.0f, aCandidateRect.mY + aCandidateRect.mHeight / 2.0f);
++					if (aClosestTarget == nullptr || aDistance < aClosestDistance)
++					{
++						aClosestTarget = aCandidate;
++						aClosestDistance = aDistance;
++					}
++				}
++
++				if (aClosestTarget != nullptr)
++				{
++					aZombie = aClosestTarget;
++					mTargetZombieID = mBoard->ZombieGetID(aClosestTarget);
++					mTargetTrackingEnded = true;
++				}
++			}
++
++			if (mTargetZombieID == ZombieID::ZOMBIEID_NULL || !aZombie || aZombie->IsDeadOrDying() ||
++				!aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
++			{
++				mTargetTrackingEnded = true;
++				mTargetZombieID = ZombieID::ZOMBIEID_NULL;
++
++				std::array<int, MAX_GRID_SIZE_Y> aUnoccupiedRows{};
++				int aUnoccupiedRowCount = 0;
++				for (int aRow = 0; aRow < mBoard->GetNumPlayableRows(); aRow++)
++				{
++					bool aRowOccupied = mBoard->mPlanternFlameCountdown[aRow] > 0;
++					for (Projectile* aOther : mBoard->mProjectiles)
++					{
++						if (aOther != this && !aOther->mDead &&
++							aOther->mProjectileType == ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB && aOther->mRow == aRow)
++						{
++							aRowOccupied = true;
++							break;
++						}
++					}
++					if (!aRowOccupied)
++						aUnoccupiedRows[aUnoccupiedRowCount++] = aRow;
++				}
++
++				int aLaneRow = aUnoccupiedRowCount > 0
++					? aUnoccupiedRows[Sexy::Rand(aUnoccupiedRowCount)]
++					: Sexy::Rand(mBoard->GetNumPlayableRows());
++				mRow = aLaneRow;
++
++				float aDirectionX = mVelX < 0.0f ? -1.0f : 1.0f;
++				if (std::abs(mVelX) < 0.001f && Sexy::Rand(2) == 0)
++					aDirectionX = -1.0f;
++				float aTargetCenterX = aDirectionX > 0.0f ? mApp->mWidth - 20.0f : 20.0f;
++				float aTargetCenterY = mBoard->GetPosYBasedOnRow(aTargetCenterX, aLaneRow) + 50.0f;
++				float aDeltaX = aTargetCenterX - (mPosX + mWidth / 2.0f);
++				float aDeltaY = aTargetCenterY - (mPosY + mHeight / 2.0f);
++				float aDistance = std::sqrt(aDeltaX * aDeltaX + aDeltaY * aDeltaY);
++				if (aDistance > 0.0f)
++				{
++					mVelX = aDeltaX * 2.0f / aDistance;
++					mVelY = aDeltaY * 2.0f / aDistance;
++				}
++				else
++				{
++					mVelX = aDirectionX * 2.0f;
++					mVelY = 0.0f;
++				}
++			}
++		}
++
+ 		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && !mTargetTrackingEnded &&
+ 			(!aZombie || aZombie->IsDeadOrDying() || !aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags))))
+ 		{
+@@ -977,19 +1082,21 @@ void Projectile::DoImpact(Zombie* theZombie)
+ 		mApp->PlayFoley(FoleyType::FOLEY_JUICY);
+ 		int aImpactX = static_cast<int>(mPosX + 40.0f);
+ 		int aImpactY = static_cast<int>(mPosY + mPosZ + 40.0f);
+-		mBoard->KillAllZombiesInRadius(mRow, aImpactX, aImpactY, 115, 1, true, mDamageRangeFlags, 0,
+-			mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB && mMillionSunDamage);
++		int aImpactRow = theZombie != nullptr ? theZombie->mRow : mRow;
++		mBoard->KillAllZombiesInRadius(aImpactRow, aImpactX, aImpactY, 115, 1, true, mDamageRangeFlags, 0,
++			(mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB && mMillionSunDamage) ||
++			mWintermelonCherryShot);
+ 		mApp->AddPvzpParticle(aImpactX, aImpactY, static_cast<int>(RenderLayer::RENDER_LAYER_TOP), ParticleEffect::PARTICLE_POWIE);
+ 		mBoard->ShakeBoard(3, -4);
+ 		if (mProjectileType == ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB && mBoard->mSunMoney >= 50000)
+ 		{
+ 			mApp->PlayFoley(FoleyType::FOLEY_JALAPENO_IGNITE);
+ 			mApp->PlayFoley(FoleyType::FOLEY_JUICY);
+-			mBoard->DoFwoosh(mRow);
+-			mBoard->mIceTimer[mRow] = 20;
++			mBoard->DoFwoosh(aImpactRow);
++			mBoard->mIceTimer[aImpactRow] = 20;
+ 			for (Zombie* aZombie : mBoard->mZombies)
+ 			{
+-				if (!aZombie->mDead && (aZombie->mZombieType == ZombieType::ZOMBIE_BOSS || aZombie->mRow == mRow) &&
++				if (!aZombie->mDead && (aZombie->mZombieType == ZombieType::ZOMBIE_BOSS || aZombie->mRow == aImpactRow) &&
+ 					aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
+ 				{
+ 					aZombie->RemoveColdEffects();
+@@ -998,7 +1105,7 @@ void Projectile::DoImpact(Zombie* theZombie)
+ 			}
+ 			for (GridItem* aGridItem : mBoard->mGridItems)
+ 			{
+-				if (!aGridItem->mDead && aGridItem->mGridY == mRow && aGridItem->mGridItemType == GridItemType::GRIDITEM_LADDER)
++				if (!aGridItem->mDead && aGridItem->mGridY == aImpactRow && aGridItem->mGridItemType == GridItemType::GRIDITEM_LADDER)
+ 					aGridItem->GridItemDie();
+ 			}
+ 			Zombie* aBossZombie = mBoard->GetBossZombie();
+@@ -1031,7 +1138,13 @@ void Projectile::DoImpact(Zombie* theZombie)
+ 		unsigned int aDamageFlags = GetDamageFlags(theZombie);
+ 		int aDamage = GetProjectileDef().mDamage;
+ 		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && mMillionSunDamage)
+-			aDamage = aDamage * 3 / 2;
++			aDamage *= 5;
++		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && mTwoMillionSunCatTailDamage)
++		{
++			int64_t aCurrentBodyHealth = std::max(0, theZombie->mBodyHealth);
++			int aCurrentBodyHealthBonus = static_cast<int>((aCurrentBodyHealth + 1999) / 2000);
++			aDamage += std::max(1, aCurrentBodyHealthBonus);
++		}
+ 		theZombie->TakeDamage(aDamage, aDamageFlags);
+ 	}
+ 
+diff --git a/src/Lawn/Projectile.h b/src/Lawn/Projectile.h
+index ab0e40d..6df6155 100644
+--- a/src/Lawn/Projectile.h
++++ b/src/Lawn/Projectile.h
+@@ -81,6 +81,8 @@ public:
+ 	bool                    mPlanternCob;
+ 	bool                    mGatlingCherryShot = false;
+ 	bool                    mMillionSunDamage = false;
++	bool                    mTwoMillionSunCatTailDamage = false;
++	bool                    mWintermelonCherryShot = false;
+ 	ZombieID                mPiercedZombieIDs[MAX_PIERCING_HITS];
+ 
+ public:
+diff --git a/src/Lawn/SeedPacket.cpp b/src/Lawn/SeedPacket.cpp
+index ade0f1e..021e219 100644
+--- a/src/Lawn/SeedPacket.cpp
++++ b/src/Lawn/SeedPacket.cpp
+@@ -187,6 +187,15 @@ void SeedPacket::Update()
+ 		FlashIfReady();
+ 	}
+ 
++	if (!mActive && mRefreshing && mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD)
++	{
++		mRefreshCounter = 0;
++		mRefreshTime = 0;
++		mRefreshing = false;
++		Activate();
++		FlashIfReady();
++	}
++
+ 	if (!mActive && mRefreshing)
+ 	{
+ 		int aNewRefreshTime = mTimesUsed == 0
+@@ -921,8 +930,19 @@ void SeedPacket::WasPlanted()
+ 	else
+ 	{
+ 		mTimesUsed++;
+-		mRefreshing = true;
+-		mRefreshTime = Plant::GetRefreshTime(mPacketType, mImitaterType);
++		if (mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD)
++		{
++			mRefreshCounter = 0;
++			mRefreshTime = 0;
++			mRefreshing = false;
++			Activate();
++			FlashIfReady();
++		}
++		else
++		{
++			mRefreshing = true;
++			mRefreshTime = Plant::GetRefreshTime(mPacketType, mImitaterType);
++		}
+ 	}
+ }
+ 
+@@ -1152,6 +1172,9 @@ void SeedPacket::SetPacketType(SeedType theSeedType, SeedType theImitaterType)
+ 		mApp->IsIZombieLevel() || mApp->IsScaryPotterLevel() || mApp->IsWhackAZombieLevel() || (mApp->IsSurvivalMode() && mBoard->mChallenge->mSurvivalStage > 0))
+ 		return;
+ 
++	if (mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD)
++		return;
++
+ 	mRefreshTime = GetInitialRefreshTime(mPacketType, mImitaterType, mApp->IsSurvivalMode());
+ 	if (mRefreshTime > 0)
+ 	{
+diff --git a/src/Lawn/System/SaveGame.cpp b/src/Lawn/System/SaveGame.cpp
+index 9cee8a9..62e270f 100644
+--- a/src/Lawn/System/SaveGame.cpp
++++ b/src/Lawn/System/SaveGame.cpp
+@@ -1647,6 +1647,7 @@ enum BoardBaseFieldId : uint32_t
+ 	BOARD_FIELD_SPIKEWEED_OVERDRIVE_STATE,
+ 	BOARD_FIELD_PLANTERN_FLAMES,
+ 	BOARD_FIELD_SUN_MAGNET_HIGH_EXTRA_ITEMS,
++	BOARD_FIELD_PARTICLE_SHAKE_SCALE,
+ 	BOARD_FIELD_COUNT
+ };
+ 
+@@ -1668,54 +1669,6 @@ static void SyncBoardGridRows(PortableSaveContext& theContext, int theFirstRow,
+ 	}
+ }
+ 
+-static void SyncExpandedBoardRowsRange(PortableSaveContext& theContext, Board* theBoard, int theFirstRow, int theRowCount)
+-{
+-	SyncBoardGridRows(theContext, theFirstRow, theRowCount,
+-		[&](int x, int y){ SyncEnum32(theContext, theBoard->mGridSquareType[x][y]); });
+-	SyncBoardGridRows(theContext, theFirstRow, theRowCount,
+-		[&](int x, int y){ theContext.SyncInt32(theBoard->mGridCelLook[x][y]); });
+-	SyncBoardGridRows(theContext, theFirstRow, theRowCount,
+-		[&](int x, int y){
+-			theContext.SyncInt32(theBoard->mGridCelOffset[x][y][0]);
+-			theContext.SyncInt32(theBoard->mGridCelOffset[x][y][1]);
+-		});
+-	SyncBoardGridRows(theContext, theFirstRow + 1, theRowCount,
+-		[&](int x, int y){ theContext.SyncInt32(theBoard->mGridCelFog[x][y]); });
+-	SyncEnum32Array(theContext, &theBoard->mPlantRow[theFirstRow], theRowCount);
+-	SyncInt32Array(theContext, &theBoard->mWaveRowGotLawnMowered[theFirstRow], theRowCount);
+-	SyncInt32Array(theContext, &theBoard->mIceMinX[theFirstRow], theRowCount);
+-	SyncInt32Array(theContext, &theBoard->mIceTimer[theFirstRow], theRowCount);
+-	SyncEnumU32Array(theContext, &theBoard->mIceParticleID[theFirstRow], theRowCount);
+-	SyncPvzpSmoothArrayList(theContext, &theBoard->mRowPickingArray[theFirstRow], theRowCount);
+-	SyncEnumU32Array(theContext, &theBoard->mFwooshID[theFirstRow][0], theRowCount * 12);
+-}
+-
+-static void SyncExpandedBoardRows(PortableSaveContext& theContext, Board* theBoard)
+-{
+-	SyncExpandedBoardRowsRange(theContext, theBoard, LEGACY_BOARD_GRID_SIZE_Y, 2);
+-}
+-
+-static void SyncFinalExpandedBoardRows(PortableSaveContext& theContext, Board* theBoard)
+-{
+-	SyncExpandedBoardRowsRange(theContext, theBoard, LEGACY_BOARD_GRID_SIZE_Y + 2, 2);
+-}
+-
+-static void SyncExpandedBoardColumns(PortableSaveContext& theContext, Board* theBoard)
+-{
+-	for (int x = LEGACY_BOARD_GRID_SIZE_X; x < MAX_GRID_SIZE_X; x++)
+-	{
+-		for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
+-		{
+-			SyncEnum32(theContext, theBoard->mGridSquareType[x][y]);
+-			theContext.SyncInt32(theBoard->mGridCelLook[x][y]);
+-			theContext.SyncInt32(theBoard->mGridCelOffset[x][y][0]);
+-			theContext.SyncInt32(theBoard->mGridCelOffset[x][y][1]);
+-		}
+-		for (int y = 0; y <= MAX_GRID_SIZE_Y; y++)
+-			theContext.SyncInt32(theBoard->mGridCelFog[x][y]);
+-	}
+-}
+-
+ static void SyncPlantHealGlows(PortableSaveContext& theContext, Board* theBoard)
+ {
+ 	int32_t aCount = theContext.mReading ? 0 : static_cast<int32_t>(theBoard->mPlantHealGlows.size());
+@@ -1834,7 +1787,7 @@ static void SyncZombieStrengthAndRainState(PortableSaveContext& theContext, Boar
+ 	theContext.SyncBool(theBoard->mZombieRainActive);
+ 	theContext.SyncInt32(theBoard->mZombieRainCountdown);
+ 	theContext.SyncInt32(theBoard->mZombieRainPendingCount);
+-	if (theContext.mReading && (theBoard->mZombieStrengthTier < 0 || theBoard->mZombieStrengthTier > 6 ||
++	if (theContext.mReading && (theBoard->mZombieStrengthTier < 0 || theBoard->mZombieStrengthTier > 9 ||
+ 		theBoard->mZombieRainCountdown < 0 || theBoard->mZombieRainCountdown > 3000 ||
+ 		theBoard->mZombieRainPendingCount < 0 || theBoard->mZombieRainPendingCount > 50))
+ 	{
+@@ -1995,10 +1948,10 @@ static constexpr BoardBaseFieldEntry gBoardBaseFields[] = {
+ 	{ BOARD_FIELD_DIAMONDS_COLLECTED, [](PortableSaveContext& c, Board* theBoard){ c.SyncUInt32(theBoard->mDiamondsCollected); } },
+ 	{ BOARD_FIELD_POTTED_PLANTS_COLLECTED, [](PortableSaveContext& c, Board* theBoard){ c.SyncUInt32(theBoard->mPottedPlantsCollected); } },
+ 	{ BOARD_FIELD_CHOCOLATE_COLLECTED, [](PortableSaveContext& c, Board* theBoard){ c.SyncUInt32(theBoard->mChocolateCollected); } },
+-	{ BOARD_FIELD_EXPANDED_BOARD_ROWS, SyncExpandedBoardRows },
+-	{ BOARD_FIELD_FINAL_EXPANDED_BOARD_ROWS, SyncFinalExpandedBoardRows },
++	{ BOARD_FIELD_EXPANDED_BOARD_ROWS, [](PortableSaveContext&, Board*){} },
++	{ BOARD_FIELD_FINAL_EXPANDED_BOARD_ROWS, [](PortableSaveContext&, Board*){} },
+ 	{ BOARD_FIELD_PLANT_HEAL_GLOWS, SyncPlantHealGlows },
+-	{ BOARD_FIELD_EXPANDED_BOARD_COLUMNS, SyncExpandedBoardColumns },
++	{ BOARD_FIELD_EXPANDED_BOARD_COLUMNS, [](PortableSaveContext&, Board*){} },
+ 	{ BOARD_FIELD_PLANT_HEAL_VISUALS, SyncPlantHealVisuals },
+ 	{ BOARD_FIELD_CHOMPER_HEAL_AURAS, SyncChomperHealAuras },
+ 	{ BOARD_FIELD_PLANT_OVERDRIVE_STATE, [](PortableSaveContext& c, Board* theBoard){ c.SyncBool(theBoard->mChomperOverdriveActive); c.SyncBool(theBoard->mKernelPultOverdriveActive); } },
+@@ -2013,6 +1966,15 @@ static constexpr BoardBaseFieldEntry gBoardBaseFields[] = {
+ 	{ BOARD_FIELD_SPIKEWEED_OVERDRIVE_STATE, [](PortableSaveContext& c, Board* theBoard){ c.SyncBool(theBoard->mSpikeweedOverdriveActive); } },
+ 	{ BOARD_FIELD_PLANTERN_FLAMES, [](PortableSaveContext& c, Board* theBoard){ SyncInt32Array(c, theBoard->mPlanternFlameCountdown.data(), MAX_GRID_SIZE_Y); SyncInt32Array(c, theBoard->mPlanternFlameTick.data(), MAX_GRID_SIZE_Y); } },
+ 	{ BOARD_FIELD_SUN_MAGNET_HIGH_EXTRA_ITEMS, SyncSunMagnetHighExtraItems },
++	{ BOARD_FIELD_PARTICLE_SHAKE_SCALE, [](PortableSaveContext& c, Board* theBoard){
++		auto& aScale = theBoard->mApp->mEffectSystem->mParticleHolder->mPreviousScreenShakeScale;
++		c.SyncFloat(aScale);
++		if (c.mReading && !(aScale >= 0.0f && aScale <= 1.0f))
++		{
++			c.mFailed = true;
++			aScale = 1.0f;
++		}
++	} },
+ };
+ 
+ // The enum is contiguous starting at 1: the table must cover every id, in id order, so readers can index it directly.
+@@ -2071,6 +2033,9 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
+ 				c.SyncInt32(aZombie.mTierBucketArmorMaxHealth);
+ 			});
+ 			AppendFieldWithSync(aOut, 102U, [&](PortableSaveContext& c){ SyncEnumU32(c, aZombie.mFirstIgnoredSpikyPlantID); });
++			AppendFieldWithSync(aOut, 103U, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mDolphinFirstLeapComplete); });
++			AppendFieldWithSync(aOut, 104U, [&](PortableSaveContext& c){ c.SyncInt32(aZombie.mBloverKnockbackDistanceRemaining); });
++			AppendFieldWithSync(aOut, 105U, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mThreeMillionSunDurabilityApplied); });
+ 		},
+ 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Zombie& aZombie)
+ 		{
+@@ -2086,8 +2051,14 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
+ 				});
+ 			else if (aFieldId == 102U)
+ 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncEnumU32(c, aZombie.mFirstIgnoredSpikyPlantID); });
++			else if (aFieldId == 103U)
++				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mDolphinFirstLeapComplete); });
++			else if (aFieldId == 104U)
++				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aZombie.mBloverKnockbackDistanceRemaining); });
++			else if (aFieldId == 105U)
++				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mThreeMillionSunDurabilityApplied); });
+ 			if (aZombie.mTierBucketArmorHealth < 0 || aZombie.mTierBucketArmorMaxHealth < 0 ||
+-				aZombie.mTierBucketArmorMaxHealth > 1100 * 27 ||
++				aZombie.mTierBucketArmorMaxHealth > 1100 * 124 ||
+ 				aZombie.mTierBucketArmorHealth > aZombie.mTierBucketArmorMaxHealth ||
+ 				theBoard->mZombieStrengthTier < 5 || aZombie.mZombieType == ZombieType::ZOMBIE_BUNGEE)
+ 			{
+@@ -2165,6 +2136,8 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
+ 			AppendFieldWithSync(aOut, 104U, [&](PortableSaveContext& c){ c.SyncInt32(aProjectile.mCattailRedirectionCount); });
+ 			AppendFieldWithSync(aOut, 105U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mGatlingCherryShot); });
+ 			AppendFieldWithSync(aOut, 106U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mMillionSunDamage); });
++			AppendFieldWithSync(aOut, 107U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mWintermelonCherryShot); });
++			AppendFieldWithSync(aOut, 108U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mTwoMillionSunCatTailDamage); });
+ 		},
+ 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Projectile& aProjectile)
+ 		{
+@@ -2189,6 +2162,10 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
+ 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mGatlingCherryShot); });
+ 			else if (aFieldId == 106U)
+ 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mMillionSunDamage); });
++			else if (aFieldId == 107U)
++				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mWintermelonCherryShot); });
++			else if (aFieldId == 108U)
++				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mTwoMillionSunCatTailDamage); });
+ 				if (aProjectile.mCattailRedirectionCount < 0)
+ 					aProjectile.mCattailRedirectionCount = 0;
+ 				else if (aProjectile.mCattailRedirectionCount > 1)
+@@ -2538,447 +2515,6 @@ static bool ReadChunkV4(uint32_t theChunkType, const unsigned char* theData, siz
+ 
+ static void FixBoardAfterLoad(Board* theBoard)
+ {
+-	if (LawnApp::IsSurvivalEndless(theBoard->mApp->mGameMode) && theBoard->StageHasPool() &&
+-		(theBoard->mPlantRow[4] != PlantRowType::PLANTROW_POOL || theBoard->mPlantRow[5] != PlantRowType::PLANTROW_POOL))
+-	{
+-		int aLegacyRowSpacing = 60;
+-		int aLegacyRowCount = 6;
+-		float aTopMowerY = -1.0f;
+-		float aBottomMowerY = -1.0f;
+-		for (LawnMower* aMower : theBoard->mLawnMowers)
+-		{
+-			aLegacyRowCount = std::max(aLegacyRowCount, std::min(aMower->mRow + 1, MAX_GRID_SIZE_Y));
+-			if (aMower->mRow == 0)
+-				aTopMowerY = aMower->mPosY;
+-			else if (aMower->mRow == 5)
+-				aBottomMowerY = aMower->mPosY;
+-		}
+-		if (aTopMowerY >= 0.0f && aBottomMowerY > aTopMowerY)
+-		{
+-			int aMeasuredSpacing = static_cast<int>((aBottomMowerY - aTopMowerY) / 5.0f + 0.5f);
+-			if (aMeasuredSpacing >= 50 && aMeasuredSpacing <= 90)
+-				aLegacyRowSpacing = aMeasuredSpacing;
+-		}
+-
+-		aLegacyRowSpacing = std::clamp(aLegacyRowSpacing, 50, 90);
+-		float aLegacyRowY[MAX_GRID_SIZE_Y];
+-		for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
+-			aLegacyRowY[y] = LAWN_YMIN + aLegacyRowSpacing * y;
+-		for (LawnMower* aMower : theBoard->mLawnMowers)
+-		{
+-			if (aMower->mRow >= 0 && aMower->mRow < MAX_GRID_SIZE_Y)
+-				aLegacyRowY[aMower->mRow] = aMower->mPosY - 23.0f;
+-		}
+-		auto aNewRow = [](int theOldRow)
+-		{
+-			return std::clamp(theOldRow >= 4 ? theOldRow + 2 : theOldRow, 0, MAX_GRID_SIZE_Y - 1);
+-		};
+-		auto aRowDelta = [&](int theOldRow)
+-		{
+-			int aSafeOldRow = std::clamp(theOldRow, 0, MAX_GRID_SIZE_Y - 1);
+-			return theBoard->GetGridRowY(aNewRow(aSafeOldRow)) - static_cast<int>(aLegacyRowY[aSafeOldRow] + 0.5f);
+-		};
+-		auto aNearestLegacyRow = [&](float theY)
+-		{
+-			int aRow = 0;
+-			float aDistance = std::abs(theY - aLegacyRowY[0]);
+-			for (int y = 1; y < std::min(aLegacyRowCount, theBoard->GetNumPlayableRows()); y++)
+-			{
+-				float aCandidateDistance = std::abs(theY - aLegacyRowY[y]);
+-				if (aCandidateDistance < aDistance)
+-				{
+-					aRow = y;
+-					aDistance = aCandidateDistance;
+-				}
+-			}
+-			return aRow;
+-		};
+-		auto aShiftReanimation = [&](ReanimationID theId, int theRowShift)
+-		{
+-			if (Reanimation* aReanim = theBoard->mApp->ReanimationTryToGet(theId))
+-				aReanim->mRenderOrder += theRowShift * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
+-		};
+-		for (Plant* aPlant : theBoard->mPlants)
+-		{
+-			int aOldRow = aPlant->mRow;
+-			int aDeltaY = aRowDelta(aOldRow);
+-			aPlant->mRow = aNewRow(aOldRow);
+-			aPlant->mStartRow = aNewRow(aPlant->mStartRow);
+-			aPlant->mRenderOrder = aPlant->CalcRenderOrder();
+-			int aRowShift = aPlant->mRow - aOldRow;
+-			aShiftReanimation(aPlant->mBodyReanimID, aRowShift);
+-			aShiftReanimation(aPlant->mHeadReanimID, aRowShift);
+-			aShiftReanimation(aPlant->mHeadReanimID2, aRowShift);
+-			aShiftReanimation(aPlant->mHeadReanimID3, aRowShift);
+-			aShiftReanimation(aPlant->mBlinkReanimID, aRowShift);
+-			aShiftReanimation(aPlant->mLightReanimID, aRowShift);
+-			aShiftReanimation(aPlant->mSleepingReanimID, aRowShift);
+-			aPlant->mY += aDeltaY;
+-			aPlant->mPlantRect.mY += aDeltaY;
+-			aPlant->mPlantAttackRect.mY += aDeltaY;
+-			if (aPlant->mTargetY >= LAWN_YMIN)
+-			{
+-				int aTargetRow = aNearestLegacyRow(static_cast<float>(aPlant->mTargetY));
+-				aPlant->mTargetY += aRowDelta(aTargetRow);
+-			}
+-			for (MagnetItem& aMagnetItem : aPlant->mMagnetItems)
+-				aMagnetItem.mPosY += aDeltaY;
+-		}
+-		for (Zombie* aZombie : theBoard->mZombies)
+-		{
+-			int aOldRow = aZombie->mRow;
+-			int aDeltaY = aRowDelta(aOldRow);
+-			aZombie->SetRow(aNewRow(aOldRow));
+-			aShiftReanimation(aZombie->mBodyReanimID, aZombie->mRow - aOldRow);
+-			aShiftReanimation(aZombie->mBossFireBallReanimID, aZombie->mRow - aOldRow);
+-			aShiftReanimation(aZombie->mSpecialHeadReanimID, aZombie->mRow - aOldRow);
+-			aShiftReanimation(aZombie->mMoweredReanimID, aZombie->mRow - aOldRow);
+-			aShiftReanimation(aZombie->mZombatarHeadReanimID, aZombie->mRow - aOldRow);
+-			aZombie->mPosY += aDeltaY;
+-			aZombie->mY += aDeltaY;
+-			aZombie->mZombieRect.mY += aDeltaY;
+-			aZombie->mZombieAttackRect.mY += aDeltaY;
+-		}
+-		for (Projectile* aProjectile : theBoard->mProjectiles)
+-		{
+-			int aOldRow = aProjectile->mRow;
+-			int aDeltaY = aRowDelta(aOldRow);
+-			aProjectile->mRow = aNewRow(aOldRow);
+-			aProjectile->mRenderOrder += (aProjectile->mRow - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
+-			aProjectile->mPosY += aDeltaY;
+-			aProjectile->mShadowY += aDeltaY;
+-		}
+-		for (Coin* aCoin : theBoard->mCoins)
+-		{
+-			if (aCoin->mPosY < LAWN_YMIN || aCoin->mPosY > theBoard->mApp->mHeight)
+-				continue;
+-			int aRow = aNearestLegacyRow(aCoin->mPosY);
+-			int aDeltaY = aRowDelta(aRow);
+-			int aNewCoinRow = aNewRow(aRow);
+-			aCoin->mRow = aNewCoinRow;
+-			aCoin->mRenderOrder += (aNewCoinRow - aRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
+-			aCoin->mPosY += aDeltaY;
+-			aCoin->mCollectY += aDeltaY;
+-			aCoin->mGroundY += aDeltaY;
+-		}
+-		for (LawnMower* aMower : theBoard->mLawnMowers)
+-		{
+-			int aOldRow = aMower->mRow;
+-			int aDeltaY = aRowDelta(aOldRow);
+-			aMower->mRow = aNewRow(aOldRow);
+-			aMower->mRenderOrder += (aMower->mRow - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
+-			aMower->mPosY += aDeltaY;
+-			if (Reanimation* aReanim = theBoard->mApp->ReanimationGet(aMower->mReanimID))
+-				aReanim->mRenderOrder = aMower->mRenderOrder;
+-		}
+-		for (GridItem* aGridItem : theBoard->mGridItems)
+-		{
+-			int aOldRow = aGridItem->mGridY;
+-			int aDeltaY = aRowDelta(aOldRow);
+-			aGridItem->mGridY = aNewRow(aOldRow);
+-			aGridItem->mRenderOrder += (aGridItem->mGridY - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
+-			aShiftReanimation(aGridItem->mGridItemReanimID, aGridItem->mGridY - aOldRow);
+-			aGridItem->mPosY += aDeltaY;
+-			aGridItem->mGoalY += aDeltaY;
+-			for (int i = 0; i < std::clamp(aGridItem->mMotionTrailCount, 0, NUM_MOTION_TRAIL_FRAMES); i++)
+-				aGridItem->mMotionTrailFrames[i].mPosY += aDeltaY;
+-		}
+-
+-		for (int y = theBoard->GetNumPlayableRows() - 1; y >= 6; y--)
+-		{
+-			int aOldRow = y - 2;
+-			theBoard->mWaveRowGotLawnMowered[y] = theBoard->mWaveRowGotLawnMowered[aOldRow];
+-			theBoard->mIceMinX[y] = theBoard->mIceMinX[aOldRow];
+-			theBoard->mIceTimer[y] = theBoard->mIceTimer[aOldRow];
+-			theBoard->mIceParticleID[y] = theBoard->mIceParticleID[aOldRow];
+-			theBoard->mRowPickingArray[y] = theBoard->mRowPickingArray[aOldRow];
+-			theBoard->mRowPickingArray[y].mItem = y;
+-			std::copy_n(theBoard->mFwooshID[aOldRow], 12, theBoard->mFwooshID[y]);
+-			for (ReanimationID aFwooshId : theBoard->mFwooshID[y])
+-			{
+-				if (Reanimation* aFwoosh = theBoard->mApp->ReanimationTryToGet(aFwooshId))
+-				{
+-					aFwoosh->mOverlayMatrix.m12 += aRowDelta(aOldRow);
+-					aFwoosh->mRenderOrder += 2 * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
+-				}
+-			}
+-			for (int x = 0; x < MAX_GRID_SIZE_X; x++)
+-			{
+-				theBoard->mGridCelLook[x][y] = theBoard->mGridCelLook[x][aOldRow];
+-				theBoard->mGridCelOffset[x][y][0] = theBoard->mGridCelOffset[x][aOldRow][0];
+-				theBoard->mGridCelOffset[x][y][1] = theBoard->mGridCelOffset[x][aOldRow][1];
+-				theBoard->mGridCelFog[x][y] = theBoard->mGridCelFog[x][aOldRow];
+-			}
+-		}
+-		for (int y = 0; y < theBoard->GetNumPlayableRows(); y++)
+-		{
+-			bool aPoolRow = y >= 2 && y < 6;
+-			theBoard->mPlantRow[y] = aPoolRow ? PlantRowType::PLANTROW_POOL : PlantRowType::PLANTROW_NORMAL;
+-			theBoard->mWaveRowGotLawnMowered[y] = y >= 4 && y < 6 ? -100 : theBoard->mWaveRowGotLawnMowered[y];
+-			theBoard->mIceMinX[y] = y >= 4 && y < 6 ? BOARD_ICE_START : theBoard->mIceMinX[y];
+-			theBoard->mIceTimer[y] = y >= 4 && y < 6 ? 0 : theBoard->mIceTimer[y];
+-			theBoard->mIceParticleID[y] = y >= 4 && y < 6 ? ParticleSystemID::PARTICLESYSTEMID_NULL : theBoard->mIceParticleID[y];
+-			if (y >= 4 && y < 6)
+-			{
+-				theBoard->mRowPickingArray[y] = PvzpSmoothArray{};
+-				theBoard->mRowPickingArray[y].mItem = y;
+-				std::fill_n(theBoard->mFwooshID[y], 12, ReanimationID::REANIMATIONID_NULL);
+-			}
+-			for (int x = 0; x < MAX_GRID_SIZE_X; x++)
+-			{
+-				theBoard->mGridSquareType[x][y] = aPoolRow ? GridSquareType::GRIDSQUARE_POOL : GridSquareType::GRIDSQUARE_GRASS;
+-			}
+-		}
+-		for (int x = 0; x < MAX_GRID_SIZE_X; x++)
+-		{
+-			theBoard->mGridCelFog[x][4] = theBoard->mGridCelFog[x][2];
+-			theBoard->mGridCelFog[x][5] = theBoard->mGridCelFog[x][3];
+-		}
+-		for (int y = 0; y < theBoard->GetNumPlayableRows(); y++)
+-		{
+-			bool aHasMower = false;
+-			for (LawnMower* aMower : theBoard->mLawnMowers)
+-			{
+-				if (aMower->mRow == y)
+-				{
+-					aHasMower = true;
+-					break;
+-				}
+-			}
+-			if (!aHasMower)
+-			{
+-				LawnMower* aMower = theBoard->mLawnMowers.DataArrayAlloc();
+-				aMower->LawnMowerInitialize(y);
+-			}
+-		}
+-	}
+-
+-	// The previous expanded Endless pool layout used rows 2-5 for water and rows 0-1/6-9 for land.
+-	// Move that layout to rows 0-2/7-9 for land and rows 3-6 for water. Row 6 becomes the new top lane.
+-	const bool aHasOldExpandedPoolLayout =
+-		theBoard->mPlantRow[2] == PlantRowType::PLANTROW_POOL &&
+-		theBoard->mPlantRow[3] == PlantRowType::PLANTROW_POOL &&
+-		theBoard->mPlantRow[4] == PlantRowType::PLANTROW_POOL &&
+-		theBoard->mPlantRow[5] == PlantRowType::PLANTROW_POOL &&
+-		theBoard->mPlantRow[6] != PlantRowType::PLANTROW_POOL;
+-	if (LawnApp::IsSurvivalEndless(theBoard->mApp->mGameMode) && theBoard->StageHasPool() && aHasOldExpandedPoolLayout)
+-	{
+-		constexpr int aOldRowForNewRow[MAX_GRID_SIZE_Y] = { 0, 1, 6, 2, 3, 4, 5, 7, 8, 9 };
+-		auto aNewRow = [](int theOldRow)
+-		{
+-			theOldRow = std::clamp(theOldRow, 0, MAX_GRID_SIZE_Y - 1);
+-			if (theOldRow == 6)
+-				return 2;
+-			if (theOldRow >= 2 && theOldRow <= 5)
+-				return theOldRow + 1;
+-			return theOldRow;
+-		};
+-
+-		float aOldRowY[MAX_GRID_SIZE_Y];
+-		for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
+-			aOldRowY[y] = static_cast<float>(theBoard->GetGridRowY(y));
+-		for (LawnMower* aMower : theBoard->mLawnMowers)
+-		{
+-			if (aMower->mRow >= 0 && aMower->mRow < MAX_GRID_SIZE_Y)
+-				aOldRowY[aMower->mRow] = aMower->mPosY - 23.0f;
+-		}
+-		auto aRowDelta = [&](int theOldRow)
+-		{
+-			int aSafeOldRow = std::clamp(theOldRow, 0, MAX_GRID_SIZE_Y - 1);
+-			return theBoard->GetGridRowY(aNewRow(aSafeOldRow)) - static_cast<int>(aOldRowY[aSafeOldRow] + 0.5f);
+-		};
+-		auto aNearestOldRow = [&](float theY)
+-		{
+-			int aRow = 0;
+-			float aDistance = std::abs(theY - aOldRowY[0]);
+-			for (int y = 1; y < MAX_GRID_SIZE_Y; y++)
+-			{
+-				float aCandidateDistance = std::abs(theY - aOldRowY[y]);
+-				if (aCandidateDistance < aDistance)
+-				{
+-					aRow = y;
+-					aDistance = aCandidateDistance;
+-				}
+-			}
+-			return aRow;
+-		};
+-		auto aShiftReanimation = [&](ReanimationID theId, int theRowShift)
+-		{
+-			if (Reanimation* aReanim = theBoard->mApp->ReanimationTryToGet(theId))
+-				aReanim->mRenderOrder += theRowShift * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
+-		};
+-
+-		for (Plant* aPlant : theBoard->mPlants)
+-		{
+-			int aOldRow = aPlant->mRow;
+-			int aNewPlantRow = aNewRow(aOldRow);
+-			int aDeltaY = aRowDelta(aOldRow);
+-			aPlant->mRow = aNewPlantRow;
+-			if (aPlant->mStartRow >= 0 && aPlant->mStartRow < MAX_GRID_SIZE_Y)
+-				aPlant->mStartRow = aNewRow(aPlant->mStartRow);
+-			aPlant->mRenderOrder = aPlant->CalcRenderOrder();
+-			int aRowShift = aNewPlantRow - aOldRow;
+-			aShiftReanimation(aPlant->mBodyReanimID, aRowShift);
+-			aShiftReanimation(aPlant->mHeadReanimID, aRowShift);
+-			aShiftReanimation(aPlant->mHeadReanimID2, aRowShift);
+-			aShiftReanimation(aPlant->mHeadReanimID3, aRowShift);
+-			aShiftReanimation(aPlant->mBlinkReanimID, aRowShift);
+-			aShiftReanimation(aPlant->mLightReanimID, aRowShift);
+-			aShiftReanimation(aPlant->mSleepingReanimID, aRowShift);
+-			aPlant->mY += aDeltaY;
+-			aPlant->mPlantRect.mY += aDeltaY;
+-			aPlant->mPlantAttackRect.mY += aDeltaY;
+-			if (aPlant->mTargetY >= LAWN_YMIN)
+-				aPlant->mTargetY += aRowDelta(aNearestOldRow(static_cast<float>(aPlant->mTargetY)));
+-			for (MagnetItem& aMagnetItem : aPlant->mMagnetItems)
+-				aMagnetItem.mPosY += aDeltaY;
+-		}
+-		for (Zombie* aZombie : theBoard->mZombies)
+-		{
+-			int aOldRow = aZombie->mRow;
+-			int aNewZombieRow = aNewRow(aOldRow);
+-			int aDeltaY = aRowDelta(aOldRow);
+-			aZombie->SetRow(aNewZombieRow);
+-			int aRowShift = aNewZombieRow - aOldRow;
+-			aShiftReanimation(aZombie->mBodyReanimID, aRowShift);
+-			aShiftReanimation(aZombie->mBossFireBallReanimID, aRowShift);
+-			aShiftReanimation(aZombie->mSpecialHeadReanimID, aRowShift);
+-			aShiftReanimation(aZombie->mMoweredReanimID, aRowShift);
+-			aShiftReanimation(aZombie->mZombatarHeadReanimID, aRowShift);
+-			aZombie->mPosY += aDeltaY;
+-			aZombie->mY += aDeltaY;
+-			aZombie->mZombieRect.mY += aDeltaY;
+-			aZombie->mZombieAttackRect.mY += aDeltaY;
+-		}
+-		for (Projectile* aProjectile : theBoard->mProjectiles)
+-		{
+-			int aOldRow = aProjectile->mRow;
+-			int aNewProjectileRow = aNewRow(aOldRow);
+-			int aDeltaY = aRowDelta(aOldRow);
+-			aProjectile->mRow = aNewProjectileRow;
+-			aProjectile->mRenderOrder += (aNewProjectileRow - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
+-			aProjectile->mPosY += aDeltaY;
+-			aProjectile->mShadowY += aDeltaY;
+-		}
+-		for (Coin* aCoin : theBoard->mCoins)
+-		{
+-			if (aCoin->mPosY < LAWN_YMIN || aCoin->mPosY > theBoard->mApp->mHeight)
+-				continue;
+-			int aOldRow = aNearestOldRow(aCoin->mPosY);
+-			int aNewCoinRow = aNewRow(aOldRow);
+-			int aDeltaY = aRowDelta(aOldRow);
+-			aCoin->mRow = aNewCoinRow;
+-			aCoin->mRenderOrder += (aNewCoinRow - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
+-			aCoin->mPosY += aDeltaY;
+-			aCoin->mCollectY += aDeltaY;
+-			aCoin->mGroundY += aDeltaY;
+-		}
+-		for (LawnMower* aMower : theBoard->mLawnMowers)
+-		{
+-			int aOldRow = aMower->mRow;
+-			int aNewMowerRow = aNewRow(aOldRow);
+-			int aDeltaY = aRowDelta(aOldRow);
+-			aMower->mRow = aNewMowerRow;
+-			aMower->mRenderOrder += (aNewMowerRow - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
+-			aMower->mPosY += aDeltaY;
+-			if (Reanimation* aReanim = theBoard->mApp->ReanimationGet(aMower->mReanimID))
+-				aReanim->mRenderOrder = aMower->mRenderOrder;
+-		}
+-		for (GridItem* aGridItem : theBoard->mGridItems)
+-		{
+-			int aOldRow = aGridItem->mGridY;
+-			int aNewGridRow = aNewRow(aOldRow);
+-			int aDeltaY = aRowDelta(aOldRow);
+-			aGridItem->mGridY = aNewGridRow;
+-			aGridItem->mRenderOrder += (aNewGridRow - aOldRow) * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
+-			aShiftReanimation(aGridItem->mGridItemReanimID, aNewGridRow - aOldRow);
+-			aGridItem->mPosY += aDeltaY;
+-			aGridItem->mGoalY += aDeltaY;
+-			for (int i = 0; i < std::clamp(aGridItem->mMotionTrailCount, 0, NUM_MOTION_TRAIL_FRAMES); i++)
+-				aGridItem->mMotionTrailFrames[i].mPosY += aDeltaY;
+-		}
+-
+-		std::array<PlantRowType, MAX_GRID_SIZE_Y> aOldPlantRow;
+-		std::array<int32_t, MAX_GRID_SIZE_Y> aOldWaveRowGotLawnMowered;
+-		std::array<int32_t, MAX_GRID_SIZE_Y> aOldIceMinX;
+-		std::array<int32_t, MAX_GRID_SIZE_Y> aOldIceTimer;
+-		std::array<ParticleSystemID, MAX_GRID_SIZE_Y> aOldIceParticleID;
+-		std::array<PvzpSmoothArray, MAX_GRID_SIZE_Y> aOldRowPickingArray;
+-		std::array<std::array<ReanimationID, 12>, MAX_GRID_SIZE_Y> aOldFwooshID;
+-		std::copy_n(theBoard->mPlantRow, MAX_GRID_SIZE_Y, aOldPlantRow.begin());
+-		std::copy_n(theBoard->mWaveRowGotLawnMowered, MAX_GRID_SIZE_Y, aOldWaveRowGotLawnMowered.begin());
+-		std::copy_n(theBoard->mIceMinX, MAX_GRID_SIZE_Y, aOldIceMinX.begin());
+-		std::copy_n(theBoard->mIceTimer, MAX_GRID_SIZE_Y, aOldIceTimer.begin());
+-		std::copy_n(theBoard->mIceParticleID, MAX_GRID_SIZE_Y, aOldIceParticleID.begin());
+-		std::copy_n(theBoard->mRowPickingArray, MAX_GRID_SIZE_Y, aOldRowPickingArray.begin());
+-		for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
+-			std::copy_n(theBoard->mFwooshID[y], 12, aOldFwooshID[y].begin());
+-
+-		for (int newRow = 0; newRow < MAX_GRID_SIZE_Y; newRow++)
+-		{
+-			int oldRow = aOldRowForNewRow[newRow];
+-			theBoard->mPlantRow[newRow] = aOldPlantRow[oldRow];
+-			theBoard->mWaveRowGotLawnMowered[newRow] = aOldWaveRowGotLawnMowered[oldRow];
+-			theBoard->mIceMinX[newRow] = aOldIceMinX[oldRow];
+-			theBoard->mIceTimer[newRow] = aOldIceTimer[oldRow];
+-			theBoard->mIceParticleID[newRow] = aOldIceParticleID[oldRow];
+-			theBoard->mRowPickingArray[newRow] = aOldRowPickingArray[oldRow];
+-			theBoard->mRowPickingArray[newRow].mItem = newRow;
+-			std::copy_n(aOldFwooshID[oldRow].begin(), 12, theBoard->mFwooshID[newRow]);
+-		}
+-		for (int oldRow = 0; oldRow < MAX_GRID_SIZE_Y; oldRow++)
+-		{
+-			int newRow = aNewRow(oldRow);
+-			int aRowShift = newRow - oldRow;
+-			int aDeltaY = aRowDelta(oldRow);
+-			for (ReanimationID aFwooshId : aOldFwooshID[oldRow])
+-			{
+-				if (Reanimation* aFwoosh = theBoard->mApp->ReanimationTryToGet(aFwooshId))
+-				{
+-					aFwoosh->mOverlayMatrix.m12 += aDeltaY;
+-					aFwoosh->mRenderOrder += aRowShift * static_cast<int>(RenderLayer::RENDER_LAYER_ROW_OFFSET);
+-				}
+-			}
+-		}
+-		for (int x = 0; x < MAX_GRID_SIZE_X; x++)
+-		{
+-			std::array<GridSquareType, MAX_GRID_SIZE_Y> aOldGridSquareType;
+-			std::array<int32_t, MAX_GRID_SIZE_Y> aOldGridCelLook;
+-			std::array<std::array<int32_t, 2>, MAX_GRID_SIZE_Y> aOldGridCelOffset;
+-			std::array<int32_t, MAX_GRID_SIZE_Y + 1> aOldGridCelFog;
+-			std::copy_n(theBoard->mGridSquareType[x], MAX_GRID_SIZE_Y, aOldGridSquareType.begin());
+-			std::copy_n(theBoard->mGridCelLook[x], MAX_GRID_SIZE_Y, aOldGridCelLook.begin());
+-			for (int y = 0; y < MAX_GRID_SIZE_Y; y++)
+-			{
+-				for (int axis = 0; axis < 2; axis++)
+-					aOldGridCelOffset[y][axis] = theBoard->mGridCelOffset[x][y][axis];
+-			}
+-			std::copy_n(theBoard->mGridCelFog[x], MAX_GRID_SIZE_Y + 1, aOldGridCelFog.begin());
+-			for (int newRow = 0; newRow < MAX_GRID_SIZE_Y; newRow++)
+-			{
+-				int oldRow = aOldRowForNewRow[newRow];
+-				theBoard->mGridSquareType[x][newRow] = aOldGridSquareType[oldRow];
+-				theBoard->mGridCelLook[x][newRow] = aOldGridCelLook[oldRow];
+-				theBoard->mGridCelOffset[x][newRow][0] = aOldGridCelOffset[oldRow][0];
+-				theBoard->mGridCelOffset[x][newRow][1] = aOldGridCelOffset[oldRow][1];
+-				theBoard->mGridCelFog[x][newRow] = aOldGridCelFog[oldRow];
+-			}
+-		}
+-	}
+-
+-	if (LawnApp::IsSurvivalEndless(theBoard->mApp->mGameMode) && theBoard->StageHasPool() &&
+-		theBoard->mApp->mWidth > BOARD_WIDTH)
+-	{
+-		for (int x = LEGACY_BOARD_GRID_SIZE_X; x < MAX_GRID_SIZE_X; x++)
+-		{
+-			for (int y = 0; y < theBoard->GetNumPlayableRows(); y++)
+-			{
+-				theBoard->mGridSquareType[x][y] = theBoard->mPlantRow[y] == PlantRowType::PLANTROW_POOL ?
+-					GridSquareType::GRIDSQUARE_POOL : GridSquareType::GRIDSQUARE_GRASS;
+-			}
+-		}
+-	}
+-
+ 	{
+ 		for (Plant* aPlant : theBoard->mPlants)
+ 		{
+diff --git a/src/Lawn/Widget/AlmanacDialog.cpp b/src/Lawn/Widget/AlmanacDialog.cpp
+index 1b3ddc9..d02c3d2 100644
+--- a/src/Lawn/Widget/AlmanacDialog.cpp
++++ b/src/Lawn/Widget/AlmanacDialog.cpp
+@@ -403,12 +403,12 @@ void AlmanacDialog::DrawOverdrives(Graphics* g)
+ 	static constexpr std::array<const char*, aOverdrivePlants.size()> aRequirements = {
+ 		">15,000 sun: digests 2x faster; heals up to 2 nearest forward plants with quadratic group scaling (each gets base heal x recipient count); costs 100 sun/s",
+ 		">20,000 sun: 4x attack rate, 50% butter chance, costs 150 sun/s per plant. >=500,000: 90% butter chance, 2-5 butter volley, 200-tick stun; Giants immune; costs 175 sun/s per plant",
+-		">=1,000,000 sun: each impact scales direct/splash damage by affected targets, costs 200 sun/s per plant. From 900,000 sun, quadratic attacks use ceil(sqrt(targets)), capped at 4x; the cap rises by 2x per doubling of zombie HP. Bungees are exempt.",
++		">=1,000,000 sun: fires 5 spread melons per lob, 5 sun each; attacks 2x faster; Cherry Bomb chance is 10%, rising to 35% while sacrificing HP; costs 500 sun/s per plant and loses 10 HP/s to a 1 HP floor. Quadratic splash uses ceil(sqrt(targets)); Bungees are exempt.",
+ 		">1,000 sun: 2x production; >=10,000: 10% bomb chance per production event (300 sun); >=100,000: 30% (600 sun); >=1,000,000: production is 7x slower and fires every 225 ticks (600 sun)",
+-		">1,000 sun: 2x sun production; sun value compounds x1.2 per completed flag; shoots Cherry Bombs every 2,500 ticks for 150 sun when bank >=1,000; >=50,000: blasts burn the lane. Coffee Bean fires one Cob/lane (500 sun) and starts 5s flames (300 sun/lane/s)",
++		">1,000 sun: 2x sun production; sun value compounds x1.2 per completed flag; production pauses at 5,000,000 sun and resumes below it. Shoots Cherry Bombs every 2,500 ticks for 150 sun when bank >=1,000; >=50,000: blasts burn the lane. Coffee Bean fires one Cob/lane (500 sun) and starts 5s flames (300 sun/lane/s)",
+ 		">=5,000 sun: collected sun compounds x1.2 per completed flag, then pays 2x or 6x; 15 item slots (35 at 150,000), loses 1 HP/s to 1 HP. Each pickup assigns 10-20 heal stacks; per-stack healing scales with distinct recipients for quadratic group healing (25 sun/stack, keeps 5,000 reserve). Coffee Bean gives an aura/growth and 5s collection, loses 4 HP/s",
+ 		">=50,000 sun: triples gold/diamond odds; costs 250 sun/s board-wide and 25 HP/s to a 1 HP floor",
+-		">=25,000 sun: about 4x attack rate, 6 shots/cycle, 125 sun per projectile; seed cost 75",
++		">=25,000 sun: about 4x attack rate, 6 shots/cycle, 125 sun per projectile; >=1,000,000: 375 sun and 5x damage per projectile; >=2,000,000: 750 sun and an additional 0.05% of the target's current body HP per projectile, but drains 1% max HP each second and can kill the Cattail; seed cost 75",
+ 		">=200,000 sun: 15% chance per four-shot burst for matching smoky butter, Cherry Bomb, or melon peas; Cherry has AoE; no penetration",
+ 		">=1,000 sun: 7x attack speed; loses 1 HP per completed attack",
+ 		">=1,000 sun: 7x attack speed; loses 2 HP per completed attack",
+@@ -429,8 +429,8 @@ void AlmanacDialog::DrawOverdrives(Graphics* g)
+ 		std::string aEntry = std::format("{}: {}", Plant::GetNameString(aOverdrivePlants[i], SeedType::SEED_NONE), aRequirements[i]);
+ 		PvzpDrawStringWrapped(g, aEntry, Rect(aX, aY, 360, 66), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_LEFT);
+ 	}
+-	PvzpDrawStringWrapped(g, "Zombie tiers: 1,000,000 sun = 18x base HP/armor; 2,000,000 = 27x. Imp/Ladder keep +50%; explosive reduction caps at 75%.",
+-		Rect(28, 578, 705, 20), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_CENTER);
++	PvzpDrawStringWrapped(g, "Zombie tiers: 1m = 18x HP/armor; 2m = 41x, 5m = 62x base. Cone/Bucket/Bulwark Bucket and enraged Newspaper = 124x at 5m; Imp/Ladder +50%.\nAt 2m, Dolphin Riders are immune and untargetable until their first leap. Explosives retain at least 25% base damage.",
++		Rect(28, 568, 705, 34), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_CENTER);
+ }
+ 
+ void AlmanacDialog::DrawZombies(Graphics* g)
+diff --git a/src/Lawn/Widget/ChallengeScreen.cpp b/src/Lawn/Widget/ChallengeScreen.cpp
+index f473d1e..0a40b99 100644
+--- a/src/Lawn/Widget/ChallengeScreen.cpp
++++ b/src/Lawn/Widget/ChallengeScreen.cpp
+@@ -530,7 +530,9 @@ void ChallengeScreen::DrawButton(Graphics* g, int theChallengeIndex)
+ 					g->SetColor(Color(255, 255, 255, PvzpAnimateCurve(25, 0, mUnlockStateCounter, 255, 0, CURVE_LINEAR)));
+ 					g->SetColorizeImages(true);
+ 				}
+-				PvzpDrawImageScaledF(g, aLockImage, aPosX + 24 + mLockShakeX, aPosY + 9 + mLockShakeY, 0.7f, 0.7f);
++				float aShakeScale = mApp->GetScreenShakeScale();
++				PvzpDrawImageScaledF(g, aLockImage, aPosX + 24 + mLockShakeX * aShakeScale,
++					aPosY + 9 + mLockShakeY * aShakeScale, 0.7f, 0.7f);
+ 				g->SetColorizeImages(false);
+ 			}
+ 			else if (aRecord > 0)
+diff --git a/src/Lawn/Widget/NewOptionsDialog.cpp b/src/Lawn/Widget/NewOptionsDialog.cpp
+index 43c9f37..a1ef9a1 100644
+--- a/src/Lawn/Widget/NewOptionsDialog.cpp
++++ b/src/Lawn/Widget/NewOptionsDialog.cpp
+@@ -20,6 +20,7 @@
+  */
+ 
+ #include "../Board.h"
++#include "../ToolTipWidget.h"
+ #include "GameButton.h"
+ #include "../Cutscene.h"
+ #include "AlmanacDialog.h"
+@@ -32,6 +33,7 @@
+ #include "../../PvzpLib/PvzpFoley.h"
+ #include "widget/Slider.h"
+ #include "widget/Checkbox.h"
++#include "widget/WidgetManager.h"
+ #include "../../PvzpLib/PvzpStringFile.h"
+ 
+ using namespace Sexy;
+@@ -80,6 +82,11 @@ NewOptionsDialog::NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector) :
+ 	mAutoReuseEndlessSeedsCheckbox = MakeNewCheckbox(NewOptionsDialog::NewOptionsDialog_AutoReuseEndlessSeeds, this,
+ 		mShowAutoReuseEndlessSeeds && theApp->mBoard->mAutoReuseEndlessSeeds);
+ 	mAutoReuseEndlessSeedsCheckbox->SetVisible(mShowAutoReuseEndlessSeeds);
++	mScreenShakeButton = MakeButton(NewOptionsDialog::NewOptionsDialog_ScreenShake, this, "");
++	UpdateScreenShakeButtonLabel();
++	mToolTip = std::make_unique<ToolTipWidget>();
++	mToolTip->mVisible = false;
++	mToolTip->mMaxLinesWidth = 240;
+ 
+ 	if (mFromGameSelector)
+ 	{
+@@ -117,6 +124,22 @@ NewOptionsDialog::NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector) :
+ 
+ NewOptionsDialog::~NewOptionsDialog() = default;
+ 
++void NewOptionsDialog::UpdateScreenShakeButtonLabel()
++{
++	switch (mApp->mScreenShakeMode)
++	{
++	case LawnApp::ScreenShakeMode::REDUCED:
++		mScreenShakeButton->SetLabel(mApp->GetString("SCREEN_SHAKE_REDUCED_SHORT", "Low"));
++		break;
++	case LawnApp::ScreenShakeMode::OFF:
++		mScreenShakeButton->SetLabel(mApp->GetString("SCREEN_SHAKE_OFF_SHORT", "Off"));
++		break;
++	default:
++		mScreenShakeButton->SetLabel(mApp->GetString("SCREEN_SHAKE_NORMAL_SHORT", "On"));
++		break;
++	}
++}
++
+ int NewOptionsDialog::GetPreferredHeight([[maybe_unused]] int theWidth)
+ {
+ 	return IMAGE_OPTIONS_MENUBACK->mWidth;
+@@ -133,6 +156,7 @@ void NewOptionsDialog::AddedToManager(Sexy::WidgetManager* theWidgetManager)
+ 	AddWidget(mHardwareAccelerationCheckbox.get());
+ 	AddWidget(mFullscreenCheckbox.get());
+ 	AddWidget(mAutoReuseEndlessSeedsCheckbox.get());
++	AddWidget(mScreenShakeButton.get());
+ 	AddWidget(mBackToGameButton.get());
+ }
+ 
+@@ -145,6 +169,7 @@ void NewOptionsDialog::RemovedFromManager(Sexy::WidgetManager* theWidgetManager)
+ 	RemoveWidget(mFullscreenCheckbox.get());
+ 	RemoveWidget(mHardwareAccelerationCheckbox.get());
+ 	RemoveWidget(mAutoReuseEndlessSeedsCheckbox.get());
++	RemoveWidget(mScreenShakeButton.get());
+ 	RemoveWidget(mBackToMainButton.get());
+ 	RemoveWidget(mBackToGameButton.get());
+ 	RemoveWidget(mRestartButton.get());
+@@ -157,7 +182,8 @@ void NewOptionsDialog::Resize(int theX, int theY, int theWidth, int theHeight)
+ 	mSfxVolumeSlider->Resize(199, 143, 135, 40);
+ 	mHardwareAccelerationCheckbox->Resize(283, 175, 46, 45);
+ 	mFullscreenCheckbox->Resize(284, 206, 46, 45);
+-	mAutoReuseEndlessSeedsCheckbox->Resize(340, 245, 46, 45);
++	mAutoReuseEndlessSeedsCheckbox->Resize(340, 292, 46, 45);
++	mScreenShakeButton->Resize(340, 245, 46, 45);
+ 	mAlmanacButton->Resize(107, 241, 209, 46);
+ 	mRestartButton->Resize(mAlmanacButton->mX, mAlmanacButton->mY + 43, 209, 46);
+ 	mBackToMainButton->Resize(mRestartButton->mX, mRestartButton->mY + 43, 209, 46);
+@@ -203,10 +229,84 @@ void NewOptionsDialog::Draw(Sexy::Graphics* g)
+ 	PvzpDrawString(g, mApp->GetString("OPTIONS_SOUNDFX", "Sound FX"), aSliderLabelsX, 167 + aSfxOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
+ 	PvzpDrawString(g, mApp->GetString("OPTIONS_3D_ACCELERATION", "3D Acceleration"), aCheckboxLabelsX, 197 + a3DAccelOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
+ 	PvzpDrawString(g, mApp->GetString("OPTIONS_FULL_SCREEN", "Full Screen"), aCheckboxLabelsX, 229 + aFullScreenOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
++	PvzpDrawString(g, mApp->GetString("SCREEN_SHAKE_LABEL", "Shake"), 394, 274, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_LEFT);
+ 	if (mShowAutoReuseEndlessSeeds)
+-		PvzpDrawString(g, mApp->GetString("AUTO_REUSE_ENDLESS_SEEDS", "Auto-reuse seeds"), 394, 274, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_LEFT);
++		PvzpDrawString(g, mApp->GetString("AUTO_REUSE_ENDLESS_SEEDS_SHORT", "Reuse"), 394, 321, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_LEFT);
+ 	if (aFontScale != 1.0f)
+ 		g->SetScale(1.0f, 1.0f, 0.0f, 0.0f);
++
++	mToolTip->mVisible = false;
++	if (mApp->mActive && mWidgetManager != nullptr && mWidgetManager->mMouseIn)
++	{
++		Point anAbsPos = GetAbsPos();
++		int aMouseX = mWidgetManager->mLastMouseX - anAbsPos.mX;
++		int aMouseY = mWidgetManager->mLastMouseY - anAbsPos.mY;
++		auto ShowOptionTooltip = [&](std::string_view theTitleKey, std::string_view theTitleFallback,
++			std::string_view theTextKey, std::string_view theTextFallback, int theControlY)
++		{
++			mToolTip->SetTitle(mApp->GetString(theTitleKey, theTitleFallback));
++			mToolTip->SetLabel(mApp->GetString(theTextKey, theTextFallback));
++			mToolTip->mX = 270;
++			mToolTip->mY = std::max(5, theControlY - mToolTip->mHeight - 4);
++			mToolTip->mCenter = true;
++			mToolTip->mVisible = true;
++		};
++
++		bool aHoverMusic = mMusicVolumeSlider->Contains(aMouseX, aMouseY);
++		bool aHoverSfx = mSfxVolumeSlider->Contains(aMouseX, aMouseY);
++		if (aHoverMusic && aHoverSfx)
++		{
++			int aSliderCenterMidpoint = (mMusicVolumeSlider->mY + mMusicVolumeSlider->mHeight / 2 +
++				mSfxVolumeSlider->mY + mSfxVolumeSlider->mHeight / 2) / 2;
++			aHoverMusic = aMouseY < aSliderCenterMidpoint;
++			aHoverSfx = !aHoverMusic;
++		}
++		if (aHoverMusic)
++		{
++			ShowOptionTooltip("OPTIONS_MUSIC_LABEL", "Music", "OPTIONS_MUSIC_TOOLTIP",
++				"Adjust the game's music volume.", mMusicVolumeSlider->mY);
++		}
++		else if (aHoverSfx)
++		{
++			ShowOptionTooltip("OPTIONS_SOUNDFX", "Sound FX", "OPTIONS_SOUNDFX_TOOLTIP",
++				"Adjust sound effects and game sounds.", mSfxVolumeSlider->mY);
++		}
++		else if (mHardwareAccelerationCheckbox->Contains(aMouseX, aMouseY))
++		{
++			ShowOptionTooltip("OPTIONS_3D_ACCELERATION", "3D Acceleration", "OPTIONS_3D_ACCELERATION_TOOLTIP",
++				"Use hardware acceleration to render the game.", mHardwareAccelerationCheckbox->mY);
++		}
++		else if (mFullscreenCheckbox->Contains(aMouseX, aMouseY))
++		{
++			ShowOptionTooltip("OPTIONS_FULL_SCREEN", "Full Screen", "OPTIONS_FULL_SCREEN_TOOLTIP",
++				"Switch between full-screen and windowed display.", mFullscreenCheckbox->mY);
++		}
++		else if (mScreenShakeButton->Contains(aMouseX, aMouseY))
++		{
++			switch (mApp->mScreenShakeMode)
++			{
++			case LawnApp::ScreenShakeMode::REDUCED:
++				ShowOptionTooltip("SCREEN_SHAKE_TITLE", "Screen Shake", "SCREEN_SHAKE_TOOLTIP_REDUCED",
++					"Reduced shake (half strength). Click to cycle to Off or Normal.", mScreenShakeButton->mY);
++				break;
++			case LawnApp::ScreenShakeMode::OFF:
++				ShowOptionTooltip("SCREEN_SHAKE_TITLE", "Screen Shake", "SCREEN_SHAKE_TOOLTIP_OFF",
++					"Shake is off. Click to cycle to Normal or Reduced.", mScreenShakeButton->mY);
++				break;
++			default:
++				ShowOptionTooltip("SCREEN_SHAKE_TITLE", "Screen Shake", "SCREEN_SHAKE_TOOLTIP_NORMAL",
++					"Normal shake strength. Click to cycle to Reduced or Off.", mScreenShakeButton->mY);
++				break;
++			}
++		}
++		else if (mShowAutoReuseEndlessSeeds && mAutoReuseEndlessSeedsCheckbox->Contains(aMouseX, aMouseY))
++		{
++			ShowOptionTooltip("AUTO_REUSE_ENDLESS_SEEDS_TITLE", "Endless Seed Reuse", "AUTO_REUSE_ENDLESS_SEEDS_TOOLTIP",
++				"When enabled, keep the current seed deck between Survival: Endless flags instead of reopening the seed chooser.",
++				mAutoReuseEndlessSeedsCheckbox->mY);
++		}
++	}
++	mToolTip->Draw(g);
+ }
+ 
+ void NewOptionsDialog::SliderVal(int theId, double theVal)
+@@ -403,5 +503,23 @@ void NewOptionsDialog::ButtonDepress(int theId)
+ 	case NewOptionsDialog::NewOptionsDialog_Update:
+ 		mApp->CheckForUpdates();
+ 		break;
++
++	case NewOptionsDialog::NewOptionsDialog_ScreenShake:
++		switch (mApp->mScreenShakeMode)
++		{
++		case LawnApp::ScreenShakeMode::NORMAL:
++			mApp->mScreenShakeMode = LawnApp::ScreenShakeMode::REDUCED;
++			break;
++		case LawnApp::ScreenShakeMode::REDUCED:
++			mApp->mScreenShakeMode = LawnApp::ScreenShakeMode::OFF;
++			break;
++		default:
++			mApp->mScreenShakeMode = LawnApp::ScreenShakeMode::NORMAL;
++			break;
++		}
++		UpdateScreenShakeButtonLabel();
++		if (mApp->mBoard && mApp->mScreenShakeMode == LawnApp::ScreenShakeMode::OFF)
++			mApp->mBoard->ShakeBoard(0, 0);
++		break;
+ 	}
+ }
+diff --git a/src/Lawn/Widget/NewOptionsDialog.h b/src/Lawn/Widget/NewOptionsDialog.h
+index a7e5553..41d9556 100644
+--- a/src/Lawn/Widget/NewOptionsDialog.h
++++ b/src/Lawn/Widget/NewOptionsDialog.h
+@@ -30,6 +30,7 @@
+ class LawnApp;
+ class LawnStoneButton;
+ class NewLawnButton;
++class ToolTipWidget;
+ namespace Sexy
+ {
+ 	class Slider;
+@@ -50,6 +51,7 @@ protected:
+ 		NewOptionsDialog_Fullscreen,
+ 		NewOptionsDialog_HardwareAcceleration,
+ 		NewOptionsDialog_AutoReuseEndlessSeeds,
++		NewOptionsDialog_ScreenShake,
+ 	};
+ 
+ public:
+@@ -59,12 +61,15 @@ public:
+ 	std::unique_ptr<Sexy::Checkbox>		mFullscreenCheckbox;
+ 	std::unique_ptr<Sexy::Checkbox>		mHardwareAccelerationCheckbox;
+ 	std::unique_ptr<Sexy::Checkbox>		mAutoReuseEndlessSeedsCheckbox;
++	std::unique_ptr<LawnStoneButton>	mScreenShakeButton;
++	std::unique_ptr<ToolTipWidget>	mToolTip;
+ 	bool								mShowAutoReuseEndlessSeeds;
+ 	std::unique_ptr<LawnStoneButton>	mAlmanacButton;
+ 	std::unique_ptr<LawnStoneButton>	mBackToMainButton;
+ 	std::unique_ptr<LawnStoneButton>	mRestartButton;
+ 	std::unique_ptr<NewLawnButton>		mBackToGameButton;
+ 	bool								mFromGameSelector;
++	void							UpdateScreenShakeButtonLabel();
+ 
+ public:
+ 	NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector);
+diff --git a/src/Lawn/Widget/SeedChooserScreen.cpp b/src/Lawn/Widget/SeedChooserScreen.cpp
+index 458e864..804c0b1 100644
+--- a/src/Lawn/Widget/SeedChooserScreen.cpp
++++ b/src/Lawn/Widget/SeedChooserScreen.cpp
+@@ -1126,7 +1126,7 @@ void SeedChooserScreen::CloseSeedChooser()
+ 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
+ 		SeedPacket& aSeedPacket = mBoard->mSeedBank->mSeedPackets[anIndex];
+ 		aSeedPacket.SetPacketType(aSeedType, aChosenSeed.mImitaterType);
+-		if (aChosenSeed.mRefreshing)
++		if (aChosenSeed.mRefreshing && mBoard->mSunMoney < TWO_MILLION_SUN_THRESHOLD)
+ 		{
+ 			aSeedPacket.mRefreshCounter = aChosenSeed.mRefreshCounter;
+ 			aSeedPacket.mRefreshTime = Plant::GetRefreshTime(aSeedPacket.mPacketType, aSeedPacket.mImitaterType) / 2;
+diff --git a/src/Lawn/Widget/StoreScreen.cpp b/src/Lawn/Widget/StoreScreen.cpp
+index c4a5012..91287e5 100644
+--- a/src/Lawn/Widget/StoreScreen.cpp
++++ b/src/Lawn/Widget/StoreScreen.cpp
+@@ -704,7 +704,7 @@ void StoreScreen::Update()
+ 				mShakeX = 0;
+ 				if (mHatchTimer > 35)
+ 				{
+-					mShakeY = RandRangeInt(1, 3);
++					mShakeY = static_cast<int>(RandRangeInt(1, 3) * mApp->GetScreenShakeScale());
+ 				}
+ 				else
+ 				{
+diff --git a/src/Lawn/Zombie.cpp b/src/Lawn/Zombie.cpp
+index 6c2e6ab..3230bb4 100644
+--- a/src/Lawn/Zombie.cpp
++++ b/src/Lawn/Zombie.cpp
+@@ -20,6 +20,8 @@
+  */
+ 
+ #include <climits>
++#include <algorithm>
++#include <array>
+ #include <format>
+ 
+ #include "Plant.h"
+@@ -93,7 +95,8 @@ static bool IsBulwarkType(ZombieType theType)
+ 
+ static bool IsConeOrBucketZombie(ZombieType theType)
+ {
+-	return theType == ZombieType::ZOMBIE_TRAFFIC_CONE || theType == ZombieType::ZOMBIE_PAIL;
++	return theType == ZombieType::ZOMBIE_TRAFFIC_CONE || theType == ZombieType::ZOMBIE_PAIL ||
++		theType == ZombieType::ZOMBIE_BULWARK_BUCKET;
+ }
+ 
+ static std::string ZombatarTrackName(const char* thePrefix, int theIndex)
+@@ -203,10 +206,13 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
+ 	mButteredCounter = 0;
+ 	mMindControlled = false;
+ 	mBlowingAway = false;
++	mBloverKnockbackDistanceRemaining = 0;
+ 	mHasHead = true;
+ 	mHasArm = true;
+ 	mHasObject = false;
+ 	mInPool = false;
++	mDolphinFirstLeapComplete = false;
++	mThreeMillionSunDurabilityApplied = false;
+ 	mOnHighGround = false;
+ 	mHelmType = HelmType::HELMTYPE_NONE;
+ 	mShieldType = ShieldType::SHIELDTYPE_NONE;
+@@ -1586,40 +1592,80 @@ void Zombie::ZombieCatapultFire(Plant* thePlant)
+ 		aRangeX = 40.0f;
+ 	}
+ 	aProjectile->mMotionType = ProjectileMotion::MOTION_LOBBED;
++	if (thePlant)
++	{
++		aProjectile->mCobTargetX = thePlant->mX + thePlant->mWidth / 2.0f - aProjectile->mWidth / 2.0f;
++		aProjectile->mCobTargetRow = thePlant->mRow;
++	}
+ 	aProjectile->mVelX = -aRangeX / 120.0f;
+ 	aProjectile->mVelY = 0.0f;
+ 	aProjectile->mVelZ = aRangeY / 120.0f - 7.0f;
+ 	aProjectile->mAccZ = 0.115f;
+ }
+ 
+-Plant* Zombie::FindCatapultTarget()
++int Zombie::FindCatapultTargets(Plant** theTargets, int theMaxTargets)
+ {
+-	Plant* aTarget = nullptr;
++	if (theTargets == nullptr || theMaxTargets <= 0)
++		return 0;
++
++	Plant* aCandidates[CLASSIC_GRID_SIZE_X * MAX_GRID_SIZE_Y]{};
++	int aCandidateCount = 0;
+ 
+ 	for (Plant* aPlant : mBoard->mPlants)
+ 	{
+ 		if (aPlant->mDead)
+ 			continue;
+-		if (aPlant->mRow == mRow && mX >= aPlant->mX + 100 && !aPlant->NotOnGround() && !aPlant->IsSpiky())
+-		{
+-			if (aTarget == nullptr || aPlant->mPlantCol < aTarget->mPlantCol)
+-			{
+-				aTarget = mBoard->GetTopPlantAt(aPlant->mPlantCol, aPlant->mRow, PlantPriority::TOPPLANT_CATAPULT_ORDER);
+-			}
+-		}
++		if (mX < aPlant->mX + 100 || aPlant->NotOnGround() || aPlant->IsSpiky())
++			continue;
++
++		Plant* aTarget = mBoard->GetTopPlantAt(aPlant->mPlantCol, aPlant->mRow, PlantPriority::TOPPLANT_CATAPULT_ORDER);
++		if (aTarget == nullptr || aTarget->NotOnGround() || aTarget->IsSpiky() ||
++			std::find(std::begin(aCandidates), std::begin(aCandidates) + aCandidateCount, aTarget) != std::begin(aCandidates) + aCandidateCount)
++			continue;
++		if (aCandidateCount < static_cast<int>(std::size(aCandidates)))
++			aCandidates[aCandidateCount++] = aTarget;
+ 	}
+ 
+-	return aTarget;
++	std::sort(std::begin(aCandidates), std::begin(aCandidates) + aCandidateCount,
++		[this](const Plant* theLeft, const Plant* theRight)
++		{
++			int aLeftRowDistance = std::abs(theLeft->mRow - mRow);
++			int aRightRowDistance = std::abs(theRight->mRow - mRow);
++			if (aLeftRowDistance != aRightRowDistance)
++				return aLeftRowDistance < aRightRowDistance;
++			if (theLeft->mPlantCol != theRight->mPlantCol)
++				return theLeft->mPlantCol > theRight->mPlantCol;
++			return theLeft->mRow < theRight->mRow;
++		});
++
++	int aTargetCount = 0;
++	bool aSelectedRows[MAX_GRID_SIZE_Y]{};
++	for (int i = 0; i < aCandidateCount && aTargetCount < theMaxTargets; ++i)
++	{
++		Plant* aCandidate = aCandidates[i];
++		if (aSelectedRows[aCandidate->mRow])
++			continue;
++		theTargets[aTargetCount++] = aCandidate;
++		aSelectedRows[aCandidate->mRow] = true;
++	}
++	for (int i = 0; i < aCandidateCount && aTargetCount < theMaxTargets; ++i)
++	{
++		Plant* aCandidate = aCandidates[i];
++		if (std::find(theTargets, theTargets + aTargetCount, aCandidate) == theTargets + aTargetCount)
++			theTargets[aTargetCount++] = aCandidate;
++	}
++	return aTargetCount;
+ }
+ 
+ void Zombie::UpdateZombieCatapult()
+ {
+ 	if (mZombiePhase == ZombiePhase::PHASE_ZOMBIE_NORMAL)
+ 	{
+-		if (mPosX <= 650 && FindCatapultTarget() && mSummonCounter > 0)
++		Plant* aTargets[3]{};
++		if (FindCatapultTargets(aTargets, 3) > 0 && (mPosX <= 650 || mApp->mWidth > BOARD_WIDTH) && mSummonCounter > 0)
+ 		{
+ 			mZombiePhase = ZombiePhase::PHASE_CATAPULT_LAUNCHING;
+-			mPhaseCounter = 300;
++			mPhaseCounter = 250;
+ 			PlayZombieReanim("anim_shoot", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, 24.0f);
+ 		}
+ 	}
+@@ -1628,8 +1674,10 @@ void Zombie::UpdateZombieCatapult()
+ 		Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
+ 		if (aBodyReanim->ShouldTriggerTimedEvent(0.545f))
+ 		{
+-			Plant* aPlant = FindCatapultTarget();
+-			ZombieCatapultFire(aPlant);
++			Plant* aTargets[3]{};
++			int aTargetCount = FindCatapultTargets(aTargets, 3);
++			for (int i = 0; i < aTargetCount; ++i)
++				ZombieCatapultFire(aTargets[i]);
+ 		}
+ 		if (aBodyReanim->mLoopCount > 0)
+ 		{
+@@ -1665,11 +1713,11 @@ void Zombie::UpdateZombieCatapult()
+ 	}
+ 	else if (mZombiePhase == ZombiePhase::PHASE_CATAPULT_RELOADING && mPhaseCounter == 0)
+ 	{
+-		Plant* aPlant = FindCatapultTarget();
+-		if (aPlant)
++		Plant* aTargets[3]{};
++		if (FindCatapultTargets(aTargets, 3) > 0)
+ 		{
+ 			mZombiePhase = ZombiePhase::PHASE_CATAPULT_LAUNCHING;
+-			mPhaseCounter = 300;
++			mPhaseCounter = 250;
+ 			PlayZombieReanim("anim_shoot", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 24.0f);
+ 		}
+ 		else
+@@ -1950,6 +1998,7 @@ void Zombie::UpdateZombieDolphinRider()
+ 
+ 		if (aJumpEnds)
+ 		{
++			mDolphinFirstLeapComplete = true;
+ 			mZombieAttackRect = Rect(30, 0, 30, 115);
+ 			mZombieRect = Rect(20, 0, 42, 115);
+ 			mZombiePhase = ZombiePhase::PHASE_DOLPHIN_WALKING_IN_POOL;
+@@ -2164,7 +2213,18 @@ void Zombie::UpdateZombieGargantuar()
+ 					}
+ 					else
+ 					{
+-						SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
++						PlantsOnLawn aPlantsOnTile;
++						mBoard->GetPlantsOnLawn(aPlant->mPlantCol, aPlant->mRow, &aPlantsOnTile);
++						Plant* aTallNut = aPlantsOnTile.mNormalPlant;
++						if (aTallNut && aTallNut->mSeedType == SeedType::SEED_TALLNUT &&
++							(aPlant == aTallNut || aPlant == aPlantsOnTile.mPumpkinPlant))
++						{
++							aTallNut->GargantuarSmashTakeDamage();
++						}
++						else
++						{
++							SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
++						}
+ 					}
+ 				}
+ 
+@@ -2217,7 +2277,8 @@ void Zombie::UpdateZombieGargantuar()
+ 			bool aThrewZombie = false;
+ 			for (int aThrowIndex = 0; aThrowIndex < aThrowBatchSize; aThrowIndex++)
+ 			{
+-				ZombieType aThrownType = aIsBulwark && aThrowIndex < 5 ? ZombieType::ZOMBIE_PAIL : ZombieType::ZOMBIE_IMP;
++				bool aThrowsPail = aIsBulwark ? aThrowIndex < 5 : aThrowIndex == 0;
++				ZombieType aThrownType = aThrowsPail ? ZombieType::ZOMBIE_PAIL : ZombieType::ZOMBIE_IMP;
+ 				Zombie* aThrownZombie = mBoard->AddZombie(aThrownType, mFromWave);
+ 				if (aThrownZombie == nullptr)
+ 					break;
+@@ -4211,7 +4272,7 @@ void Zombie::UpdateLadder()
+ 
+ void Zombie::UpdateZombieWalking()
+ {
+-	if (ZombieNotWalking())
++	if (ZombieNotWalking() || mBloverKnockbackDistanceRemaining > 0 || mBlowingAway)
+ 		return;
+ 
+ 	Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
+@@ -4360,23 +4421,31 @@ void Zombie::CheckForZombieStep()
+ 
+ void Zombie::UpdateZombiePosition()
+ {
+-	if (mZombieType == ZombieType::ZOMBIE_BUNGEE || mZombieType == ZombieType::ZOMBIE_BOSS ||
+-		mZombiePhase == ZombiePhase::PHASE_RISING_FROM_GRAVE || mZombieHeight == ZombieHeight::HEIGHT_ZOMBIQUARIUM)
+-		return;
+-
+-	UpdateZombieWalking();
+-	CheckForZombieStep();
+-
+ 	if (mBlowingAway)
+ 	{
+ 		mPosX += 10.0f;
+ 		if (mX > 850)
+ 		{
+ 			DieWithLoot();
+-			return;
+ 		}
++		return;
++	}
++
++	if (mBloverKnockbackDistanceRemaining > 0)
++	{
++		int aKnockbackStep = std::min(2, mBloverKnockbackDistanceRemaining);
++		mPosX += static_cast<float>(aKnockbackStep);
++		mBloverKnockbackDistanceRemaining -= aKnockbackStep;
++		return;
+ 	}
+ 
++	if (mZombieType == ZombieType::ZOMBIE_BUNGEE || mZombieType == ZombieType::ZOMBIE_BOSS ||
++		mZombiePhase == ZombiePhase::PHASE_RISING_FROM_GRAVE || mZombieHeight == ZombieHeight::HEIGHT_ZOMBIQUARIUM)
++		return;
++
++	UpdateZombieWalking();
++	CheckForZombieStep();
++
+ 	if (mZombieHeight == ZombieHeight::HEIGHT_ZOMBIE_NORMAL)
+ 	{
+ 		float aDesiredY = GetPosYBasedOnRow(mRow);
+@@ -4466,11 +4535,11 @@ void Zombie::Update()
+ 				UpdatePlaying();
+ 			}
+ 
+-			if (mZombieType == ZombieType::ZOMBIE_BUNGEE)
++			if (mZombieType == ZombieType::ZOMBIE_BUNGEE && mBloverKnockbackDistanceRemaining <= 0)
+ 			{
+ 				UpdateZombieBungee();
+ 			}
+-			if (mZombieType == ZombieType::ZOMBIE_POGO)
++			if (mZombieType == ZombieType::ZOMBIE_POGO && mBloverKnockbackDistanceRemaining <= 0)
+ 			{
+ 				UpdateZombiePogo();
+ 			}
+@@ -4689,9 +4758,16 @@ void Zombie::CheckForBoardEdge()
+ void Zombie::UpdatePlaying()
+ {
+ 	PVZP_ASSERT(mBodyHealth > 0 || mZombiePhase == ZombiePhase::PHASE_BOBSLED_CRASHING);
++	if (mBoard->mSunMoney >= TWO_AND_HALF_MILLION_SUN_THRESHOLD &&
++		mZombieType != ZombieType::ZOMBIE_BUNGEE && mButteredCounter > 0)
++	{
++		mButteredCounter = 0;
++		RemoveButter();
++	}
+ 	if (((IsGargantuarType(mZombieType) || IsBulwarkType(mZombieType)) &&
+ 		mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD) ||
+-		(IsConeOrBucketZombie(mZombieType) && mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD))
++		(IsConeOrBucketZombie(mZombieType) && mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD) ||
++		mBoard->mSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD)
+ 	{
+ 		bool aWasChilled = mChilledCounter > 0;
+ 		mChilledCounter = 0;
+@@ -4699,7 +4775,7 @@ void Zombie::UpdatePlaying()
+ 			RemoveIceTrap();
+ 		else if (aWasChilled)
+ 			UpdateAnimSpeed();
+-		if (mButteredCounter > 0)
++		if (mButteredCounter > 0 && mZombieType != ZombieType::ZOMBIE_BUNGEE)
+ 		{
+ 			mButteredCounter = 0;
+ 			RemoveButter();
+@@ -4777,11 +4853,18 @@ void Zombie::UpdatePlaying()
+ 
+ 	if (mZombiePhase == ZombiePhase::PHASE_RISING_FROM_GRAVE)
+ 	{
+-		UpdateZombieRiseFromGrave();
++		if (mBloverKnockbackDistanceRemaining > 0)
++			UpdateZombiePosition();
++		else
++			UpdateZombieRiseFromGrave();
+ 		return;
+ 	}
+ 
+-	if (!IsImmobilizied())
++	if (mBloverKnockbackDistanceRemaining > 0)
++	{
++		UpdateZombiePosition();
++	}
++	else if (!IsImmobilizied())
+ 	{
+ 		UpdateActions();
+ 		UpdateZombiePosition();
+@@ -4791,7 +4874,7 @@ void Zombie::UpdatePlaying()
+ 		CheckForBoardEdge();
+ 	}
+ 
+-	if (mZombieType == ZombieType::ZOMBIE_BOSS)
++	if (mZombieType == ZombieType::ZOMBIE_BOSS && mBloverKnockbackDistanceRemaining <= 0)
+ 	{
+ 		UpdateBoss();
+ 	}
+@@ -4971,7 +5054,7 @@ void Zombie::AnimateChewSound()
+ 	Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW);
+ 	if (aPlant)
+ 	{
+-		if (aPlant->mSeedType == SeedType::SEED_HYPNOSHROOM && !aPlant->mIsAsleep)
++		if (aPlant->mSeedType == SeedType::SEED_HYPNOSHROOM && !aPlant->mIsAsleep && !IsSunTierInvulnerable())
+ 		{
+ 			mApp->PlayFoley(FoleyType::FOLEY_FLOOP);
+ 			aPlant->Die();
+@@ -4984,7 +5067,7 @@ void Zombie::AnimateChewSound()
+ 			mAnimTicksPerFrame = 18;
+ 			UpdateAnimSpeed();
+ 		}
+-		else if (aPlant->mSeedType == SeedType::SEED_GARLIC)
++		else if (aPlant->mSeedType == SeedType::SEED_GARLIC && !IsSunTierInvulnerable())
+ 		{
+ 			if (!mYuckyFace)
+ 			{
+@@ -5451,14 +5534,15 @@ void Zombie::UpdateReanim()
+ 	{
+ 		if (mZombiePhase == ZombiePhase::PHASE_ZOMBIE_DYING)
+ 		{
+-			float aShakeRange = PvzpAnimateCurveFloatTime(0.7f, 1.0f, aBodyReanim->mAnimTime, 0.0f, 1.0f, PvzpCurves::CURVE_EASE_OUT);
++			float aShakeRange = PvzpAnimateCurveFloatTime(0.7f, 1.0f, aBodyReanim->mAnimTime, 0.0f, 1.0f, PvzpCurves::CURVE_EASE_OUT) * mApp->GetScreenShakeScale();
+ 			anOffsetX += RandRangeFloat(-aShakeRange, aShakeRange);
+ 			anOffsetY += RandRangeFloat(-aShakeRange, aShakeRange);
+ 		}
+ 		else if (mBodyHealth < 200)
+ 		{
+-			anOffsetX += RandRangeFloat(-1.0f, 1.0f);
+-			anOffsetY += RandRangeFloat(-1.0f, 1.0f);
++			float aShakeScale = mApp->GetScreenShakeScale();
++			anOffsetX += RandRangeFloat(-1.0f, 1.0f) * aShakeScale;
++			anOffsetY += RandRangeFloat(-1.0f, 1.0f) * aShakeScale;
+ 		}
+ 	}
+ 	if (mZombieType == ZombieType::ZOMBIE_FOOTBALL && mScaleZombie < 1.0f)
+@@ -6660,6 +6744,36 @@ Plant* Zombie::FindPlantTarget(ZombieAttackType theAttackType)
+ 		if (aFirstSpikyPlant != nullptr)
+ 			mFirstIgnoredSpikyPlantID = static_cast<PlantID>(mBoard->mPlants.DataArrayGetID(aFirstSpikyPlant));
+ 	}
++	if (theAttackType == ZombieAttackType::ATTACKTYPE_CHEW && IsGargantuarType(mZombieType) &&
++		mZombieType != ZombieType::ZOMBIE_BULWARK_GARGANTUAR &&
++		mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
++	{
++		// At the 1m tier, ignore only the first spike plant; choose the next target by distance,
++		// not plant allocation order, so a farther Tallnut cannot be selected through another Spikerock.
++		Plant* aClosestPlant = nullptr;
++		int aClosestDistance = std::numeric_limits<int>::max();
++		Rect aZombieRect = GetZombieRect();
++		int aZombieCenterX = aZombieRect.mX + aZombieRect.mWidth / 2;
++		for (Plant* aPlant : mBoard->mPlants)
++		{
++			if (aPlant->mDead || aPlant->mRow != mRow || !CanTargetPlant(aPlant, theAttackType))
++				continue;
++
++			Rect aPlantRect = aPlant->GetPlantRect();
++			if (GetRectOverlap(aAttackRect, aPlantRect) < 20)
++				continue;
++
++			int aPlantCenterX = aPlantRect.mX + aPlantRect.mWidth / 2;
++			int aDistance = IsWalkingBackwards() ? aPlantCenterX - aZombieCenterX : aZombieCenterX - aPlantCenterX;
++			if (aDistance >= 0 && aDistance < aClosestDistance)
++			{
++				aClosestDistance = aDistance;
++				aClosestPlant = aPlant;
++			}
++		}
++		if (aClosestPlant != nullptr)
++			return aClosestPlant;
++	}
+ 
+ 	for (Plant* aPlant : mBoard->mPlants)
+ 	{
+@@ -6675,6 +6789,33 @@ Plant* Zombie::FindPlantTarget(ZombieAttackType theAttackType)
+ 		}
+ 	}
+ 
++	// A submerged snorkel can pass a pool plant between its narrow bite-rectangle checks.
++	// Let it surface to eat an eligible plant as it approaches within one attack reach.
++	if (theAttackType == ZombieAttackType::ATTACKTYPE_CHEW && mZombieType == ZombieType::ZOMBIE_SNORKEL &&
++		mInPool && mZombiePhase == ZombiePhase::PHASE_SNORKEL_WALKING_IN_POOL)
++	{
++		Plant* aClosestPlant = nullptr;
++		int aClosestGap = std::numeric_limits<int>::max();
++		for (Plant* aPlant : mBoard->mPlants)
++		{
++			if (aPlant->mDead || aPlant->mRow != mRow || !mBoard->IsPoolSquare(aPlant->mPlantCol, aPlant->mRow) ||
++				!CanTargetPlant(aPlant, theAttackType))
++				continue;
++
++			Rect aPlantRect = aPlant->GetPlantRect();
++			int aGap = IsWalkingBackwards()
++				? aAttackRect.mX - (aPlantRect.mX + aPlantRect.mWidth)
++				: aPlantRect.mX - (aAttackRect.mX + aAttackRect.mWidth);
++			if (aGap >= 0 && aGap <= 60 && aGap < aClosestGap)
++			{
++				aClosestPlant = aPlant;
++				aClosestGap = aGap;
++			}
++		}
++		if (aClosestPlant != nullptr)
++			return aClosestPlant;
++	}
++
+ 	return nullptr;
+ }
+ 
+@@ -7815,6 +7956,13 @@ void Zombie::DropShield(unsigned int theDamageFlags)
+ 		}
+ 
+ 		mZombiePhase = ZombiePhase::PHASE_NEWSPAPER_MADDENING;
++		if (mBoard != nullptr && mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD)
++		{
++			mBodyHealth = static_cast<int32_t>(std::min<int64_t>(
++				static_cast<int64_t>(mBodyHealth) * 2, std::numeric_limits<int32_t>::max()));
++			mBodyMaxHealth = static_cast<int32_t>(std::min<int64_t>(
++				static_cast<int64_t>(mBodyMaxHealth) * 2, std::numeric_limits<int32_t>::max()));
++		}
+ 		PlayZombieReanim("anim_gasp", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 10, 8.0f);
+ 		DetachShield();
+ 
+@@ -8245,6 +8393,8 @@ void Zombie::TakeBodyDamage(int theDamage, unsigned int theDamageFlags)
+ 
+ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
+ {
++	if (IsSunTierInvulnerable())
++		return;
+ 	if (mZombiePhase == ZombiePhase::PHASE_JACK_IN_THE_BOX_POPPING || IsDeadOrDying())
+ 		return;
+ 	if (!CanBeTargetedByPlants())
+@@ -8311,6 +8461,10 @@ Zombie::~Zombie()
+ 
+ bool Zombie::CanBeChilled()
+ {
++	if (IsSunTierInvulnerable())
++		return false;
++	if (mBoard != nullptr && mBoard->mSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD)
++		return false;
+ 	if (mZombieType == ZombieType::ZOMBIE_ZAMBONI || IsBobsledTeamWithSled())
+ 		return false;
+ 	if ((IsGargantuarType(mZombieType) || IsBulwarkType(mZombieType)) && mBoard != nullptr &&
+@@ -8368,8 +8522,16 @@ bool Zombie::CanBeFrozen()
+ 
+ bool Zombie::CanBeTargetedByPlants() const
+ {
+-	return mZombieType != ZombieType::ZOMBIE_SNORKEL ||
+-		(mIsEating && mZombiePhase == ZombiePhase::PHASE_SNORKEL_EATING_IN_POOL);
++	return !IsSunTierInvulnerable() && (mZombieType != ZombieType::ZOMBIE_SNORKEL ||
++		(!mInPool || mIsEating));
++}
++
++bool Zombie::IsSunTierInvulnerable() const
++{
++	return mZombieType == ZombieType::ZOMBIE_DOLPHIN_RIDER && mBoard != nullptr &&
++		mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD && !mDolphinFirstLeapComplete &&
++		mZombiePhase != ZombiePhase::PHASE_DOLPHIN_WALKING_IN_POOL &&
++		mZombiePhase != ZombiePhase::PHASE_DOLPHIN_WALKING_WITHOUT_DOLPHIN;
+ }
+ 
+ bool Zombie::EffectedByDamage(unsigned int theDamageRangeFlags)
+@@ -8681,6 +8843,9 @@ void Zombie::RemoveIceTrap()
+ 
+ void Zombie::HitIceTrap()
+ {
++	if (!CanBeChilled())
++		return;
++
+ 	bool cold = false;
+ 	if (mChilledCounter > 0 || mIceTrapCounter != 0)
+ 	{
+@@ -8813,12 +8978,25 @@ void Zombie::RemoveButter()
+ 
+ void Zombie::ApplyButter()
+ {
++	if (IsSunTierInvulnerable())
++		return;
++	if (mBoard != nullptr && mBoard->mSunMoney >= TWO_AND_HALF_MILLION_SUN_THRESHOLD &&
++		mZombieType != ZombieType::ZOMBIE_BUNGEE)
++		return;
+ 	if (IsBulwarkType(mZombieType))
+ 		return;
+ 	if ((IsGargantuarType(mZombieType) || IsBulwarkType(mZombieType)) && mBoard != nullptr &&
+ 		mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+ 		return;
+-	if (!mHasHead || !CanBeFrozen())
++	bool aCanBeButterStunned = CanBeFrozen();
++	if (!aCanBeButterStunned && mZombieType == ZombieType::ZOMBIE_BUNGEE && mBoard != nullptr &&
++		mBoard->mSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD && !IsDeadOrDying() && !mMindControlled &&
++		mZombiePhase == ZombiePhase::PHASE_BUNGEE_AT_BOTTOM)
++	{
++		// Cold slows are disabled at this tier, but grounded Bungees retain their butter-stun exception.
++		aCanBeButterStunned = true;
++	}
++	if (!mHasHead || !aCanBeButterStunned)
+ 		return;
+ 
+ 	bool aIsGargantuar = IsGargantuarType(mZombieType);
+diff --git a/src/Lawn/Zombie.h b/src/Lawn/Zombie.h
+index 07eca32..b2aa495 100644
+--- a/src/Lawn/Zombie.h
++++ b/src/Lawn/Zombie.h
+@@ -117,10 +117,13 @@ public:
+ 	int32_t                         mIceTrapCounter;
+ 	bool                            mMindControlled;
+ 	bool                            mBlowingAway;
++	int32_t                         mBloverKnockbackDistanceRemaining = 0;
+ 	bool                            mHasHead;
+ 	bool                            mHasArm;
+ 	bool                            mHasObject;
+ 	bool                            mInPool;
++	bool                            mDolphinFirstLeapComplete;
++	bool                            mThreeMillionSunDurabilityApplied;
+ 	bool                            mOnHighGround;
+ 	bool                            mYuckyFace;
+ 	int32_t                         mYuckyFaceCounter;
+@@ -187,6 +190,7 @@ public:
+ 	void                            UpdateZombieBungee();
+ 	void                            BungeeLanding();
+ 	bool                            CanBeTargetedByPlants() const;
++	bool                            IsSunTierInvulnerable() const;
+ 	bool                            EffectedByDamage(unsigned int theDamageRangeFlags);
+ 	void                            PickRandomSpeed();
+ 	void                            UpdateZombiePolevaulter();
+@@ -274,7 +278,7 @@ public:
+ 	void                            DropHead(unsigned int theDamageFlags);
+ 	bool                            CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType);
+ 	void                            UpdateZombieCatapult();
+-	Plant*                          FindCatapultTarget();
++	int                             FindCatapultTargets(Plant** theTargets, int theMaxTargets);
+ 	void                            ZombieCatapultFire(Plant* thePlant);
+ 	void                            UpdateClimbingLadder();
+ 	void                            UpdateZombieGargantuar();
+diff --git a/src/LawnApp.cpp b/src/LawnApp.cpp
+index b7a59af..c816331 100644
+--- a/src/LawnApp.cpp
++++ b/src/LawnApp.cpp
+@@ -314,6 +314,7 @@ void LawnApp::LostFocus()
+ 
+ void LawnApp::WriteToRegistry()
+ {
++	RegistryWriteInteger("ScreenShakeMode", static_cast<int>(mScreenShakeMode));
+ 	if (mPlayerInfo)
+ 	{
+ 		RegistryWriteString("CurUser", mPlayerInfo->mName);
+@@ -326,6 +327,13 @@ void LawnApp::WriteToRegistry()
+ void LawnApp::ReadFromRegistry()
+ {
+ 	SexyApp::ReadFromRegistry();
++	int aScreenShakeMode = static_cast<int>(ScreenShakeMode::NORMAL);
++	if (RegistryReadInteger("ScreenShakeMode", &aScreenShakeMode) &&
++		aScreenShakeMode >= static_cast<int>(ScreenShakeMode::NORMAL) &&
++		aScreenShakeMode <= static_cast<int>(ScreenShakeMode::OFF))
++	{
++		mScreenShakeMode = static_cast<ScreenShakeMode>(aScreenShakeMode);
++	}
+ }
+ 
+ bool LawnApp::WriteCurrentUserConfig()
+@@ -345,10 +353,10 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
+ 	//}
+ 
+ 	mGameMode = theGameMode;
++	// Keep the Endless pool seed screen's off-board zombie lineup in view without adding playable columns.
+ 	const bool aWideEndlessPool = theGameMode == GameMode::GAMEMODE_SURVIVAL_ENDLESS_STAGE_3 ||
+ 		theGameMode == GameMode::GAMEMODE_SURVIVAL_ENDLESS_STAGE_4;
+-	SetLogicalSize(aWideEndlessPool ? BOARD_WIDTH + 3 * 80 : BOARD_WIDTH,
+-		aWideEndlessPool ? 1000 : BOARD_HEIGHT);
++	SetLogicalSize(aWideEndlessPool ? BOARD_WIDTH + 3 * 80 : BOARD_WIDTH, BOARD_HEIGHT);
+ 	if (theLookForSavedGame && TryLoadGame())
+ 		return;
+ 
+@@ -1075,6 +1083,19 @@ bool LawnApp::KillNewOptionsDialog()
+ 	return true;
+ }
+ 
++float LawnApp::GetScreenShakeScale() const
++{
++	switch (mScreenShakeMode)
++	{
++	case ScreenShakeMode::REDUCED:
++		return 0.5f;
++	case ScreenShakeMode::OFF:
++		return 0.0f;
++	default:
++		return 1.0f;
++	}
++}
++
+ bool LawnApp::KillAlmanacDialog()
+ {
+ 	if (GetDialog(Dialogs::DIALOG_ALMANAC))
+diff --git a/src/LawnApp.h b/src/LawnApp.h
+index 80ba516..89af1da 100644
+--- a/src/LawnApp.h
++++ b/src/LawnApp.h
+@@ -72,6 +72,13 @@ public:
+ class LawnApp : public SexyApp
+ {
+ public:
++	enum class ScreenShakeMode
++	{
++		NORMAL,
++		REDUCED,
++		OFF,
++	};
++
+ 	Board*							mBoard;
+ 	std::unique_ptr<TitleScreen>	mTitleScreen;
+ 	std::unique_ptr<GameSelector>	mGameSelector;
+@@ -94,6 +101,7 @@ public:
+ 	int								mMaxPlays;
+ 	int								mMaxTime;
+ 	bool							mEasyPlantingCheat;
++	ScreenShakeMode				mScreenShakeMode = ScreenShakeMode::NORMAL;
+ 	std::unique_ptr<PoolEffect>		mPoolEffect;
+ 	std::unique_ptr<ZenGarden>		mZenGarden;
+ 	std::unique_ptr<EffectSystem>	mEffectSystem;
+@@ -142,6 +150,7 @@ public:
+ 	~LawnApp() override;
+ 
+ 	bool							KillNewOptionsDialog();
++	float							GetScreenShakeScale() const;
+ 	void							GotFocus() override;
+ 	void							LostFocus() override;
+ 	void							InitHook() override;
+diff --git a/src/PvzpLib/Attachment.cpp b/src/PvzpLib/Attachment.cpp
+index 1820608..4f5cf59 100644
+--- a/src/PvzpLib/Attachment.cpp
++++ b/src/PvzpLib/Attachment.cpp
+@@ -101,7 +101,7 @@ Attachment::~Attachment()
+ 	AttachmentDie();
+ }
+ 
+-void Attachment::Update()
++void Attachment::Update(bool theCollectParallelTasks)
+ {
+ 	PVZP_ASSERT(gEffectSystem);
+ 
+@@ -116,7 +116,7 @@ void Attachment::Update()
+ 			PvzpParticleSystem* aParticleSystem = gEffectSystem->mParticleHolder->mParticleSystems.DataArrayTryToGet(aAttachEffect->mEffectID);
+ 			if (aParticleSystem && !aParticleSystem->mDead)
+ 			{
+-				aParticleSystem->Update();
++				aParticleSystem->Update(theCollectParallelTasks);
+ 				isEmpty = false;
+ 			}
+ 			break;
+@@ -149,7 +149,7 @@ void Attachment::Update()
+ 			Attachment* aAttachment = gEffectSystem->mAttachmentHolder->mAttachments.DataArrayTryToGet(aAttachEffect->mEffectID);
+ 			if (aAttachment)
+ 			{
+-				aAttachment->Update();
++				aAttachment->Update(theCollectParallelTasks);
+ 				isEmpty = false;
+ 			}
+ 			break;
+@@ -714,7 +714,7 @@ void AttachmentUpdateAndSetMatrix(AttachmentID& theAttachmentID, SexyTransform2D
+ 	Attachment* aAttachment = gEffectSystem->mAttachmentHolder->mAttachments.DataArrayTryToGet(static_cast<unsigned int>(theAttachmentID));
+ 	if (aAttachment)
+ 	{
+-		aAttachment->Update();
++		aAttachment->Update(true);
+ 		aAttachment->SetMatrix(theMatrix);
+ 	}
+ 	else
+@@ -732,7 +732,7 @@ void AttachmentUpdateAndMove(AttachmentID& theAttachmentID, float theX, float th
+ 	Attachment* aAttachment = gEffectSystem->mAttachmentHolder->mAttachments.DataArrayTryToGet(static_cast<unsigned int>(theAttachmentID));
+ 	if (aAttachment)
+ 	{
+-		aAttachment->Update();
++		aAttachment->Update(true);
+ 		aAttachment->SetPosition(SexyVector2(theX, theY));
+ 	}
+ 	else
+diff --git a/src/PvzpLib/Attachment.h b/src/PvzpLib/Attachment.h
+index 842a6c3..775c509 100644
+--- a/src/PvzpLib/Attachment.h
++++ b/src/PvzpLib/Attachment.h
+@@ -72,7 +72,7 @@ public:
+ 	Attachment();
+ 	~Attachment();
+ 
+-	void                    Update();
++	void                    Update(bool theCollectParallelTasks = false);
+ 	void                    SetPosition(const SexyVector2& thePosition);
+ 	void                    SetMatrix(const SexyTransform2D& theMatrix);
+ 	void                    OverrideColor(const Color& theColor);
+diff --git a/src/PvzpLib/EffectSystem.cpp b/src/PvzpLib/EffectSystem.cpp
+index 6105f3f..7c70c6d 100644
+--- a/src/PvzpLib/EffectSystem.cpp
++++ b/src/PvzpLib/EffectSystem.cpp
+@@ -25,6 +25,7 @@
+ #include "Reanimator.h"
+ #include "PvzpParticle.h"
+ #include "EffectSystem.h"
++#include "../LawnApp.h"
+ #include "misc/FrameProfiler.h"
+ #include "../GameConstants.h"
+ #include "graphics/GLImage.h"
+@@ -104,7 +105,8 @@ void EffectSystem::Update()
+ 	Sexy::FrameProfileScope aParticleScope(Sexy::FrameProfileMetric::PARTICLE_SYSTEMS_UPDATE, true);
+ 	for (PvzpParticleSystem* aParticle : mParticleHolder->mParticleSystems)
+ 		if (!aParticle->mIsAttachment)
+-			aParticle->Update();
++			aParticle->Update(true);
++	mParticleHolder->ProcessParticleUpdateBatch();
+ 	aParticleScope.Stop();
+ 
+ 	Sexy::FrameProfileScope aTrailScope(Sexy::FrameProfileMetric::TRAILS_UPDATE, true);
+@@ -117,6 +119,10 @@ void EffectSystem::Update()
+ 	for (Reanimation* aReanim : mReanimationHolder->mReanimations)
+ 		if (!aReanim->mIsAttachment)
+ 			aReanim->Update();
++	mParticleHolder->ProcessParticleUpdateBatch();
++	aReanimationScope.Stop();
++	if (gLawnApp != nullptr)
++		mParticleHolder->mPreviousScreenShakeScale = gLawnApp->GetScreenShakeScale();
+ }
+ 
+ static TriVertex		gPvzpVertexReservoir[64];
+diff --git a/src/PvzpLib/PvzpParticle.cpp b/src/PvzpLib/PvzpParticle.cpp
+index b3f2b72..ec76953 100644
+--- a/src/PvzpLib/PvzpParticle.cpp
++++ b/src/PvzpLib/PvzpParticle.cpp
+@@ -24,6 +24,7 @@
+ #include "PvzpParticle.h"
+ #include "EffectSystem.h"
+ #include "misc/FrameProfiler.h"
++#include "../LawnApp.h"
+ #include "../GameConstants.h"
+ #include "graphics/Graphics.h"
+ #include "graphics/GLInterface.h"
+@@ -275,6 +276,17 @@ static bool IsLowPriorityParticleEffect(ParticleEffect theEffect)
+ 	}
+ }
+ 
++static float GetGloomCloudQualityScale(int theQualityTier)
++{
++	switch (theQualityTier)
++	{
++	case 1: return 0.75f;
++	case 2: return 0.50f;
++	case 3: return 0.25f;
++	default: return 1.0f;
++	}
++}
++
+ #if !defined(__EMSCRIPTEN__)
+ class ParticleCalculationWorkers
+ {
+@@ -303,13 +315,13 @@ public:
+ 
+ 	bool Available() const { return !mWorkers.empty(); }
+ 
+-	void Run(PvzpParticleEmitter* theEmitter, const std::vector<PvzpParticle*>& theParticles)
++	void Run(const std::vector<PvzpParticleCalculationTask>& theTasks, size_t theBegin, size_t theEnd)
+ 	{
+ 		{
+ 			std::lock_guard<std::mutex> aLock(mMutex);
+-			mEmitter = theEmitter;
+-			mParticles = &theParticles;
+-			mNextParticle.store(0, std::memory_order_relaxed);
++			mTasks = &theTasks;
++			mBatchEnd = theEnd;
++			mNextParticle.store(theBegin, std::memory_order_relaxed);
+ 			mWorkersRemaining = mWorkers.size();
+ 			++mGeneration;
+ 		}
+@@ -317,8 +329,7 @@ public:
+ 		ProcessParticles();
+ 		std::unique_lock<std::mutex> aLock(mMutex);
+ 		mFinished.wait(aLock, [this] { return mWorkersRemaining == 0; });
+-		mParticles = nullptr;
+-		mEmitter = nullptr;
++		mTasks = nullptr;
+ 	}
+ 
+ private:
+@@ -328,11 +339,14 @@ private:
+ 		while (true)
+ 		{
+ 			const size_t aStart = mNextParticle.fetch_add(aChunkSize, std::memory_order_relaxed);
+-			if (aStart >= mParticles->size())
++			if (aStart >= mBatchEnd)
+ 				return;
+-			const size_t anEnd = std::min(aStart + aChunkSize, mParticles->size());
++			const size_t anEnd = std::min(aStart + aChunkSize, mBatchEnd);
+ 			for (size_t i = aStart; i < anEnd; ++i)
+-				mEmitter->CalculateParticleState((*mParticles)[i]);
++			{
++				const auto& aTask = (*mTasks)[i];
++				aTask.mEmitter->CalculateParticleState(aTask.mParticle);
++			}
+ 		}
+ 	}
+ 
+@@ -359,8 +373,8 @@ private:
+ 	std::condition_variable mWake;
+ 	std::condition_variable mFinished;
+ 	std::atomic<size_t> mNextParticle{0};
+-	PvzpParticleEmitter* mEmitter = nullptr;
+-	const std::vector<PvzpParticle*>* mParticles = nullptr;
++	const std::vector<PvzpParticleCalculationTask>* mTasks = nullptr;
++	size_t mBatchEnd = 0;
+ 	size_t mWorkersRemaining = 0;
+ 	uint64_t mGeneration = 0;
+ 	bool mStopping = false;
+@@ -388,6 +402,76 @@ static bool IsParticleParallelEnabled()
+ }
+ #endif
+ 
++void PvzpParticleHolder::ProcessParticleUpdateBatch()
++{
++	auto& aTasks = mParticleUpdateScratch;
++	if (aTasks.empty())
++		return;
++
++	size_t aValidTaskCount = 0;
++	for (size_t i = 0; i < aTasks.size(); ++i)
++	{
++		auto& aTask = aTasks[i];
++		PvzpParticleEmitter* anEmitter = mEmitters.DataArrayTryToGet(static_cast<unsigned int>(aTask.mEmitterId));
++		PvzpParticle* aParticle = mParticles.DataArrayTryToGet(static_cast<unsigned int>(aTask.mParticleId));
++		if (anEmitter == nullptr || aParticle == nullptr || anEmitter->mEmitterDef == nullptr ||
++			anEmitter->mParticleSystem == nullptr || anEmitter->mParticleSystem->mParticleHolder != this ||
++			anEmitter->mDead || anEmitter->mParticleSystem->mDead ||
++			aParticle->mParticleEmitter != anEmitter || aParticle->mCrossFadeDuration > 0 ||
++			aParticle->mCrossFadeParticleID != ParticleID::PARTICLEID_NULL ||
++			anEmitter->mParticleSystem->mEffectType != aTask.mEffect)
++			continue;
++
++		aTask.mEmitter = anEmitter;
++		aTask.mParticle = aParticle;
++		if (aValidTaskCount != i)
++			aTasks[aValidTaskCount] = aTask;
++		++aValidTaskCount;
++	}
++	aTasks.resize(aValidTaskCount);
++	if (aTasks.empty())
++		return;
++
++#if !defined(__EMSCRIPTEN__)
++	constexpr size_t MINIMUM_PARALLEL_BATCH_SIZE = 1024;
++	constexpr size_t MINIMUM_PARALLEL_EFFECT_SIZE = 512;
++	Sexy::FrameProfiler& aProfiler = Sexy::FrameProfiler::Get();
++	const bool aNeedsEffectTiming = aProfiler.IsDetailed();
++	const bool aBatchLargeEnough = aTasks.size() >= MINIMUM_PARALLEL_BATCH_SIZE;
++	if (aBatchLargeEnough || aNeedsEffectTiming)
++	{
++		std::sort(aTasks.begin(), aTasks.end(), [](const auto& theLeft, const auto& theRight)
++			{ return theLeft.mEffect < theRight.mEffect; });
++		ParticleCalculationWorkers* aWorkers = aBatchLargeEnough ? &GetParticleCalculationWorkers() : nullptr;
++		const bool aParallelWorkersAvailable = aWorkers != nullptr && aWorkers->Available();
++		for (size_t aBegin = 0; aBegin < aTasks.size(); )
++		{
++			size_t anEnd = aBegin + 1;
++			while (anEnd < aTasks.size() && aTasks[anEnd].mEffect == aTasks[aBegin].mEffect)
++				++anEnd;
++			const bool aRunParallel = aParallelWorkersAvailable && anEnd - aBegin >= MINIMUM_PARALLEL_EFFECT_SIZE;
++			const uint64_t aStart = aProfiler.BeginParticleEffect();
++			if (aRunParallel)
++			{
++				aWorkers->Run(aTasks, aBegin, anEnd);
++			}
++			else
++				for (size_t i = aBegin; i < anEnd; ++i)
++					aTasks[i].mEmitter->CalculateParticleState(aTasks[i].mParticle);
++			aProfiler.RecordParticleCalculation(static_cast<int>(aTasks[aBegin].mEffect),
++				static_cast<uint32_t>(anEnd - aBegin), aStart, aRunParallel);
++			aBegin = anEnd;
++		}
++		aTasks.clear();
++		return;
++	}
++#endif
++
++	for (const auto& aTask : aTasks)
++		aTask.mEmitter->CalculateParticleState(aTask.mParticle);
++	aTasks.clear();
++}
++
+ PvzpParticleSystem::~PvzpParticleSystem()
+ {
+ 	ParticleSystemDie();
+@@ -726,17 +810,24 @@ void PvzpParticleEmitter::UpdateParticleField(PvzpParticle* theParticle, Particl
+ 	{
+ 		float aLastX = FloatTrackEvaluateFromLastTime(theParticleField->mX, theParticle->mParticleLastTimeValue, aInterpX);
+ 		float aLastY = FloatTrackEvaluateFromLastTime(theParticleField->mY, theParticle->mParticleLastTimeValue, aInterpY);
++		float aPreviousShakeScale = mParticleSystem->mParticleHolder->mPreviousScreenShakeScale;
++		float aCurrentShakeScale = gLawnApp ? gLawnApp->GetScreenShakeScale() : 1.0f;
++		if (theParticle->mParticleLastTimeValue < 0.0f)
++		{
++			aLastX = 0.0f;
++			aLastY = 0.0f;
++		}
+ 		// undo the previous frame's shake offset
+ 		int aLastRandSeed = theParticle->mParticleAge - 1;
+ 		if (aLastRandSeed == -1)
+ 			aLastRandSeed = theParticle->mParticleDuration - 1;
+ 		srand(aLastRandSeed * reinterpret_cast<uintptr_t>(theParticle));
+-		theParticle->mPosition.x -= aLastX * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
+-		theParticle->mPosition.y -= aLastY * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
++		theParticle->mPosition.x -= aLastX * aPreviousShakeScale * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
++		theParticle->mPosition.y -= aLastY * aPreviousShakeScale * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
+ 		// apply this frame's random shake offset
+ 		srand(theParticle->mParticleAge * reinterpret_cast<uintptr_t>(theParticle));
+-		theParticle->mPosition.x += x * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
+-		theParticle->mPosition.y += y * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
++		theParticle->mPosition.x += x * aCurrentShakeScale * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
++		theParticle->mPosition.y += y * aCurrentShakeScale * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f - 1.0f);
+ 		break;
+ 	}
+ 	case ParticleFieldType::FIELD_CIRCLE:
+@@ -813,12 +904,13 @@ bool PvzpParticleEmitter::CrossFadeParticleToName(PvzpParticle* theParticle, con
+ 	return CrossFadeParticle(theParticle, aEmitter);
+ }
+ 
+-bool PvzpParticleEmitter::UpdateParticle(PvzpParticle* theParticle)
++bool PvzpParticleEmitter::UpdateParticle(PvzpParticle* theParticle, bool theDeferCalculation)
+ {
+ 	if (theParticle->mParticleAge >= theParticle->mParticleDuration)  // particle reached the end of its lifetime
+ 	{
++		const bool aGloomCloudLifetimeReduced = mParticleSystem->mEffectType == ParticleEffect::PARTICLE_GLOOMCLOUD && mCurrentQualityTier >= 2;
+ 		if (TestBit(mEmitterDef->mParticleFlags, static_cast<int>(ParticleFlags::PARTICLE_PARTICLE_LOOPS)) &&
+-			!(IsLowPriorityParticleEffect(mParticleSystem->mEffectType) && mCurrentQualityTier >= 2))
++			!((IsLowPriorityParticleEffect(mParticleSystem->mEffectType) || aGloomCloudLifetimeReduced) && mCurrentQualityTier >= 2))
+ 			theParticle->mParticleAge = 0;
+ 		else if (theParticle->mCrossFadeDuration > 0)
+ 			theParticle->mParticleAge = theParticle->mParticleDuration - 1;  // hold the particle on its last frame
+@@ -829,7 +921,16 @@ bool PvzpParticleEmitter::UpdateParticle(PvzpParticle* theParticle)
+ 		mParticleSystem->mParticleHolder->mParticles.DataArrayTryToGet(theParticle->mCrossFadeParticleID) == nullptr)
+ 		return false;  // the cross-fade source is gone; the particle can be deleted
+ 
+-	CalculateParticleState(theParticle);
++	if (theDeferCalculation && theParticle->mCrossFadeDuration <= 0 &&
++		theParticle->mCrossFadeParticleID == ParticleID::PARTICLEID_NULL)
++	{
++		PvzpParticleHolder* aHolder = mParticleSystem->mParticleHolder;
++		const auto anEmitterId = static_cast<ParticleEmitterID>(aHolder->mEmitters.DataArrayGetID(this));
++		const auto aParticleId = static_cast<ParticleID>(aHolder->mParticles.DataArrayGetID(theParticle));
++		aHolder->mParticleUpdateScratch.push_back({ anEmitterId, aParticleId, this, theParticle, mParticleSystem->mEffectType });
++	}
++	else
++		CalculateParticleState(theParticle);
+ 	return true;
+ }
+ 
+@@ -856,7 +957,9 @@ void PvzpParticleEmitter::CalculateParticleState(PvzpParticle* theParticle)
+ 			theParticle->mAnimationTimeValue += 1.0f;
+ 	}
+ 
+-	if (IsLowPriorityParticleEffect(mParticleSystem->mEffectType))
++	if (mParticleSystem->mEffectType == ParticleEffect::PARTICLE_GLOOMCLOUD)
++		theParticle->mParticleAge += mCurrentQualityTier >= 3 ? 4 : mCurrentQualityTier >= 2 ? 2 : 1;
++	else if (IsLowPriorityParticleEffect(mParticleSystem->mEffectType))
+ 		theParticle->mParticleAge += mCurrentQualityTier >= 3 ? 4 : mCurrentQualityTier == 2 ? 2 : 1;
+ 	else
+ 		++theParticle->mParticleAge;
+@@ -867,19 +970,30 @@ void PvzpParticleEmitter::UpdateSpawning()
+ {
+ 	PvzpParticleEmitter* aCrossFadeEmitter = mParticleSystem->mParticleHolder->mEmitters.DataArrayTryToGet(static_cast<unsigned int>(mCrossFadeEmitterID));
+ 	PvzpParticleEmitter* aSpawningEmitter = !aCrossFadeEmitter ? this : aCrossFadeEmitter;  // all spawn data is taken from this "primary" emitter
+-	mSpawnAccum += aSpawningEmitter->SystemTrackEvaluate(aSpawningEmitter->mEmitterDef->mSpawnRate, ParticleSystemTracks::TRACK_SPAWN_RATE) * 0.01;
++	const bool aIsGloomCloud = mParticleSystem->mEffectType == ParticleEffect::PARTICLE_GLOOMCLOUD;
++	const float aGloomCloudQualityScale = aIsGloomCloud ? GetGloomCloudQualityScale(mCurrentQualityTier) : 1.0f;
++	const float aSpawnRate = aSpawningEmitter->SystemTrackEvaluate(aSpawningEmitter->mEmitterDef->mSpawnRate, ParticleSystemTracks::TRACK_SPAWN_RATE);
++	mSpawnAccum += aSpawnRate * 0.01 * aGloomCloudQualityScale;
+ 	int aSpawnCount = static_cast<int>(mSpawnAccum);
+ 	mSpawnAccum -= aSpawnCount;
+ 
+ 	int aSpawnMinActive = static_cast<int>(aSpawningEmitter->SystemTrackEvaluate(aSpawningEmitter->mEmitterDef->mSpawnMinActive, ParticleSystemTracks::TRACK_SPAWN_MIN_ACTIVE));
++	if (aIsGloomCloud && aSpawnMinActive > 0 && aGloomCloudQualityScale < 1.0f)
++		aSpawnMinActive = std::max(1, static_cast<int>(std::ceil(aSpawnMinActive * aGloomCloudQualityScale)));
+ 	if (aSpawnMinActive >= 0 && aSpawnCount < aSpawnMinActive - mParticleList.mSize)
+ 		aSpawnCount = aSpawnMinActive - mParticleList.mSize;  // spawn at least enough to reach aSpawnMinActive
+ 	int aSpawnMaxActive = static_cast<int>(aSpawningEmitter->SystemTrackEvaluate(aSpawningEmitter->mEmitterDef->mSpawnMaxActive, ParticleSystemTracks::TRACK_SPAWN_MAX_ACTIVE));
++	if (aIsGloomCloud && aSpawnMaxActive > 0 && aGloomCloudQualityScale < 1.0f)
++		aSpawnMaxActive = std::max(1, static_cast<int>(std::floor(aSpawnMaxActive * aGloomCloudQualityScale)));
+ 	if (aSpawnMaxActive >= 0 && aSpawnCount > aSpawnMaxActive - mParticleList.mSize)
+ 		aSpawnCount = aSpawnMaxActive - mParticleList.mSize;  // cap the active count at aSpawnMaxActive
++	bool aSpawnMaxLaunchedAllowsParticle = true;
+ 	if (FloatTrackIsSet(aSpawningEmitter->mEmitterDef->mSpawnMaxLaunched))
+ 	{
+ 		int aSpawnMaxLaunched = aSpawningEmitter->SystemTrackEvaluate(aSpawningEmitter->mEmitterDef->mSpawnMaxLaunched, ParticleSystemTracks::TRACK_SPAWN_MAX_LAUNCHED);
++		if (aIsGloomCloud && aSpawnMaxLaunched > 0 && aGloomCloudQualityScale < 1.0f)
++			aSpawnMaxLaunched = std::max(1, static_cast<int>(std::floor(aSpawnMaxLaunched * aGloomCloudQualityScale)));
++		aSpawnMaxLaunchedAllowsParticle = mParticlesSpawned < aSpawnMaxLaunched;
+ 		if (aSpawnCount > aSpawnMaxLaunched - mParticlesSpawned)
+ 			aSpawnCount = aSpawnMaxLaunched - mParticlesSpawned;  // cap at the emitter's total launch limit
+ 	}
+@@ -897,6 +1011,9 @@ void PvzpParticleEmitter::UpdateSpawning()
+ 			(mCurrentQualityTier == 1 && (aPhase & 3U) == 0))
+ 			aSpawnCount = 0;
+ 	}
++	if (aIsGloomCloud && mCurrentQualityTier > 0 && mSystemAge == 0 && mParticleList.mSize == 0 &&
++		aSpawnCount <= 0 && aSpawnRate > 0.0f && aSpawnMaxActive != 0 && aSpawnMaxLaunchedAllowsParticle)
++		aSpawnCount = 1;
+ 
+ 	for (int i = 0; i < aSpawnCount; i++)
+ 	{
+@@ -933,7 +1050,7 @@ void PvzpParticleEmitter::DeleteAll()
+ 	}
+ }
+ 
+-void PvzpParticleSystem::Update()
++void PvzpParticleSystem::Update(bool theCollectParallelTasks)
+ {
+ 	Sexy::FrameProfiler& aProfiler = Sexy::FrameProfiler::Get();
+ 	const uint64_t aProfileStart = aProfiler.BeginParticleEffect();
+@@ -948,7 +1065,7 @@ void PvzpParticleSystem::Update()
+ 			PvzpParticleEmitter* aEmitter = mParticleHolder->mEmitters.DataArrayGet(static_cast<unsigned int>(aNode->mValue));
+ 			const uint32_t aParticlesBefore = aProfileStart == 0 ? 0 : aEmitter->mParticleList.mSize;
+ 			const int32_t aSpawnedBefore = aProfileStart == 0 ? 0 : aEmitter->mParticlesSpawned;
+-			aEmitter->Update();
++			aEmitter->Update(theCollectParallelTasks);
+ 			if (aProfileStart != 0)
+ 			{
+ 				const uint32_t aSpawnedThisUpdate = static_cast<uint32_t>(std::max(0, aEmitter->mParticlesSpawned - aSpawnedBefore));
+@@ -1025,7 +1142,7 @@ static bool EmitterUsesSharedRandomShake(const PvzpEmitterDefinition& theDefinit
+ 	return false;
+ }
+ 
+-void PvzpParticleEmitter::Update()
++void PvzpParticleEmitter::Update(bool theCollectParallelTasks)
+ {
+ 	if (mDead)
+ 		return;
+@@ -1061,54 +1178,17 @@ void PvzpParticleEmitter::Update()
+ 	for (int i = 0; i < mEmitterDef->mSystemFields.count; i++)
+ 		UpdateSystemField(&mEmitterDef->mSystemFields.Fields[i], mSystemTimeValue, i);
+ 	PvzpParticleHolder* aHolder = mParticleSystem->mParticleHolder;
+-	const bool anEmitterUsesSharedRandom = EmitterUsesSharedRandomShake(*mEmitterDef);
+-	const bool aUseParallelCalculation = IsParticleParallelEnabled() && !anEmitterUsesSharedRandom && mParticleList.mSize >= 512;
+-	if (!aUseParallelCalculation)
+-	{
+-		for (PvzpListNode<ParticleID>* aNode = mParticleList.mHead; aNode != nullptr; )
+-		{
+-			PvzpListNode<ParticleID>* aNext = aNode->mNext;
+-			PvzpParticle* aParticle = aHolder->mParticles.DataArrayGet(static_cast<unsigned int>(aNode->mValue));
+-			if (!UpdateParticle(aParticle))
+-				DeleteParticle(aParticle);
+-			aNode = aNext;
+-		}
+-	}
+-	else
++	const bool aCanDeferCalculations = theCollectParallelTasks && IsParticleParallelEnabled() && !aDie &&
++		mCrossFadeEmitterID == ParticleEmitterID::PARTICLEEMITTERID_NULL && !EmitterUsesSharedRandomShake(*mEmitterDef);
++	for (PvzpListNode<ParticleID>* aNode = mParticleList.mHead; aNode != nullptr; )
+ 	{
+-		aHolder->mParticleIdScratch.clear();
+-		for (PvzpListNode<ParticleID>* aNode = mParticleList.mHead; aNode != nullptr; aNode = aNode->mNext)
+-			aHolder->mParticleIdScratch.push_back(aNode->mValue);
+-		for (ParticleID anId : aHolder->mParticleIdScratch)
+-		{
+-			PvzpParticle* aParticle = aHolder->mParticles.DataArrayTryToGet(anId);
+-			if (aParticle != nullptr && !(
+-				aParticle->mParticleAge < aParticle->mParticleDuration &&
+-				aParticle->mCrossFadeDuration <= 0 &&
+-				aParticle->mCrossFadeParticleID == ParticleID::PARTICLEID_NULL))
+-			{
+-				if (!UpdateParticle(aParticle))
+-					DeleteParticle(aParticle);
+-			}
+-		}
+-		aHolder->mParticleUpdateScratch.clear();
+-		for (ParticleID anId : aHolder->mParticleIdScratch)
+-		{
+-			PvzpParticle* aParticle = aHolder->mParticles.DataArrayTryToGet(anId);
+-			if (aParticle != nullptr && aParticle->mParticleAge < aParticle->mParticleDuration &&
+-				aParticle->mCrossFadeDuration <= 0 && aParticle->mCrossFadeParticleID == ParticleID::PARTICLEID_NULL)
+-				aHolder->mParticleUpdateScratch.push_back(aParticle);
+-		}
+-		ParticleCalculationWorkers& aWorkers = GetParticleCalculationWorkers();
+-		if (aWorkers.Available())
+-		{
+-			aWorkers.Run(this, aHolder->mParticleUpdateScratch);
+-			Sexy::FrameProfiler::Get().RecordParticleParallelBatch(static_cast<int>(mParticleSystem->mEffectType),
+-				static_cast<uint32_t>(aHolder->mParticleUpdateScratch.size()));
+-		}
+-		else
+-			for (PvzpParticle* aParticle : aHolder->mParticleUpdateScratch)
+-				CalculateParticleState(aParticle);
++		PvzpListNode<ParticleID>* aNext = aNode->mNext;
++		PvzpParticle* aParticle = aHolder->mParticles.DataArrayGet(static_cast<unsigned int>(aNode->mValue));
++		const bool aDeferCalculation = aCanDeferCalculations && aParticle->mCrossFadeDuration <= 0 &&
++			aParticle->mCrossFadeParticleID == ParticleID::PARTICLEID_NULL;
++		if (!UpdateParticle(aParticle, aDeferCalculation))
++			DeleteParticle(aParticle);
++		aNode = aNext;
+ 	}
+ 	UpdateSpawning();
+ 
+@@ -1550,6 +1630,7 @@ PvzpParticleHolder::~PvzpParticleHolder()
+ 
+ void PvzpParticleHolder::InitializeHolder()
+ {
++	mParticleUpdateScratch.clear();
+ 	mZamboniSmokeLiveParticles = 0;
+ 	mVisualQualityTier = 0;
+ 	mParticleCapacityWarningLogged = false;
+diff --git a/src/PvzpLib/PvzpParticle.h b/src/PvzpLib/PvzpParticle.h
+index 2c1b767..36a4b3a 100644
+--- a/src/PvzpLib/PvzpParticle.h
++++ b/src/PvzpLib/PvzpParticle.h
+@@ -239,13 +239,22 @@ enum ParticleTracks : int32_t
+ class PvzpParticleSystem;
+ class PvzpParticleEmitter;
+ class PvzpParticle;
++struct PvzpParticleCalculationTask
++{
++	ParticleEmitterID mEmitterId = ParticleEmitterID::PARTICLEEMITTERID_NULL;
++	ParticleID mParticleId = ParticleID::PARTICLEID_NULL;
++	PvzpParticleEmitter* mEmitter = nullptr;
++	PvzpParticle* mParticle = nullptr;
++	ParticleEffect mEffect = ParticleEffect::PARTICLE_NONE;
++};
++
+ class PvzpParticleHolder
+ {
+ public:
+ 	DataArray<PvzpParticleSystem>	mParticleSystems;
+ 	DataArray<PvzpParticleEmitter>	mEmitters;
+ 	DataArray<PvzpParticle>			mParticles;
+-	std::vector<PvzpParticle*>		mParticleUpdateScratch;
++	std::vector<PvzpParticleCalculationTask> mParticleUpdateScratch;
+ 	std::vector<ParticleID>			mParticleIdScratch;
+ 	PvzpAllocator					mParticleListNodeAllocator;
+ 	PvzpAllocator					mEmitterListNodeAllocator;
+@@ -256,12 +265,14 @@ public:
+ 	uint32_t						mSuppressedParticleSystemFailures = 0;
+ 	uint32_t						mSuppressedEmitterFailures = 0;
+ 	int								mVisualQualityTier = 0;
++	float							mPreviousScreenShakeScale = 1.0f;
+ 
+ public:
+ 	~PvzpParticleHolder();
+ 
+ 	void							InitializeHolder();
+ 	void							DisposeHolder();
++	void							ProcessParticleUpdateBatch();
+ 	PvzpParticleSystem*				AllocParticleSystemFromDef(float theX, float theY, int theRenderOrder, PvzpParticleDefinition* theDefinition, ParticleEffect theParticleEffect);
+ 	PvzpParticleSystem*				AllocParticleSystem(float theX, float theY, int theRenderOrder, ParticleEffect theParticleEffect);
+ 	bool					IsAtUsageThreshold(uint32_t thePercent) const;
+@@ -340,7 +351,7 @@ public:
+ 
+ public:
+ 	void							PvzpEmitterInitialize(float theX, float theY, PvzpParticleSystem* theSystem, PvzpEmitterDefinition* theEmitterDef);
+-	void							Update();
++	void							Update(bool theCollectParallelTasks = false);
+ 	void							Draw(Graphics* g, PvzpTriangleGroup* theTriangleGroup, uint32_t& theParticlesVisited,
+ 								uint32_t& theParticlesCulled);
+ 	void							SystemMove(float theX, float theY);
+@@ -348,7 +359,7 @@ public:
+ 	void							DrawParticle(Graphics* g, PvzpParticle* theParticle, PvzpTriangleGroup* theTriangleGroup,
+ 								uint32_t& theCullCount);
+ 	void							UpdateSpawning();
+-	bool							UpdateParticle(PvzpParticle* theParticle);
++	bool							UpdateParticle(PvzpParticle* theParticle, bool theDeferCalculation = false);
+ 	PvzpParticle*					SpawnParticle(int theIndex, int theSpawnCount);
+ 	bool							CrossFadeParticle(PvzpParticle* theParticle, PvzpParticleEmitter* theToEmitter);
+ 	void							CrossFadeEmitter(PvzpParticleEmitter* theToEmitter);
+@@ -383,7 +394,7 @@ public:
+ 
+ 	void							PvzpParticleInitializeFromDef(float theX, float theY, int theRenderOrder, PvzpParticleDefinition* theDefinition, ParticleEffect theEffectType);
+ 	void							ParticleSystemDie();
+-	void							Update();
++	void							Update(bool theCollectParallelTasks = false);
+ 	void							Draw(Graphics* g);
+ 	void							SystemMove(float theX, float theY);
+ 	void							OverrideColor(const char* theEmitterName, const Color& theColor);
+diff --git a/src/PvzpLib/Reanimator.cpp b/src/PvzpLib/Reanimator.cpp
+index c0e6c0f..c128e3c 100644
+--- a/src/PvzpLib/Reanimator.cpp
++++ b/src/PvzpLib/Reanimator.cpp
+@@ -758,7 +758,9 @@ bool Reanimation::DrawTrack(Graphics* g, int theTrackIndex, [[maybe_unused]] int
+ 	MatrixFromTransform(aTransform, aTransformMatrix);
+ 	SexyMatrix3Multiply(aMatrix, aTransformMatrix, aMatrix);  // apply the track transform
+ 	SexyMatrix3Multiply(aMatrix, mOverlayMatrix, aMatrix);  // apply the overlay matrix
+-	SexyMatrix3Translation(aMatrix, aTrackInstance->mShakeX + g->mTransX, aTrackInstance->mShakeY + g->mTransY);  // apply track shake and g's translation
++	float aShakeScale = gLawnApp ? gLawnApp->GetScreenShakeScale() : 1.0f;
++	SexyMatrix3Translation(aMatrix, aTrackInstance->mShakeX * aShakeScale + g->mTransX,
++		aTrackInstance->mShakeY * aShakeScale + g->mTransY);  // apply track shake and g's translation
+ 
+ 	if (aAtlasImage != nullptr)  // atlas exists, the frame has an image, and no override is set
+ 	{
+@@ -898,7 +900,9 @@ void Reanimation::GetTrackMatrix(int theTrackIndex, SexyTransform2D& theMatrix)
+ 	MatrixFromTransform(aTransform, aTransformMatrix);
+ 	SexyMatrix3Multiply(theMatrix, aTransformMatrix, theMatrix);  // apply the track transform
+ 	SexyMatrix3Multiply(theMatrix, mOverlayMatrix, theMatrix);  // apply the overlay matrix
+-	SexyMatrix3Translation(theMatrix, aTrackInstance->mShakeX - 0.5f, aTrackInstance->mShakeY - 0.5f);  // apply track shake
++	float aShakeScale = gLawnApp ? gLawnApp->GetScreenShakeScale() : 1.0f;
++	SexyMatrix3Translation(theMatrix, aTrackInstance->mShakeX * aShakeScale - 0.5f,
++		aTrackInstance->mShakeY * aShakeScale - 0.5f);  // apply track shake
+ }
+ 
+ void Reanimation::GetFrameTime(ReanimatorFrameTime* theFrameTime)
+diff --git a/src/SexyAppFramework/graphics/GLInterface.cpp b/src/SexyAppFramework/graphics/GLInterface.cpp
+index 27a75b2..7b6e8a9 100644
+--- a/src/SexyAppFramework/graphics/GLInterface.cpp
++++ b/src/SexyAppFramework/graphics/GLInterface.cpp
+@@ -32,6 +32,7 @@
+ #include "graphics/Graphics.h"
+ #include "graphics/MemoryImage.h"
+ #include "SexyAppBase.h"
++#include "misc/FrameProfiler.h"
+ #include <cstdlib>
+ #include <cstring>
+ #include <mutex>
+@@ -1297,11 +1298,14 @@ bool GLInterface::PreDraw()
+ void GLInterface::Flush()
+ {
+ 	gNumVertices = 0;
++	// Measure CPU time blocked inside the platform swap call, not GPU execution time.
++	FrameProfileScope aSwapWaitScope(FrameProfileMetric::SWAP_WAIT);
+ #ifdef __SWITCH__
+ 	eglSwapBuffers(mApp->mWindow, mApp->mSurface);
+ #else
+ 	SDL_GL_SwapWindow((SDL_Window*)mApp->mWindow);
+ #endif
++	aSwapWaitScope.Stop();
+ #ifndef __EMSCRIPTEN__
+ 	// Clear back buffer after swap (content undefined)
+ 	glClear(GL_COLOR_BUFFER_BIT);
+diff --git a/src/SexyAppFramework/misc/FrameProfiler.cpp b/src/SexyAppFramework/misc/FrameProfiler.cpp
+index bf5c0fe..1ed82bd 100644
+--- a/src/SexyAppFramework/misc/FrameProfiler.cpp
++++ b/src/SexyAppFramework/misc/FrameProfiler.cpp
+@@ -68,6 +68,10 @@ void FrameProfiler::Initialize(const std::filesystem::path& thePath, uint64_t th
+ 	std::string_view theCommitDate, bool theDetailed)
+ {
+ 	mPath = thePath;
++	mSessionID = theSessionID;
++	mBuildNumber = theBuildNumber;
++	mCommitDate.assign(theCommitDate);
++	mLogSegmentIndex = 0;
+ 	mDetailed = theDetailed;
+ 	mInitialized = false;
+ 	mLastFrameCounter = 0;
+@@ -96,12 +100,18 @@ void FrameProfiler::Initialize(const std::filesystem::path& thePath, uint64_t th
+ 		return;
+ 	mInitialized = true;
+ 
+-	const std::string aCommitDate(theCommitDate);
+ 	const char* aParallelEnv = std::getenv("PVZ_PARTICLE_PARALLEL");
+-	const bool aParticleParallel = aParallelEnv != nullptr && std::strcmp(aParallelEnv, "1") == 0;
+-	mLog << std::format("{{\"type\":\"session\",\"session_id\":{},\"build\":{},\"commit_date\":\"{}\",\"detail\":{},\"particle_parallel\":{},\"subsystem_timings_are_inclusive\":true,\"counter_frequency\":{}}}\n",
+-		theSessionID, theBuildNumber, aCommitDate, mDetailed ? "true" : "false", aParticleParallel ? "true" : "false",
+-		SDL_GetPerformanceFrequency());
++	mParticleParallelEnabled = aParallelEnv != nullptr && std::strcmp(aParallelEnv, "1") == 0;
++	WriteSessionMetadata();
++}
++
++void FrameProfiler::WriteSessionMetadata()
++{
++	if (!mLog.is_open())
++		return;
++	mLog << std::format("{{\"type\":\"session\",\"session_id\":{},\"segment_index\":{},\"build\":{},\"commit_date\":\"{}\",\"detail\":{},\"particle_parallel\":{},\"subsystem_timings_are_inclusive\":true,\"counter_frequency\":{}}}\n",
++		mSessionID, mLogSegmentIndex, mBuildNumber, mCommitDate, mDetailed ? "true" : "false",
++		mParticleParallelEnabled ? "true" : "false", SDL_GetPerformanceFrequency());
+ 	mLog.flush();
+ }
+ 
+@@ -178,13 +188,17 @@ void FrameProfiler::RecordParticleEffectDraw(int theEffect, uint64_t theStart, u
+ 	aMetrics.mBatchFlushes += theBatchFlushes;
+ }
+ 
+-void FrameProfiler::RecordParticleParallelBatch(int theEffect, uint32_t theParticles)
++void FrameProfiler::RecordParticleCalculation(int theEffect, uint32_t theParticles, uint64_t theStartCounter, bool theParallel)
+ {
+-	if (!mDetailed || theEffect < 0 || static_cast<size_t>(theEffect) >= PARTICLE_EFFECT_COUNT)
++	if (theStartCounter == 0 || theEffect < 0 || static_cast<size_t>(theEffect) >= PARTICLE_EFFECT_COUNT)
+ 		return;
+ 	auto& aMetrics = mParticleEffects[static_cast<size_t>(theEffect)];
+-	++aMetrics.mParallelBatches;
+-	aMetrics.mParallelParticles += theParticles;
++	aMetrics.mUpdateTicks += Counter() - theStartCounter;
++	if (theParallel)
++	{
++		++aMetrics.mParallelBatches;
++		aMetrics.mParallelParticles += theParticles;
++	}
+ }
+ 
+ uint64_t FrameProfiler::Begin(FrameProfileMetric theMetric)
+@@ -250,7 +264,7 @@ const char* FrameProfiler::MetricName(FrameProfileMetric theMetric)
+ 	static constexpr const char* aNames[] = {
+ 		"update", "update_interpolation", "board_update", "effects_update", "particle_systems_update", "trails_update",
+ 		"reanimations_update", "board_draw", "screen_draw", "render_gather", "render_sort",
+-		"render_items", "present", "plant_targeting", "projectile_impact", "projectile_splash", "sun_magnet_assignment"
++		"render_items", "present", "swap_wait", "plant_targeting", "projectile_impact", "projectile_splash", "sun_magnet_assignment"
+ 	};
+ 	return aNames[static_cast<size_t>(theMetric)];
+ }
+@@ -259,11 +273,12 @@ void FrameProfiler::AppendSampleJson(std::string& theOutput, const FrameSample&
+ {
+ 	if (!theOutput.empty() && theOutput.back() != '[')
+ 		theOutput += ',';
+-	theOutput += std::format("{{\"seq\":{},\"frame_ms\":{:.3f},\"update_ms\":{:.3f},\"interpolation_update_ms\":{:.3f},\"board_update_ms\":{:.3f},\"effects_update_ms\":{:.3f},\"particle_systems_update_ms\":{:.3f},\"trails_update_ms\":{:.3f},\"reanimations_update_ms\":{:.3f},\"screen_draw_ms\":{:.3f},\"board_draw_ms\":{:.3f},\"render_gather_ms\":{:.3f},\"render_sort_ms\":{:.3f},\"render_items_ms\":{:.3f},\"present_ms\":{:.3f},\"plant_targeting_ms\":{:.3f},\"projectile_impact_ms\":{:.3f},\"projectile_splash_ms\":{:.3f},\"sun_magnet_ms\":{:.3f},\"update_backlog_ms\":{:.3f},\"pending_updates\":{:.2f},\"updates\":{},\"interpolation_updates\":{}",
++	theOutput += std::format("{{\"seq\":{},\"frame_ms\":{:.3f},\"update_ms\":{:.3f},\"interpolation_update_ms\":{:.3f},\"board_update_ms\":{:.3f},\"effects_update_ms\":{:.3f},\"particle_systems_update_ms\":{:.3f},\"trails_update_ms\":{:.3f},\"reanimations_update_ms\":{:.3f},\"screen_draw_ms\":{:.3f},\"board_draw_ms\":{:.3f},\"render_gather_ms\":{:.3f},\"render_sort_ms\":{:.3f},\"render_items_ms\":{:.3f},\"present_ms\":{:.3f},\"swap_wait_ms\":{:.3f},\"plant_targeting_ms\":{:.3f},\"projectile_impact_ms\":{:.3f},\"projectile_splash_ms\":{:.3f},\"sun_magnet_ms\":{:.3f},\"update_backlog_ms\":{:.3f},\"pending_updates\":{:.2f},\"updates\":{},\"interpolation_updates\":{}",
+ 		theSample.mSequence, theSample.mFrameMs, theSample.mUpdateMs, theSample.mInterpolationUpdateMs, theSample.mBoardUpdateMs,
+ 		theSample.mEffectsUpdateMs, theSample.mParticleSystemsUpdateMs, theSample.mTrailsUpdateMs,
+ 		theSample.mReanimationsUpdateMs, theSample.mScreenDrawMs, theSample.mBoardDrawMs, theSample.mRenderGatherMs,
+-		theSample.mRenderSortMs, theSample.mRenderItemsMs, theSample.mPresentMs, theSample.mPlantTargetingMs, theSample.mProjectileImpactMs,
++		theSample.mRenderSortMs, theSample.mRenderItemsMs, theSample.mPresentMs, theSample.mSwapWaitMs,
++		theSample.mPlantTargetingMs, theSample.mProjectileImpactMs,
+ 		theSample.mProjectileSplashMs, theSample.mSunMagnetMs, theSample.mUpdateBacklogMs, theSample.mPendingUpdates,
+ 		theSample.mUpdates, theSample.mInterpolationUpdates);
+ 	AppendCountsJson(theOutput, theSample.mCounts);
+@@ -307,6 +322,7 @@ void FrameProfiler::AddSample(const FrameSample& theSample)
+ 	mUpdateSummary.Add(theSample.mUpdateMs);
+ 	mDrawSummary.Add(theSample.mScreenDrawMs);
+ 	mPresentSummary.Add(theSample.mPresentMs);
++	mSwapWaitSummary.Add(theSample.mSwapWaitMs);
+ 
+ 	const uint64_t aNow = Counter();
+ 	if (mSlowCaptureActive)
+@@ -360,7 +376,7 @@ void FrameProfiler::WriteSummary(uint64_t theNow)
+ {
+ 	const double aWindowSeconds = ToMilliseconds(theNow - mLastSummaryCounter) / 1000.0;
+ 	const FrameSample& aLatest = mSamples[(mSampleWriteIndex + mSamples.size() - 1) % mSamples.size()];
+-	std::string aLine = std::format("{{\"type\":\"summary\",\"seq\":{},\"window_seconds\":{:.2f},\"target_frame_ms\":{:.3f},\"frame\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"update\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"draw_screen\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"present\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"board_update_ms\":{:.3f},\"effects_update_ms\":{:.3f},\"particle_systems_update_ms\":{:.3f},\"trails_update_ms\":{:.3f},\"reanimations_update_ms\":{:.3f},\"board_draw_ms\":{:.3f},\"screen_draw_ms\":{:.3f},\"render_gather_ms\":{:.3f},\"render_sort_ms\":{:.3f},\"render_items_ms\":{:.3f},\"update_backlog_ms\":{:.3f},\"pending_updates\":{:.2f},\"updates_last_frame\":{},\"interpolation_updates_last_frame\":{}",
++	std::string aLine = std::format("{{\"type\":\"summary\",\"seq\":{},\"window_seconds\":{:.2f},\"target_frame_ms\":{:.3f},\"frame\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"update\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"draw_screen\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"present\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"swap_wait\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"board_update_ms\":{:.3f},\"effects_update_ms\":{:.3f},\"particle_systems_update_ms\":{:.3f},\"trails_update_ms\":{:.3f},\"reanimations_update_ms\":{:.3f},\"board_draw_ms\":{:.3f},\"screen_draw_ms\":{:.3f},\"render_gather_ms\":{:.3f},\"render_sort_ms\":{:.3f},\"render_items_ms\":{:.3f},\"update_backlog_ms\":{:.3f},\"pending_updates\":{:.2f},\"updates_last_frame\":{},\"interpolation_updates_last_frame\":{}",
+ 		aLatest.mSequence, aWindowSeconds, mFrameBudgetMs,
+ 		mFrameSummary.mSamples ? mFrameSummary.mTotalMs / mFrameSummary.mSamples : 0.0,
+ 		mFrameSummary.Percentile(0.95), mFrameSummary.mMaxMs,
+@@ -370,6 +386,8 @@ void FrameProfiler::WriteSummary(uint64_t theNow)
+ 		mDrawSummary.Percentile(0.95), mDrawSummary.mMaxMs,
+ 		mPresentSummary.mSamples ? mPresentSummary.mTotalMs / mPresentSummary.mSamples : 0.0,
+ 		mPresentSummary.Percentile(0.95), mPresentSummary.mMaxMs,
++		mSwapWaitSummary.mSamples ? mSwapWaitSummary.mTotalMs / mSwapWaitSummary.mSamples : 0.0,
++		mSwapWaitSummary.Percentile(0.95), mSwapWaitSummary.mMaxMs,
+ 		aLatest.mBoardUpdateMs, aLatest.mEffectsUpdateMs, aLatest.mParticleSystemsUpdateMs, aLatest.mTrailsUpdateMs,
+ 		aLatest.mReanimationsUpdateMs, aLatest.mBoardDrawMs, aLatest.mScreenDrawMs, aLatest.mRenderGatherMs,
+ 		aLatest.mRenderSortMs, aLatest.mRenderItemsMs, aLatest.mUpdateBacklogMs, aLatest.mPendingUpdates, aLatest.mUpdates,
+@@ -384,6 +402,7 @@ void FrameProfiler::WriteSummary(uint64_t theNow)
+ 	mUpdateSummary.Reset();
+ 	mDrawSummary.Reset();
+ 	mPresentSummary.Reset();
++	mSwapWaitSummary.Reset();
+ }
+ 
+ void FrameProfiler::RotateLogIfNeeded(size_t theIncomingBytes)
+@@ -405,6 +424,11 @@ void FrameProfiler::RotateLogIfNeeded(size_t theIncomingBytes)
+ 		mLog.open(mPath, std::ios::out | std::ios::app | std::ios::binary);
+ 	else
+ 		mLog.open(mPath, std::ios::out | std::ios::trunc | std::ios::binary);
++	if (mLog.is_open())
++	{
++		++mLogSegmentIndex;
++		WriteSessionMetadata();
++	}
+ }
+ 
+ void FrameProfiler::WriteLine(const std::string& theLine)
+@@ -437,6 +461,7 @@ void FrameProfiler::RecordFrame()
+ 	aSample.mRenderSortMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::RENDER_SORT)], 0));
+ 	aSample.mRenderItemsMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::RENDER_ITEMS)], 0));
+ 	aSample.mPresentMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::PRESENT)], 0));
++	aSample.mSwapWaitMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::SWAP_WAIT)], 0));
+ 	aSample.mPlantTargetingMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::PLANT_TARGETING)], 0));
+ 	aSample.mProjectileImpactMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::PROJECTILE_IMPACT)], 0));
+ 	aSample.mProjectileSplashMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::PROJECTILE_SPLASH)], 0));
+diff --git a/src/SexyAppFramework/misc/FrameProfiler.h b/src/SexyAppFramework/misc/FrameProfiler.h
+index 2e6786a..fc69582 100644
+--- a/src/SexyAppFramework/misc/FrameProfiler.h
++++ b/src/SexyAppFramework/misc/FrameProfiler.h
+@@ -34,6 +34,7 @@ enum class FrameProfileMetric : uint8_t
+ 	RENDER_SORT,
+ 	RENDER_ITEMS,
+ 	PRESENT,
++	SWAP_WAIT,
+ 	PLANT_TARGETING,
+ 	PROJECTILE_IMPACT,
+ 	PROJECTILE_SPLASH,
+@@ -103,7 +104,7 @@ public:
+ 		uint32_t theParticlesSpawned, uint32_t theLiveParticles, uint32_t theEmitters);
+ 	void RecordParticleEffectDraw(int theEffect, uint64_t theStart, uint32_t theParticlesVisited,
+ 		uint32_t theParticlesCulled, uint32_t theTrianglesSubmitted, uint32_t theBatchFlushes);
+-	void RecordParticleParallelBatch(int theEffect, uint32_t theParticles);
++	void RecordParticleCalculation(int theEffect, uint32_t theParticles, uint64_t theStartCounter, bool theParallel);
+ 
+ 	uint64_t Begin(FrameProfileMetric theMetric);
+ 	void End(FrameProfileMetric theMetric, uint64_t theStart);
+@@ -134,6 +135,7 @@ private:
+ 		double mRenderSortMs = 0.0;
+ 		double mRenderItemsMs = 0.0;
+ 		double mPresentMs = 0.0;
++		double mSwapWaitMs = 0.0;
+ 		double mPlantTargetingMs = 0.0;
+ 		double mProjectileImpactMs = 0.0;
+ 		double mProjectileSplashMs = 0.0;
+@@ -170,10 +172,12 @@ private:
+ 	void StartSlowCapture(const FrameSample& theSample);
+ 	void CompleteSlowCapture();
+ 	void WriteLine(const std::string& theLine);
++	void WriteSessionMetadata();
+ 	void RotateLogIfNeeded(size_t theIncomingBytes);
+ 
+ 	std::filesystem::path mPath;
+ 	std::ofstream mLog;
++	std::string mCommitDate;
+ 	std::array<uint64_t, METRIC_COUNT> mMetricTicks{};
+ 	std::array<FrameSample, SAMPLE_RING_SIZE> mSamples{};
+ 	std::array<FrameSample, SLOW_CAPTURE_PRE_SAMPLES + SLOW_CAPTURE_POST_SAMPLES> mSlowCapture{};
+@@ -181,6 +185,7 @@ private:
+ 	TimingSummary mUpdateSummary;
+ 	TimingSummary mDrawSummary;
+ 	TimingSummary mPresentSummary;
++	TimingSummary mSwapWaitSummary;
+ 	FrameProfileBoardCounts mBoardCounts;
+ 	std::array<FrameProfileParticleEffect, PARTICLE_EFFECT_COUNT> mParticleEffects{};
+ 	uint64_t mLastFrameCounter = 0;
+@@ -188,11 +193,14 @@ private:
+ 	uint64_t mNextSlowCaptureAllowed = 0;
+ 	uint64_t mSlowCaptureTriggerSequence = 0;
+ 	uint64_t mFrameSequence = 0;
++	uint64_t mSessionID = 0;
+ 	size_t mSampleWriteIndex = 0;
+ 	size_t mSamplesStored = 0;
+ 	size_t mSlowCaptureCount = 0;
+ 	uint32_t mUpdatesSinceSample = 0;
+ 	uint32_t mInterpolationUpdatesSinceSample = 0;
++	uint32_t mLogSegmentIndex = 0;
++	int mBuildNumber = 0;
+ 	double mFrameBudgetMs = 10.0;
+ 	double mUpdateBacklogMs = 0.0;
+ 	double mPendingUpdates = 0.0;
+@@ -201,6 +209,7 @@ private:
+ 	int mVisualQualityTier = 0;
+ 	bool mInitialized = false;
+ 	bool mDetailed = false;
++	bool mParticleParallelEnabled = false;
+ 	bool mSlowCaptureActive = false;
+ };
+ 

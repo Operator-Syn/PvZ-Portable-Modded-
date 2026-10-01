@@ -20,6 +20,7 @@
  */
 
 #include "../Board.h"
+#include "../ToolTipWidget.h"
 #include "GameButton.h"
 #include "../Cutscene.h"
 #include "AlmanacDialog.h"
@@ -32,6 +33,7 @@
 #include "../../PvzpLib/PvzpFoley.h"
 #include "widget/Slider.h"
 #include "widget/Checkbox.h"
+#include "widget/WidgetManager.h"
 #include "../../PvzpLib/PvzpStringFile.h"
 
 using namespace Sexy;
@@ -80,6 +82,11 @@ NewOptionsDialog::NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector) :
 	mAutoReuseEndlessSeedsCheckbox = MakeNewCheckbox(NewOptionsDialog::NewOptionsDialog_AutoReuseEndlessSeeds, this,
 		mShowAutoReuseEndlessSeeds && theApp->mBoard->mAutoReuseEndlessSeeds);
 	mAutoReuseEndlessSeedsCheckbox->SetVisible(mShowAutoReuseEndlessSeeds);
+	mScreenShakeButton = MakeButton(NewOptionsDialog::NewOptionsDialog_ScreenShake, this, "");
+	UpdateScreenShakeButtonLabel();
+	mToolTip = std::make_unique<ToolTipWidget>();
+	mToolTip->mVisible = false;
+	mToolTip->mMaxLinesWidth = 240;
 
 	if (mFromGameSelector)
 	{
@@ -117,6 +124,22 @@ NewOptionsDialog::NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector) :
 
 NewOptionsDialog::~NewOptionsDialog() = default;
 
+void NewOptionsDialog::UpdateScreenShakeButtonLabel()
+{
+	switch (mApp->mScreenShakeMode)
+	{
+	case LawnApp::ScreenShakeMode::REDUCED:
+		mScreenShakeButton->SetLabel(mApp->GetString("SCREEN_SHAKE_REDUCED_SHORT", "Low"));
+		break;
+	case LawnApp::ScreenShakeMode::OFF:
+		mScreenShakeButton->SetLabel(mApp->GetString("SCREEN_SHAKE_OFF_SHORT", "Off"));
+		break;
+	default:
+		mScreenShakeButton->SetLabel(mApp->GetString("SCREEN_SHAKE_NORMAL_SHORT", "On"));
+		break;
+	}
+}
+
 int NewOptionsDialog::GetPreferredHeight([[maybe_unused]] int theWidth)
 {
 	return IMAGE_OPTIONS_MENUBACK->mWidth;
@@ -133,6 +156,7 @@ void NewOptionsDialog::AddedToManager(Sexy::WidgetManager* theWidgetManager)
 	AddWidget(mHardwareAccelerationCheckbox.get());
 	AddWidget(mFullscreenCheckbox.get());
 	AddWidget(mAutoReuseEndlessSeedsCheckbox.get());
+	AddWidget(mScreenShakeButton.get());
 	AddWidget(mBackToGameButton.get());
 }
 
@@ -145,6 +169,7 @@ void NewOptionsDialog::RemovedFromManager(Sexy::WidgetManager* theWidgetManager)
 	RemoveWidget(mFullscreenCheckbox.get());
 	RemoveWidget(mHardwareAccelerationCheckbox.get());
 	RemoveWidget(mAutoReuseEndlessSeedsCheckbox.get());
+	RemoveWidget(mScreenShakeButton.get());
 	RemoveWidget(mBackToMainButton.get());
 	RemoveWidget(mBackToGameButton.get());
 	RemoveWidget(mRestartButton.get());
@@ -157,7 +182,8 @@ void NewOptionsDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	mSfxVolumeSlider->Resize(199, 143, 135, 40);
 	mHardwareAccelerationCheckbox->Resize(283, 175, 46, 45);
 	mFullscreenCheckbox->Resize(284, 206, 46, 45);
-	mAutoReuseEndlessSeedsCheckbox->Resize(340, 245, 46, 45);
+	mAutoReuseEndlessSeedsCheckbox->Resize(340, 292, 46, 45);
+	mScreenShakeButton->Resize(340, 245, 46, 45);
 	mAlmanacButton->Resize(107, 241, 209, 46);
 	mRestartButton->Resize(mAlmanacButton->mX, mAlmanacButton->mY + 43, 209, 46);
 	mBackToMainButton->Resize(mRestartButton->mX, mRestartButton->mY + 43, 209, 46);
@@ -203,10 +229,84 @@ void NewOptionsDialog::Draw(Sexy::Graphics* g)
 	PvzpDrawString(g, mApp->GetString("OPTIONS_SOUNDFX", "Sound FX"), aSliderLabelsX, 167 + aSfxOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
 	PvzpDrawString(g, mApp->GetString("OPTIONS_3D_ACCELERATION", "3D Acceleration"), aCheckboxLabelsX, 197 + a3DAccelOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
 	PvzpDrawString(g, mApp->GetString("OPTIONS_FULL_SCREEN", "Full Screen"), aCheckboxLabelsX, 229 + aFullScreenOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
+	PvzpDrawString(g, mApp->GetString("SCREEN_SHAKE_LABEL", "Shake"), 394, 274, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_LEFT);
 	if (mShowAutoReuseEndlessSeeds)
-		PvzpDrawString(g, mApp->GetString("AUTO_REUSE_ENDLESS_SEEDS", "Auto-reuse seeds"), 394, 274, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_LEFT);
+		PvzpDrawString(g, mApp->GetString("AUTO_REUSE_ENDLESS_SEEDS_SHORT", "Reuse"), 394, 321, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_LEFT);
 	if (aFontScale != 1.0f)
 		g->SetScale(1.0f, 1.0f, 0.0f, 0.0f);
+
+	mToolTip->mVisible = false;
+	if (mApp->mActive && mWidgetManager != nullptr && mWidgetManager->mMouseIn)
+	{
+		Point anAbsPos = GetAbsPos();
+		int aMouseX = mWidgetManager->mLastMouseX - anAbsPos.mX;
+		int aMouseY = mWidgetManager->mLastMouseY - anAbsPos.mY;
+		auto ShowOptionTooltip = [&](std::string_view theTitleKey, std::string_view theTitleFallback,
+			std::string_view theTextKey, std::string_view theTextFallback, int theControlY)
+		{
+			mToolTip->SetTitle(mApp->GetString(theTitleKey, theTitleFallback));
+			mToolTip->SetLabel(mApp->GetString(theTextKey, theTextFallback));
+			mToolTip->mX = 270;
+			mToolTip->mY = std::max(5, theControlY - mToolTip->mHeight - 4);
+			mToolTip->mCenter = true;
+			mToolTip->mVisible = true;
+		};
+
+		bool aHoverMusic = mMusicVolumeSlider->Contains(aMouseX, aMouseY);
+		bool aHoverSfx = mSfxVolumeSlider->Contains(aMouseX, aMouseY);
+		if (aHoverMusic && aHoverSfx)
+		{
+			int aSliderCenterMidpoint = (mMusicVolumeSlider->mY + mMusicVolumeSlider->mHeight / 2 +
+				mSfxVolumeSlider->mY + mSfxVolumeSlider->mHeight / 2) / 2;
+			aHoverMusic = aMouseY < aSliderCenterMidpoint;
+			aHoverSfx = !aHoverMusic;
+		}
+		if (aHoverMusic)
+		{
+			ShowOptionTooltip("OPTIONS_MUSIC_LABEL", "Music", "OPTIONS_MUSIC_TOOLTIP",
+				"Adjust the game's music volume.", mMusicVolumeSlider->mY);
+		}
+		else if (aHoverSfx)
+		{
+			ShowOptionTooltip("OPTIONS_SOUNDFX", "Sound FX", "OPTIONS_SOUNDFX_TOOLTIP",
+				"Adjust sound effects and game sounds.", mSfxVolumeSlider->mY);
+		}
+		else if (mHardwareAccelerationCheckbox->Contains(aMouseX, aMouseY))
+		{
+			ShowOptionTooltip("OPTIONS_3D_ACCELERATION", "3D Acceleration", "OPTIONS_3D_ACCELERATION_TOOLTIP",
+				"Use hardware acceleration to render the game.", mHardwareAccelerationCheckbox->mY);
+		}
+		else if (mFullscreenCheckbox->Contains(aMouseX, aMouseY))
+		{
+			ShowOptionTooltip("OPTIONS_FULL_SCREEN", "Full Screen", "OPTIONS_FULL_SCREEN_TOOLTIP",
+				"Switch between full-screen and windowed display.", mFullscreenCheckbox->mY);
+		}
+		else if (mScreenShakeButton->Contains(aMouseX, aMouseY))
+		{
+			switch (mApp->mScreenShakeMode)
+			{
+			case LawnApp::ScreenShakeMode::REDUCED:
+				ShowOptionTooltip("SCREEN_SHAKE_TITLE", "Screen Shake", "SCREEN_SHAKE_TOOLTIP_REDUCED",
+					"Reduced shake (half strength). Click to cycle to Off or Normal.", mScreenShakeButton->mY);
+				break;
+			case LawnApp::ScreenShakeMode::OFF:
+				ShowOptionTooltip("SCREEN_SHAKE_TITLE", "Screen Shake", "SCREEN_SHAKE_TOOLTIP_OFF",
+					"Shake is off. Click to cycle to Normal or Reduced.", mScreenShakeButton->mY);
+				break;
+			default:
+				ShowOptionTooltip("SCREEN_SHAKE_TITLE", "Screen Shake", "SCREEN_SHAKE_TOOLTIP_NORMAL",
+					"Normal shake strength. Click to cycle to Reduced or Off.", mScreenShakeButton->mY);
+				break;
+			}
+		}
+		else if (mShowAutoReuseEndlessSeeds && mAutoReuseEndlessSeedsCheckbox->Contains(aMouseX, aMouseY))
+		{
+			ShowOptionTooltip("AUTO_REUSE_ENDLESS_SEEDS_TITLE", "Endless Seed Reuse", "AUTO_REUSE_ENDLESS_SEEDS_TOOLTIP",
+				"When enabled, keep the current seed deck between Survival: Endless flags instead of reopening the seed chooser.",
+				mAutoReuseEndlessSeedsCheckbox->mY);
+		}
+	}
+	mToolTip->Draw(g);
 }
 
 void NewOptionsDialog::SliderVal(int theId, double theVal)
@@ -402,6 +502,24 @@ void NewOptionsDialog::ButtonDepress(int theId)
 
 	case NewOptionsDialog::NewOptionsDialog_Update:
 		mApp->CheckForUpdates();
+		break;
+
+	case NewOptionsDialog::NewOptionsDialog_ScreenShake:
+		switch (mApp->mScreenShakeMode)
+		{
+		case LawnApp::ScreenShakeMode::NORMAL:
+			mApp->mScreenShakeMode = LawnApp::ScreenShakeMode::REDUCED;
+			break;
+		case LawnApp::ScreenShakeMode::REDUCED:
+			mApp->mScreenShakeMode = LawnApp::ScreenShakeMode::OFF;
+			break;
+		default:
+			mApp->mScreenShakeMode = LawnApp::ScreenShakeMode::NORMAL;
+			break;
+		}
+		UpdateScreenShakeButtonLabel();
+		if (mApp->mBoard && mApp->mScreenShakeMode == LawnApp::ScreenShakeMode::OFF)
+			mApp->mBoard->ShakeBoard(0, 0);
 		break;
 	}
 }

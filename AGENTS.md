@@ -5,7 +5,7 @@
 - `src/Lawn/` contains board simulation, plants, zombies, projectiles, and game UI; `src/Lawn/System/` holds systems such as save handling.
 - `src/PvzpLib/` contains project-specific effects, particles, reanimations, trails, and attachments. `src/SexyAppFramework/` provides graphics, resources, audio, widgets, and platform support.
 - `android/`, `ios/`, `wasm/`, and platform subdirectories configure platform builds. `scripts/` and `tools/` contain utilities. The project requires users to provide game assets (`main.pak` and `properties/`); do not add them to commits.
-- The root has no gameplay test suite. SDL Mixer X contains its own tests under `src/SexyAppFramework/sound/SDL-Mixer-X/test/`.
+- Asset-free gameplay rule and save-container tests are under `tests/`; enable them with `-DPVZ_BUILD_TESTS=ON` and run `ctest --test-dir build --output-on-failure`. SDL Mixer X contains its own tests under `src/SexyAppFramework/sound/SDL-Mixer-X/test/`.
 - Read `docs/architecture/index.md` for the subsystem map.
 
 ## Build and Development
@@ -26,7 +26,7 @@ Follow neighboring C++ code: C++20, tab indentation, braces on separate lines, `
 
 ## Testing
 
-After C++ changes, build the affected configuration with `cmake --build build`. The GitHub Actions workflow builds release targets but does not provide gameplay regression coverage. For gameplay or rendering changes, describe the in-game scenario and platform checked; add screenshots for visual changes when useful. Do not report runtime behavior as verified from a successful build alone.
+Prioritize the requested implementation and quick iteration. Do not add tests for every change; add or update focused tests when they protect important behavior, a regression, or a boundary, or when the user requests them. Do not automatically configure or run builds and test suites after each change. Leave routine build and test execution to the user unless they ask for it or a specific check is necessary to resolve a concrete implementation risk. When checks are run, keep them focused and report exactly what was checked. For gameplay or rendering changes, describe any in-game scenario and platform checked; add screenshots for visual changes when useful. A successful build alone does not verify runtime behavior.
 
 ## Commits and Pull Requests
 

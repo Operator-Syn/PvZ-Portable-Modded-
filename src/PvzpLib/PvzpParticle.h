@@ -239,13 +239,22 @@ enum ParticleTracks : int32_t
 class PvzpParticleSystem;
 class PvzpParticleEmitter;
 class PvzpParticle;
+struct PvzpParticleCalculationTask
+{
+	ParticleEmitterID mEmitterId = ParticleEmitterID::PARTICLEEMITTERID_NULL;
+	ParticleID mParticleId = ParticleID::PARTICLEID_NULL;
+	PvzpParticleEmitter* mEmitter = nullptr;
+	PvzpParticle* mParticle = nullptr;
+	ParticleEffect mEffect = ParticleEffect::PARTICLE_NONE;
+};
+
 class PvzpParticleHolder
 {
 public:
 	DataArray<PvzpParticleSystem>	mParticleSystems;
 	DataArray<PvzpParticleEmitter>	mEmitters;
 	DataArray<PvzpParticle>			mParticles;
-	std::vector<PvzpParticle*>		mParticleUpdateScratch;
+	std::vector<PvzpParticleCalculationTask> mParticleUpdateScratch;
 	std::vector<ParticleID>			mParticleIdScratch;
 	PvzpAllocator					mParticleListNodeAllocator;
 	PvzpAllocator					mEmitterListNodeAllocator;
@@ -256,12 +265,14 @@ public:
 	uint32_t						mSuppressedParticleSystemFailures = 0;
 	uint32_t						mSuppressedEmitterFailures = 0;
 	int								mVisualQualityTier = 0;
+	float							mPreviousScreenShakeScale = 1.0f;
 
 public:
 	~PvzpParticleHolder();
 
 	void							InitializeHolder();
 	void							DisposeHolder();
+	void							ProcessParticleUpdateBatch();
 	PvzpParticleSystem*				AllocParticleSystemFromDef(float theX, float theY, int theRenderOrder, PvzpParticleDefinition* theDefinition, ParticleEffect theParticleEffect);
 	PvzpParticleSystem*				AllocParticleSystem(float theX, float theY, int theRenderOrder, ParticleEffect theParticleEffect);
 	bool					IsAtUsageThreshold(uint32_t thePercent) const;
@@ -340,7 +351,7 @@ public:
 
 public:
 	void							PvzpEmitterInitialize(float theX, float theY, PvzpParticleSystem* theSystem, PvzpEmitterDefinition* theEmitterDef);
-	void							Update();
+	void							Update(bool theCollectParallelTasks = false);
 	void							Draw(Graphics* g, PvzpTriangleGroup* theTriangleGroup, uint32_t& theParticlesVisited,
 								uint32_t& theParticlesCulled);
 	void							SystemMove(float theX, float theY);
@@ -348,7 +359,7 @@ public:
 	void							DrawParticle(Graphics* g, PvzpParticle* theParticle, PvzpTriangleGroup* theTriangleGroup,
 								uint32_t& theCullCount);
 	void							UpdateSpawning();
-	bool							UpdateParticle(PvzpParticle* theParticle);
+	bool							UpdateParticle(PvzpParticle* theParticle, bool theDeferCalculation = false);
 	PvzpParticle*					SpawnParticle(int theIndex, int theSpawnCount);
 	bool							CrossFadeParticle(PvzpParticle* theParticle, PvzpParticleEmitter* theToEmitter);
 	void							CrossFadeEmitter(PvzpParticleEmitter* theToEmitter);
@@ -383,7 +394,7 @@ public:
 
 	void							PvzpParticleInitializeFromDef(float theX, float theY, int theRenderOrder, PvzpParticleDefinition* theDefinition, ParticleEffect theEffectType);
 	void							ParticleSystemDie();
-	void							Update();
+	void							Update(bool theCollectParallelTasks = false);
 	void							Draw(Graphics* g);
 	void							SystemMove(float theX, float theY);
 	void							OverrideColor(const char* theEmitterName, const Color& theColor);

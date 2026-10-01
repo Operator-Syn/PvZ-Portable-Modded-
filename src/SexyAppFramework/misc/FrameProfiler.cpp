@@ -23,6 +23,30 @@
 namespace Sexy
 {
 
+static std::string EscapeJsonString(std::string_view theValue)
+{
+	std::string anEscapedValue;
+	anEscapedValue.reserve(theValue.size());
+	constexpr char aHexDigits[] = "0123456789abcdef";
+	for (unsigned char aCharacter : theValue)
+	{
+		if (aCharacter == '"' || aCharacter == '\\')
+		{
+			anEscapedValue += '\\';
+			anEscapedValue += static_cast<char>(aCharacter);
+		}
+		else if (aCharacter < 0x20)
+		{
+			anEscapedValue += "\\u00";
+			anEscapedValue += aHexDigits[aCharacter >> 4];
+			anEscapedValue += aHexDigits[aCharacter & 0x0f];
+		}
+		else
+			anEscapedValue += static_cast<char>(aCharacter);
+	}
+	return anEscapedValue;
+}
+
 static void AppendPoolJson(std::string& theOutput, const char* theName, const FrameProfilePool& thePool)
 {
 	if (!theOutput.empty() && theOutput.back() != '{')
@@ -68,10 +92,15 @@ void FrameProfiler::Initialize(const std::filesystem::path& thePath, uint64_t th
 	std::string_view theCommitDate, bool theDetailed)
 {
 	mPath = thePath;
+	mSessionID = theSessionID;
+	mBuildNumber = theBuildNumber;
+	mCommitDate.assign(theCommitDate);
+	mLogSegmentIndex = 0;
 	mDetailed = theDetailed;
 	mInitialized = false;
 	mLastFrameCounter = 0;
 	mLastSummaryCounter = Counter();
+	mFrameSequence = 0;
 	mNextSlowCaptureAllowed = 0;
 	mParticleEffects = {};
 	mVisualQualityTier = 0;
@@ -96,13 +125,30 @@ void FrameProfiler::Initialize(const std::filesystem::path& thePath, uint64_t th
 		return;
 	mInitialized = true;
 
-	const std::string aCommitDate(theCommitDate);
 	const char* aParallelEnv = std::getenv("PVZ_PARTICLE_PARALLEL");
-	const bool aParticleParallel = aParallelEnv != nullptr && std::strcmp(aParallelEnv, "1") == 0;
-	mLog << std::format("{{\"type\":\"session\",\"session_id\":{},\"build\":{},\"commit_date\":\"{}\",\"detail\":{},\"particle_parallel\":{},\"subsystem_timings_are_inclusive\":true,\"counter_frequency\":{}}}\n",
-		theSessionID, theBuildNumber, aCommitDate, mDetailed ? "true" : "false", aParticleParallel ? "true" : "false",
-		SDL_GetPerformanceFrequency());
+	mParticleParallelEnabled = aParallelEnv != nullptr && std::strcmp(aParallelEnv, "1") == 0;
+	WriteSessionMetadata();
+}
+
+void FrameProfiler::WriteSessionMetadata()
+{
+	if (!mLog.is_open())
+		return;
+	mLog << std::format("{{\"type\":\"session\",\"session_id\":{},\"segment_index\":{},\"build\":{},\"commit_date\":\"{}\",\"detail\":{},\"particle_parallel\":{},\"subsystem_timings_are_inclusive\":true,\"counter_frequency\":{}}}\n",
+		mSessionID, mLogSegmentIndex, mBuildNumber, mCommitDate, mDetailed ? "true" : "false",
+		mParticleParallelEnabled ? "true" : "false", SDL_GetPerformanceFrequency());
 	mLog.flush();
+}
+
+void FrameProfiler::RecordGameplayEvent(std::string_view theEvent, std::string_view theDataJson)
+{
+	if (!mInitialized || !mLog.is_open())
+		return;
+
+	const std::string anEscapedEvent = EscapeJsonString(theEvent);
+	WriteLine(std::format(
+		R"({{"type":"gameplay_event","session_id":{},"frame":{},"event":"{}","data":{}}})",
+		mSessionID, mFrameSequence, anEscapedEvent, theDataJson));
 }
 
 void FrameProfiler::SetFrameBudget(double theMilliseconds)
@@ -178,13 +224,17 @@ void FrameProfiler::RecordParticleEffectDraw(int theEffect, uint64_t theStart, u
 	aMetrics.mBatchFlushes += theBatchFlushes;
 }
 
-void FrameProfiler::RecordParticleParallelBatch(int theEffect, uint32_t theParticles)
+void FrameProfiler::RecordParticleCalculation(int theEffect, uint32_t theParticles, uint64_t theStartCounter, bool theParallel)
 {
-	if (!mDetailed || theEffect < 0 || static_cast<size_t>(theEffect) >= PARTICLE_EFFECT_COUNT)
+	if (theStartCounter == 0 || theEffect < 0 || static_cast<size_t>(theEffect) >= PARTICLE_EFFECT_COUNT)
 		return;
 	auto& aMetrics = mParticleEffects[static_cast<size_t>(theEffect)];
-	++aMetrics.mParallelBatches;
-	aMetrics.mParallelParticles += theParticles;
+	aMetrics.mUpdateTicks += Counter() - theStartCounter;
+	if (theParallel)
+	{
+		++aMetrics.mParallelBatches;
+		aMetrics.mParallelParticles += theParticles;
+	}
 }
 
 uint64_t FrameProfiler::Begin(FrameProfileMetric theMetric)
@@ -250,7 +300,7 @@ const char* FrameProfiler::MetricName(FrameProfileMetric theMetric)
 	static constexpr const char* aNames[] = {
 		"update", "update_interpolation", "board_update", "effects_update", "particle_systems_update", "trails_update",
 		"reanimations_update", "board_draw", "screen_draw", "render_gather", "render_sort",
-		"render_items", "present", "plant_targeting", "projectile_impact", "projectile_splash", "sun_magnet_assignment"
+		"render_items", "present", "swap_wait", "plant_targeting", "projectile_impact", "projectile_splash", "sun_magnet_assignment"
 	};
 	return aNames[static_cast<size_t>(theMetric)];
 }
@@ -259,11 +309,12 @@ void FrameProfiler::AppendSampleJson(std::string& theOutput, const FrameSample& 
 {
 	if (!theOutput.empty() && theOutput.back() != '[')
 		theOutput += ',';
-	theOutput += std::format("{{\"seq\":{},\"frame_ms\":{:.3f},\"update_ms\":{:.3f},\"interpolation_update_ms\":{:.3f},\"board_update_ms\":{:.3f},\"effects_update_ms\":{:.3f},\"particle_systems_update_ms\":{:.3f},\"trails_update_ms\":{:.3f},\"reanimations_update_ms\":{:.3f},\"screen_draw_ms\":{:.3f},\"board_draw_ms\":{:.3f},\"render_gather_ms\":{:.3f},\"render_sort_ms\":{:.3f},\"render_items_ms\":{:.3f},\"present_ms\":{:.3f},\"plant_targeting_ms\":{:.3f},\"projectile_impact_ms\":{:.3f},\"projectile_splash_ms\":{:.3f},\"sun_magnet_ms\":{:.3f},\"update_backlog_ms\":{:.3f},\"pending_updates\":{:.2f},\"updates\":{},\"interpolation_updates\":{}",
+	theOutput += std::format("{{\"seq\":{},\"frame_ms\":{:.3f},\"update_ms\":{:.3f},\"interpolation_update_ms\":{:.3f},\"board_update_ms\":{:.3f},\"effects_update_ms\":{:.3f},\"particle_systems_update_ms\":{:.3f},\"trails_update_ms\":{:.3f},\"reanimations_update_ms\":{:.3f},\"screen_draw_ms\":{:.3f},\"board_draw_ms\":{:.3f},\"render_gather_ms\":{:.3f},\"render_sort_ms\":{:.3f},\"render_items_ms\":{:.3f},\"present_ms\":{:.3f},\"swap_wait_ms\":{:.3f},\"plant_targeting_ms\":{:.3f},\"projectile_impact_ms\":{:.3f},\"projectile_splash_ms\":{:.3f},\"sun_magnet_ms\":{:.3f},\"update_backlog_ms\":{:.3f},\"pending_updates\":{:.2f},\"updates\":{},\"interpolation_updates\":{}",
 		theSample.mSequence, theSample.mFrameMs, theSample.mUpdateMs, theSample.mInterpolationUpdateMs, theSample.mBoardUpdateMs,
 		theSample.mEffectsUpdateMs, theSample.mParticleSystemsUpdateMs, theSample.mTrailsUpdateMs,
 		theSample.mReanimationsUpdateMs, theSample.mScreenDrawMs, theSample.mBoardDrawMs, theSample.mRenderGatherMs,
-		theSample.mRenderSortMs, theSample.mRenderItemsMs, theSample.mPresentMs, theSample.mPlantTargetingMs, theSample.mProjectileImpactMs,
+		theSample.mRenderSortMs, theSample.mRenderItemsMs, theSample.mPresentMs, theSample.mSwapWaitMs,
+		theSample.mPlantTargetingMs, theSample.mProjectileImpactMs,
 		theSample.mProjectileSplashMs, theSample.mSunMagnetMs, theSample.mUpdateBacklogMs, theSample.mPendingUpdates,
 		theSample.mUpdates, theSample.mInterpolationUpdates);
 	AppendCountsJson(theOutput, theSample.mCounts);
@@ -307,6 +358,7 @@ void FrameProfiler::AddSample(const FrameSample& theSample)
 	mUpdateSummary.Add(theSample.mUpdateMs);
 	mDrawSummary.Add(theSample.mScreenDrawMs);
 	mPresentSummary.Add(theSample.mPresentMs);
+	mSwapWaitSummary.Add(theSample.mSwapWaitMs);
 
 	const uint64_t aNow = Counter();
 	if (mSlowCaptureActive)
@@ -360,7 +412,7 @@ void FrameProfiler::WriteSummary(uint64_t theNow)
 {
 	const double aWindowSeconds = ToMilliseconds(theNow - mLastSummaryCounter) / 1000.0;
 	const FrameSample& aLatest = mSamples[(mSampleWriteIndex + mSamples.size() - 1) % mSamples.size()];
-	std::string aLine = std::format("{{\"type\":\"summary\",\"seq\":{},\"window_seconds\":{:.2f},\"target_frame_ms\":{:.3f},\"frame\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"update\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"draw_screen\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"present\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"board_update_ms\":{:.3f},\"effects_update_ms\":{:.3f},\"particle_systems_update_ms\":{:.3f},\"trails_update_ms\":{:.3f},\"reanimations_update_ms\":{:.3f},\"board_draw_ms\":{:.3f},\"screen_draw_ms\":{:.3f},\"render_gather_ms\":{:.3f},\"render_sort_ms\":{:.3f},\"render_items_ms\":{:.3f},\"update_backlog_ms\":{:.3f},\"pending_updates\":{:.2f},\"updates_last_frame\":{},\"interpolation_updates_last_frame\":{}",
+	std::string aLine = std::format("{{\"type\":\"summary\",\"seq\":{},\"window_seconds\":{:.2f},\"target_frame_ms\":{:.3f},\"frame\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"update\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"draw_screen\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"present\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"swap_wait\":{{\"avg_ms\":{:.3f},\"p95_ms\":{:.3f},\"max_ms\":{:.3f}}},\"board_update_ms\":{:.3f},\"effects_update_ms\":{:.3f},\"particle_systems_update_ms\":{:.3f},\"trails_update_ms\":{:.3f},\"reanimations_update_ms\":{:.3f},\"board_draw_ms\":{:.3f},\"screen_draw_ms\":{:.3f},\"render_gather_ms\":{:.3f},\"render_sort_ms\":{:.3f},\"render_items_ms\":{:.3f},\"update_backlog_ms\":{:.3f},\"pending_updates\":{:.2f},\"updates_last_frame\":{},\"interpolation_updates_last_frame\":{}",
 		aLatest.mSequence, aWindowSeconds, mFrameBudgetMs,
 		mFrameSummary.mSamples ? mFrameSummary.mTotalMs / mFrameSummary.mSamples : 0.0,
 		mFrameSummary.Percentile(0.95), mFrameSummary.mMaxMs,
@@ -370,6 +422,8 @@ void FrameProfiler::WriteSummary(uint64_t theNow)
 		mDrawSummary.Percentile(0.95), mDrawSummary.mMaxMs,
 		mPresentSummary.mSamples ? mPresentSummary.mTotalMs / mPresentSummary.mSamples : 0.0,
 		mPresentSummary.Percentile(0.95), mPresentSummary.mMaxMs,
+		mSwapWaitSummary.mSamples ? mSwapWaitSummary.mTotalMs / mSwapWaitSummary.mSamples : 0.0,
+		mSwapWaitSummary.Percentile(0.95), mSwapWaitSummary.mMaxMs,
 		aLatest.mBoardUpdateMs, aLatest.mEffectsUpdateMs, aLatest.mParticleSystemsUpdateMs, aLatest.mTrailsUpdateMs,
 		aLatest.mReanimationsUpdateMs, aLatest.mBoardDrawMs, aLatest.mScreenDrawMs, aLatest.mRenderGatherMs,
 		aLatest.mRenderSortMs, aLatest.mRenderItemsMs, aLatest.mUpdateBacklogMs, aLatest.mPendingUpdates, aLatest.mUpdates,
@@ -384,6 +438,7 @@ void FrameProfiler::WriteSummary(uint64_t theNow)
 	mUpdateSummary.Reset();
 	mDrawSummary.Reset();
 	mPresentSummary.Reset();
+	mSwapWaitSummary.Reset();
 }
 
 void FrameProfiler::RotateLogIfNeeded(size_t theIncomingBytes)
@@ -405,6 +460,11 @@ void FrameProfiler::RotateLogIfNeeded(size_t theIncomingBytes)
 		mLog.open(mPath, std::ios::out | std::ios::app | std::ios::binary);
 	else
 		mLog.open(mPath, std::ios::out | std::ios::trunc | std::ios::binary);
+	if (mLog.is_open())
+	{
+		++mLogSegmentIndex;
+		WriteSessionMetadata();
+	}
 }
 
 void FrameProfiler::WriteLine(const std::string& theLine)
@@ -437,6 +497,7 @@ void FrameProfiler::RecordFrame()
 	aSample.mRenderSortMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::RENDER_SORT)], 0));
 	aSample.mRenderItemsMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::RENDER_ITEMS)], 0));
 	aSample.mPresentMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::PRESENT)], 0));
+	aSample.mSwapWaitMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::SWAP_WAIT)], 0));
 	aSample.mPlantTargetingMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::PLANT_TARGETING)], 0));
 	aSample.mProjectileImpactMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::PROJECTILE_IMPACT)], 0));
 	aSample.mProjectileSplashMs = ToMilliseconds(std::exchange(mMetricTicks[static_cast<size_t>(FrameProfileMetric::PROJECTILE_SPLASH)], 0));

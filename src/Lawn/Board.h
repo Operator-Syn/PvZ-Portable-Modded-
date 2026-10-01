@@ -25,6 +25,8 @@
 #include <cstdint>
 #include <array>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include "../ConstEnums.h"
@@ -42,8 +44,8 @@
 using namespace Sexy;
 
 constexpr const int CLASSIC_GRID_SIZE_X = 9;
-constexpr const int MAX_GRID_SIZE_X = 12;
-constexpr const int MAX_GRID_SIZE_Y = 10;
+constexpr const int MAX_GRID_SIZE_X = CLASSIC_GRID_SIZE_X;
+constexpr const int MAX_GRID_SIZE_Y = 6;
 constexpr const int MAX_ACTIVE_ZOMBIES = 4096;
 constexpr const int MAX_ZOMBIES_IN_WAVE = 50;
 constexpr const int MAX_ZOMBIE_WAVES = 100;
@@ -55,7 +57,12 @@ constexpr const int SUN_MAGNET_OVERDRIVE_EXTRA_ITEMS = 10;
 constexpr const int SUN_MAGNET_HIGH_OVERDRIVE_EXTRA_ITEMS = 30;
 constexpr const int SUN_MAGNET_HIGH_OVERDRIVE_SUN_THRESHOLD = 150000;
 constexpr const int TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD = 1000000;
+constexpr const int PLANT_LAYERING_SUN_THRESHOLD = 1000000;
 constexpr const int TWO_MILLION_SUN_THRESHOLD = 2000000;
+constexpr const int TWO_AND_HALF_MILLION_SUN_THRESHOLD = 2500000;
+constexpr const int THREE_MILLION_SUN_THRESHOLD = 3000000;
+constexpr const int THREE_AND_HALF_MILLION_SUN_THRESHOLD = 3500000;
+constexpr const int FIVE_MILLION_SUN_THRESHOLD = 5000000;
 constexpr const int TWIN_SUNFLOWER_ASSAULT_INTERVAL = 225;
 constexpr const int KERNEL_PULT_BUTTER_BARRAGE_SUN_THRESHOLD = 500000;
 constexpr const int WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD = 1000000;
@@ -136,6 +143,8 @@ struct PlantsOnLawn
 	Plant*							mNormalPlant;
 	int								mSunflowerCount;
 	int								mFumeGloomCount;
+	int								mCatTailCount;
+	int								mMelonPultCount;
 	Plant*							mSunMagnetPlant;
 	int								mMagnetCount;
 };
@@ -219,6 +228,7 @@ public:
 	bool							mSpikeweedOverdriveActive = false;
 	std::array<int32_t, MAX_GRID_SIZE_Y> mPlanternFlameCountdown{};
 	std::array<int32_t, MAX_GRID_SIZE_Y> mPlanternFlameTick{};
+	std::array<int32_t, MAX_GRID_SIZE_Y> mPlanternFlameDamagePercent{};
 	bool							mGatlingPeaOverdriveActive = false;
 	bool							mTwinSunflowerProductionOverdriveActive = false;
 	bool							mTwinSunflowerBombardmentOverdriveActive = false;
@@ -311,6 +321,8 @@ public:
 	bool							mDaisyMode;
 	bool							mSukhbirMode;
 	BoardResult						mPrevBoardResult;
+	ZombieType						mLastBreachingZombieType = ZombieType::NUM_ZOMBIE_TYPES;
+	int32_t							mLastBreachingZombieRow = -1;
 	int32_t							mTriggeredLawnMowers;
 	uint32_t						mPlayTimeActiveLevel;
 	uint32_t						mPlayTimeInactiveLevel;
@@ -416,6 +428,7 @@ public:
 	void							UpdatePlantOverdrive();
 	void							UpdateZombieRain();
 	void							ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier, int theToTier);
+	void							ApplyThreeMillionSunDurabilityToZombie(Zombie* theZombie, bool theApply);
 	int							GetZombieExplosiveDamage() const;
 	int							GetQuadraticZombieDamageMultiplier(const Zombie* theZombie, int theTargetCount) const;
 	MagnetItem*						GetSunMagnetExtraItems(PlantID thePlantID, bool theCreate);
@@ -424,7 +437,7 @@ public:
 	void							UpdatePlantHealGlows();
 	void							RestorePlantHealGlowsAfterLoad();
 	void							UpdateSunMagnetCollection();
-	void							StartPlanternFlame(int theRow);
+	void							StartPlanternFlame(int theRow, bool theAutoCoffeeBean = false);
 	void							UpdatePlanternFlames();
 	bool							MouseHitTest(int x, int y, HitResult* theHitResult);
 	void							MouseDownWithPlant(int x, int y, int theClickCount);
@@ -440,6 +453,8 @@ public:
 	void							AddGraveStones(int theGridX, int theCount, MTRand& theLevelRNG);
 	int								GetGraveStoneCount();
 	void							ZombiesWon(Zombie* theZombie = nullptr);
+	void							RecordGameplayEvent(std::string_view theEvent, std::string_view theDetailsJson);
+	std::string					GetZombieBreachReport() const;
 	void							DrawLevel(Graphics* g);
 	void							DrawShovel(Graphics* g);
 	void							UpdateZombieSpawning();

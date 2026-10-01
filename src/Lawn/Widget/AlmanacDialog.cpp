@@ -385,7 +385,7 @@ void AlmanacDialog::DrawPlants(Graphics* g)
 
 void AlmanacDialog::DrawOverdrives(Graphics* g)
 {
-	static constexpr std::array<SeedType, 13> aOverdrivePlants = {
+	static constexpr std::array<SeedType, 14> aOverdrivePlants = {
 		SeedType::SEED_CHOMPER,
 		SeedType::SEED_KERNELPULT,
 		SeedType::SEED_WINTERMELON,
@@ -398,22 +398,24 @@ void AlmanacDialog::DrawOverdrives(Graphics* g)
 		SeedType::SEED_SPIKEWEED,
 		SeedType::SEED_SPIKEROCK,
 		SeedType::SEED_PUMPKINSHELL,
-		SeedType::SEED_TALLNUT
+		SeedType::SEED_TALLNUT,
+		SeedType::SEED_GLOOMSHROOM
 	};
 	static constexpr std::array<const char*, aOverdrivePlants.size()> aRequirements = {
-		">15,000 sun: digests 2x faster; heals up to 2 nearest forward plants with quadratic group scaling (each gets base heal x recipient count); costs 100 sun/s",
+		">15,000 sun: digests 2x faster; heals up to 2 nearest forward plants with quadratic group scaling (each gets base heal x recipient count); nearby Pumpkin healing bonus also applies; costs 100 sun/s",
 		">20,000 sun: 4x attack rate, 50% butter chance, costs 150 sun/s per plant. >=500,000: 90% butter chance, 2-5 butter volley, 200-tick stun; Giants immune; costs 175 sun/s per plant",
-		">=1,000,000 sun: each impact scales direct/splash damage by affected targets, costs 200 sun/s per plant. From 900,000 sun, quadratic attacks use ceil(sqrt(targets)), capped at 4x; the cap rises by 2x per doubling of zombie HP. Bungees are exempt.",
+		">=1,000,000 sun: fires 5 spread melons per lob, 5 sun each; attacks 2x faster; Cherry Bomb chance is 10%, rising to 35% while sacrificing HP; costs 500 sun/s per plant and loses 10 HP/s to a 1 HP floor. Quadratic splash uses ceil(sqrt(targets)); Bungees are exempt.",
 		">1,000 sun: 2x production; >=10,000: 10% bomb chance per production event (300 sun); >=100,000: 30% (600 sun); >=1,000,000: production is 7x slower and fires every 225 ticks (600 sun)",
-		">1,000 sun: 2x sun production; sun value compounds x1.2 per completed flag; shoots Cherry Bombs every 2,500 ticks for 150 sun when bank >=1,000; >=50,000: blasts burn the lane. Coffee Bean fires one Cob/lane (500 sun) and starts 5s flames (300 sun/lane/s)",
-		">=5,000 sun: collected sun compounds x1.2 per completed flag, then pays 2x or 6x; 15 item slots (35 at 150,000), loses 1 HP/s to 1 HP. Each pickup assigns 10-20 heal stacks; per-stack healing scales with distinct recipients for quadratic group healing (25 sun/stack, keeps 5,000 reserve). Coffee Bean gives an aura/growth and 5s collection, loses 4 HP/s",
+		">1,000 sun: 2x sun production; sun value compounds x1.2 per completed flag; production pauses at 5,000,000 sun and resumes below it. Shoots Cherry Bombs every 2,500 ticks for 150 sun when bank >=1,000; >=50,000: blasts burn the lane. Coffee Bean fires one Cob/lane (500 sun) and starts 5s flames (300 sun/lane/s); >=2,000,000: with Coffee Bean in the chosen seed bank, eligible Planterns auto-fire every 3s for 85% damage at the same costs",
+		">=5,000 sun: collected sun compounds x1.2 per completed flag, then pays 2x or 6x; 15 item slots (35 at 150,000), loses 1 HP/s to 1 HP. Each pickup assigns 10-20 heal stacks; per-stack healing scales with distinct recipients for quadratic group healing (25 sun/stack, keeps 5,000 reserve); nearby Pumpkin healing bonus also applies. Coffee Bean gives an aura/growth and 5s collection, loses 4 HP/s",
 		">=50,000 sun: triples gold/diamond odds; costs 250 sun/s board-wide and 25 HP/s to a 1 HP floor",
-		">=25,000 sun: about 4x attack rate, 6 shots/cycle, 125 sun per projectile; seed cost 75",
+		">=1,000,000 sun: layer up to 5 Cat Tails per tile. >=25,000: about 4x attack rate, 6 shots/cycle, 125 sun per projectile; >=1,000,000: 375 sun and 5x damage per projectile; >=2,000,000: 750 sun and 1.5% of the target's current body HP as extra damage per projectile (minimum 50), but drains 1% max HP each second and can kill the Cattail; seed cost 75",
 		">=200,000 sun: 15% chance per four-shot burst for matching smoky butter, Cherry Bomb, or melon peas; Cherry has AoE; no penetration",
 		">=1,000 sun: 7x attack speed; loses 1 HP per completed attack",
 		">=1,000 sun: 7x attack speed; loses 2 HP per completed attack",
 		">=5,000 sun: restores 50 HP/s, gains 25% max HP; nearby Pumpkin healing bonus scales quadratically with adjacent Pumpkin count",
-		">=10,000 sun: restores 50 HP/s, gains 25% max HP, costs 200 sun/s"
+		">=10,000 sun: restores 50 HP/s, gains 25% max HP, costs 200 sun/s; nearby Pumpkin healing bonus also applies",
+		"Restores 25 HP/s for 150 sun/s; nearby Pumpkin healing bonus applies at >=5,000 sun"
 	};
 
 	g->DrawImage(Sexy::IMAGE_ALMANAC_PLANTBACK, 0, 0);
@@ -429,8 +431,8 @@ void AlmanacDialog::DrawOverdrives(Graphics* g)
 		std::string aEntry = std::format("{}: {}", Plant::GetNameString(aOverdrivePlants[i], SeedType::SEED_NONE), aRequirements[i]);
 		PvzpDrawStringWrapped(g, aEntry, Rect(aX, aY, 360, 66), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_LEFT);
 	}
-	PvzpDrawStringWrapped(g, "Zombie tiers: 1,000,000 sun = 18x base HP/armor; 2,000,000 = 27x. Imp/Ladder keep +50%; explosive reduction caps at 75%.",
-		Rect(28, 578, 705, 20), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_CENTER);
+	PvzpDrawStringWrapped(g, "Zombie tiers: 1m = 18x HP/armor; 2m = 41x, 5m = 62x base. Cone/Bucket/Bulwark Bucket and enraged Newspaper = 124x at 5m; Imp/Ladder +50%.\nAt 2m, Dolphin Riders resist plant attacks, slows, and butter until their first leap; Tangle Kelp and lawn/pool cleaners still stop them. Explosives retain at least 25% base damage.",
+		Rect(28, 568, 705, 34), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_CENTER);
 }
 
 void AlmanacDialog::DrawZombies(Graphics* g)

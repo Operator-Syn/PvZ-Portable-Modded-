@@ -72,7 +72,7 @@ public:
 	Attachment();
 	~Attachment();
 
-	void                    Update();
+	void                    Update(bool theCollectParallelTasks = false);
 	void                    SetPosition(const SexyVector2& thePosition);
 	void                    SetMatrix(const SexyTransform2D& theMatrix);
 	void                    OverrideColor(const Color& theColor);

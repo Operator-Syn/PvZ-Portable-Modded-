@@ -530,7 +530,9 @@ void ChallengeScreen::DrawButton(Graphics* g, int theChallengeIndex)
 					g->SetColor(Color(255, 255, 255, PvzpAnimateCurve(25, 0, mUnlockStateCounter, 255, 0, CURVE_LINEAR)));
 					g->SetColorizeImages(true);
 				}
-				PvzpDrawImageScaledF(g, aLockImage, aPosX + 24 + mLockShakeX, aPosY + 9 + mLockShakeY, 0.7f, 0.7f);
+				float aShakeScale = mApp->GetScreenShakeScale();
+				PvzpDrawImageScaledF(g, aLockImage, aPosX + 24 + mLockShakeX * aShakeScale,
+					aPosY + 9 + mLockShakeY * aShakeScale, 0.7f, 0.7f);
 				g->SetColorizeImages(false);
 			}
 			else if (aRecord > 0)

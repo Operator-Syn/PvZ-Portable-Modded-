@@ -1126,7 +1126,7 @@ void SeedChooserScreen::CloseSeedChooser()
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 		SeedPacket& aSeedPacket = mBoard->mSeedBank->mSeedPackets[anIndex];
 		aSeedPacket.SetPacketType(aSeedType, aChosenSeed.mImitaterType);
-		if (aChosenSeed.mRefreshing)
+		if (aChosenSeed.mRefreshing && mBoard->mSunMoney < TWO_MILLION_SUN_THRESHOLD)
 		{
 			aSeedPacket.mRefreshCounter = aChosenSeed.mRefreshCounter;
 			aSeedPacket.mRefreshTime = Plant::GetRefreshTime(aSeedPacket.mPacketType, aSeedPacket.mImitaterType) / 2;

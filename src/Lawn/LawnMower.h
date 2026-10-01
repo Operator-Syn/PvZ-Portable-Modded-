@@ -60,7 +60,7 @@ public:
 public:
 	void                LawnMowerInitialize(int theRow);
 	void                ConvertToPoolCleaner();
-	void                StartMower();
+	void                StartMower(Zombie* theTriggeringZombie);
 	void                Update();
 	void                Draw(Graphics* g);
 	void                Die();

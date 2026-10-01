@@ -20,6 +20,8 @@
  */
 
 #include <climits>
+#include <algorithm>
+#include <array>
 #include <format>
 
 #include "Plant.h"
@@ -91,9 +93,18 @@ static bool IsBulwarkType(ZombieType theType)
 	return theType == ZombieType::ZOMBIE_BULWARK_GARGANTUAR || theType == ZombieType::ZOMBIE_BULWARK_BUCKET;
 }
 
+static bool CanDolphinBeButterStunned(Zombie* theZombie)
+{
+	return theZombie != nullptr && theZombie->mZombieType == ZombieType::ZOMBIE_DOLPHIN_RIDER &&
+		!theZombie->IsSunTierInvulnerable() && !theZombie->IsDeadOrDying() && !theZombie->mMindControlled &&
+		theZombie->mZombiePhase != ZombiePhase::PHASE_DOLPHIN_INTO_POOL &&
+		theZombie->mZombiePhase != ZombiePhase::PHASE_DOLPHIN_IN_JUMP && !theZombie->IsFlying();
+}
+
 static bool IsConeOrBucketZombie(ZombieType theType)
 {
-	return theType == ZombieType::ZOMBIE_TRAFFIC_CONE || theType == ZombieType::ZOMBIE_PAIL;
+	return theType == ZombieType::ZOMBIE_TRAFFIC_CONE || theType == ZombieType::ZOMBIE_PAIL ||
+		theType == ZombieType::ZOMBIE_BULWARK_BUCKET;
 }
 
 static std::string ZombatarTrackName(const char* thePrefix, int theIndex)
@@ -203,10 +214,14 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 	mButteredCounter = 0;
 	mMindControlled = false;
 	mBlowingAway = false;
+	mBloverKnockbackDistanceRemaining = 0;
 	mHasHead = true;
 	mHasArm = true;
 	mHasObject = false;
 	mInPool = false;
+	mSpawnedByZombieRain = false;
+	mDolphinFirstLeapComplete = false;
+	mThreeMillionSunDurabilityApplied = false;
 	mOnHighGround = false;
 	mHelmType = HelmType::HELMTYPE_NONE;
 	mShieldType = ShieldType::SHIELDTYPE_NONE;
@@ -1516,7 +1531,7 @@ void Zombie::UpdateZombiePogo()
 	if (mZombiePhase == ZombiePhase::PHASE_POGO_FORWARD_BOUNCE_2 && mPhaseCounter == 70)
 	{
 		Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_VAULT);
-		if (aPlant && aPlant->mSeedType == SeedType::SEED_TALLNUT)
+		if (aPlant && aPlant->IsTallNut())
 		{
 			mApp->PlayFoley(FoleyType::FOLEY_BONK);
 			mApp->AddPvzpParticle(aPlant->mX + 60, aPlant->mY - 20, mRenderOrder + 1, ParticleEffect::PARTICLE_TALL_NUT_BLOCK);
@@ -1562,16 +1577,14 @@ void Zombie::ZombieCatapultFire(Plant* thePlant)
 {
 	float aOriginX = mPosX + 113.0f;
 	float aOriginY = mPosY - 44.0f;
-	int aTargetX, aTargetY;
+	int aTargetX;
 	if (thePlant)
 	{
 		aTargetX = thePlant->mX;
-		aTargetY = thePlant->mY;
 	}
 	else
 	{
 		aTargetX = mPosX - 300.0f;
-		aTargetY = 0.0f;
 	}
 
 	mApp->PlayFoley(FoleyType::FOLEY_BASKETBALL);
@@ -1580,46 +1593,93 @@ void Zombie::ZombieCatapultFire(Plant* thePlant)
 	if (aProjectile == nullptr)
 		return;
 	float aRangeX = aOriginX - aTargetX - 20.0f;
-	float aRangeY = aTargetY - aOriginY;
 	if (aRangeX < 40.0f)
 	{
 		aRangeX = 40.0f;
 	}
 	aProjectile->mMotionType = ProjectileMotion::MOTION_LOBBED;
+	if (thePlant)
+	{
+		aProjectile->mCobTargetX = thePlant->mX + thePlant->mWidth / 2.0f - aProjectile->mWidth / 2.0f;
+		aProjectile->mCobTargetRow = thePlant->mRow;
+	}
 	aProjectile->mVelX = -aRangeX / 120.0f;
 	aProjectile->mVelY = 0.0f;
-	aProjectile->mVelZ = aRangeY / 120.0f - 7.0f;
+	aProjectile->mVelZ = -7.0f;
 	aProjectile->mAccZ = 0.115f;
 }
 
-Plant* Zombie::FindCatapultTarget()
+int Zombie::FindCatapultTargets(Plant** theTargets, int theMaxTargets)
 {
-	Plant* aTarget = nullptr;
+	if (theTargets == nullptr || theMaxTargets <= 0)
+		return 0;
+
+	Plant* aCandidates[CLASSIC_GRID_SIZE_X * MAX_GRID_SIZE_Y]{};
+	int aCandidateCount = 0;
 
 	for (Plant* aPlant : mBoard->mPlants)
 	{
 		if (aPlant->mDead)
 			continue;
-		if (aPlant->mRow == mRow && mX >= aPlant->mX + 100 && !aPlant->NotOnGround() && !aPlant->IsSpiky())
-		{
-			if (aTarget == nullptr || aPlant->mPlantCol < aTarget->mPlantCol)
-			{
-				aTarget = mBoard->GetTopPlantAt(aPlant->mPlantCol, aPlant->mRow, PlantPriority::TOPPLANT_CATAPULT_ORDER);
-			}
-		}
+		if (mX < aPlant->mX + 100 || aPlant->NotOnGround() || aPlant->IsSpiky())
+			continue;
+
+		Plant* aTarget = mBoard->GetTopPlantAt(aPlant->mPlantCol, aPlant->mRow, PlantPriority::TOPPLANT_CATAPULT_ORDER);
+		if (aTarget == nullptr || aTarget->NotOnGround() || aTarget->IsSpiky() ||
+			std::find(std::begin(aCandidates), std::begin(aCandidates) + aCandidateCount, aTarget) != std::begin(aCandidates) + aCandidateCount)
+			continue;
+		if (aCandidateCount < static_cast<int>(std::size(aCandidates)))
+			aCandidates[aCandidateCount++] = aTarget;
 	}
 
-	return aTarget;
+	std::sort(std::begin(aCandidates), std::begin(aCandidates) + aCandidateCount,
+		[this](const Plant* theLeft, const Plant* theRight)
+		{
+			int aLeftRowDistance = std::abs(theLeft->mRow - mRow);
+			int aRightRowDistance = std::abs(theRight->mRow - mRow);
+			if (aLeftRowDistance != aRightRowDistance)
+				return aLeftRowDistance < aRightRowDistance;
+			if (theLeft->mPlantCol != theRight->mPlantCol)
+				return theLeft->mPlantCol > theRight->mPlantCol;
+			return theLeft->mRow < theRight->mRow;
+		});
+
+	int aTargetCount = 0;
+	bool aSelectedRows[MAX_GRID_SIZE_Y]{};
+	for (int i = 0; i < aCandidateCount && aTargetCount < theMaxTargets; ++i)
+	{
+		Plant* aCandidate = aCandidates[i];
+		if (aSelectedRows[aCandidate->mRow])
+			continue;
+		theTargets[aTargetCount++] = aCandidate;
+		aSelectedRows[aCandidate->mRow] = true;
+	}
+	for (int i = 0; i < aCandidateCount && aTargetCount < theMaxTargets; ++i)
+	{
+		Plant* aCandidate = aCandidates[i];
+		if (std::find(theTargets, theTargets + aTargetCount, aCandidate) == theTargets + aTargetCount)
+			theTargets[aTargetCount++] = aCandidate;
+	}
+	return aTargetCount;
 }
 
 void Zombie::UpdateZombieCatapult()
 {
 	if (mZombiePhase == ZombiePhase::PHASE_ZOMBIE_NORMAL)
 	{
-		if (mPosX <= 650 && FindCatapultTarget() && mSummonCounter > 0)
+		Plant* aTargets[3]{};
+		const Rect aZombieRect = GetZombieRect();
+		const float aVisibleLeft = std::max(0.0f, static_cast<float>(aZombieRect.mX));
+		const float aVisibleRight = std::min(static_cast<float>(mApp->mWidth),
+			static_cast<float>(aZombieRect.mX + aZombieRect.mWidth));
+		const float aVisibleWidth = std::max(0.0f, aVisibleRight - aVisibleLeft);
+		const bool aVisibleEnoughToAttack = aVisibleWidth >= aZombieRect.mWidth * 0.25f;
+		const bool aCanStartAttacking = mPosX <= 650 || (mApp->mWidth > BOARD_WIDTH && aVisibleEnoughToAttack &&
+			EffectedByDamage(1U));
+		if (FindCatapultTargets(aTargets, 3) > 0 && aCanStartAttacking && mSummonCounter > 0)
 		{
 			mZombiePhase = ZombiePhase::PHASE_CATAPULT_LAUNCHING;
-			mPhaseCounter = 300;
+			mPhaseCounter = 250;
 			PlayZombieReanim("anim_shoot", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, 24.0f);
 		}
 	}
@@ -1628,8 +1688,10 @@ void Zombie::UpdateZombieCatapult()
 		Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
 		if (aBodyReanim->ShouldTriggerTimedEvent(0.545f))
 		{
-			Plant* aPlant = FindCatapultTarget();
-			ZombieCatapultFire(aPlant);
+			Plant* aTargets[3]{};
+			int aTargetCount = FindCatapultTargets(aTargets, 3);
+			for (int i = 0; i < aTargetCount; ++i)
+				ZombieCatapultFire(aTargets[i]);
 		}
 		if (aBodyReanim->mLoopCount > 0)
 		{
@@ -1665,11 +1727,11 @@ void Zombie::UpdateZombieCatapult()
 	}
 	else if (mZombiePhase == ZombiePhase::PHASE_CATAPULT_RELOADING && mPhaseCounter == 0)
 	{
-		Plant* aPlant = FindCatapultTarget();
-		if (aPlant)
+		Plant* aTargets[3]{};
+		if (FindCatapultTargets(aTargets, 3) > 0)
 		{
 			mZombiePhase = ZombiePhase::PHASE_CATAPULT_LAUNCHING;
-			mPhaseCounter = 300;
+			mPhaseCounter = 250;
 			PlayZombieReanim("anim_shoot", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 24.0f);
 		}
 		else
@@ -1791,7 +1853,7 @@ void Zombie::UpdateZombiePolevaulter()
 		if (aBodyReanim->mAnimTime > 0.6f && aBodyReanim->mAnimTime <= 0.7f)
 		{
 			Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_VAULT);
-			if (aPlant && aPlant->mSeedType == SeedType::SEED_TALLNUT)
+			if (aPlant && aPlant->IsTallNut())
 			{
 				mApp->PlayFoley(FoleyType::FOLEY_BONK);
 				aJumpEnds = true;
@@ -1890,11 +1952,12 @@ void Zombie::UpdateZombieDolphinRider()
 		{
 			mAltitude = -40.0f;
 			mZombieHeight = ZombieHeight::HEIGHT_OUT_OF_POOL;
-			mZombiePhase = ZombiePhase::PHASE_DOLPHIN_WALKING;
+			mZombieAttackRect = Rect(30, 0, 30, 115);
+			mZombieRect = Rect(20, 0, 42, 115);
+			mZombiePhase = ZombiePhase::PHASE_DOLPHIN_WALKING_WITHOUT_DOLPHIN;
 
 			PoolSplash(false);
-			PlayZombieReanim("anim_walkdolphin", ReanimLoopType::REANIM_LOOP, 0, 0.0f);
-			PickRandomSpeed();
+			StartWalkAnim(0);
 			return;
 		}
 
@@ -1922,7 +1985,7 @@ void Zombie::UpdateZombieDolphinRider()
 		if (aBodyReanim->ShouldTriggerTimedEvent(0.3f))
 		{
 			Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_VAULT);
-			if (aPlant && aPlant->mSeedType == SeedType::SEED_TALLNUT)
+			if (aPlant && aPlant->IsTallNut())
 			{
 				mApp->PlayFoley(FoleyType::FOLEY_BONK);
 				aJumpEnds = true;
@@ -1950,6 +2013,7 @@ void Zombie::UpdateZombieDolphinRider()
 
 		if (aJumpEnds)
 		{
+			mDolphinFirstLeapComplete = true;
 			mZombieAttackRect = Rect(30, 0, 30, 115);
 			mZombieRect = Rect(20, 0, 42, 115);
 			mZombiePhase = ZombiePhase::PHASE_DOLPHIN_WALKING_IN_POOL;
@@ -2230,7 +2294,8 @@ void Zombie::UpdateZombieGargantuar()
 			bool aThrewZombie = false;
 			for (int aThrowIndex = 0; aThrowIndex < aThrowBatchSize; aThrowIndex++)
 			{
-				ZombieType aThrownType = aIsBulwark && aThrowIndex < 5 ? ZombieType::ZOMBIE_PAIL : ZombieType::ZOMBIE_IMP;
+				bool aThrowsPail = aIsBulwark ? aThrowIndex < 5 : aThrowIndex == 0;
+				ZombieType aThrownType = aThrowsPail ? ZombieType::ZOMBIE_PAIL : ZombieType::ZOMBIE_IMP;
 				Zombie* aThrownZombie = mBoard->AddZombie(aThrownType, mFromWave);
 				if (aThrownZombie == nullptr)
 					break;
@@ -2935,6 +3000,7 @@ ZombieID Zombie::SummonBackupDancer(int theRow, int thePosX)
 	Zombie* aZombie = mBoard->AddZombie(ZombieType::ZOMBIE_BACKUP_DANCER, mFromWave);
 	if (aZombie == nullptr)
 		return ZombieID::ZOMBIEID_NULL;
+	aZombie->mSpawnedByZombieRain = mSpawnedByZombieRain;
 
 	aZombie->mPosX = thePosX;
 	aZombie->mPosY = GetPosYBasedOnRow(theRow);
@@ -4224,7 +4290,7 @@ void Zombie::UpdateLadder()
 
 void Zombie::UpdateZombieWalking()
 {
-	if (ZombieNotWalking())
+	if (ZombieNotWalking() || mBloverKnockbackDistanceRemaining > 0 || mBlowingAway)
 		return;
 
 	Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
@@ -4373,22 +4439,30 @@ void Zombie::CheckForZombieStep()
 
 void Zombie::UpdateZombiePosition()
 {
-	if (mZombieType == ZombieType::ZOMBIE_BUNGEE || mZombieType == ZombieType::ZOMBIE_BOSS ||
-		mZombiePhase == ZombiePhase::PHASE_RISING_FROM_GRAVE || mZombieHeight == ZombieHeight::HEIGHT_ZOMBIQUARIUM)
-		return;
-
-	UpdateZombieWalking();
-	CheckForZombieStep();
-
 	if (mBlowingAway)
 	{
 		mPosX += 10.0f;
 		if (mX > 850)
 		{
 			DieWithLoot();
-			return;
 		}
+		return;
 	}
+
+	if (mBloverKnockbackDistanceRemaining > 0)
+	{
+		int aKnockbackStep = std::min(2, mBloverKnockbackDistanceRemaining);
+		mPosX += static_cast<float>(aKnockbackStep);
+		mBloverKnockbackDistanceRemaining -= aKnockbackStep;
+		return;
+	}
+
+	if (mZombieType == ZombieType::ZOMBIE_BUNGEE || mZombieType == ZombieType::ZOMBIE_BOSS ||
+		mZombiePhase == ZombiePhase::PHASE_RISING_FROM_GRAVE || mZombieHeight == ZombieHeight::HEIGHT_ZOMBIQUARIUM)
+		return;
+
+	UpdateZombieWalking();
+	CheckForZombieStep();
 
 	if (mZombieHeight == ZombieHeight::HEIGHT_ZOMBIE_NORMAL)
 	{
@@ -4479,11 +4553,11 @@ void Zombie::Update()
 				UpdatePlaying();
 			}
 
-			if (mZombieType == ZombieType::ZOMBIE_BUNGEE)
+			if (mZombieType == ZombieType::ZOMBIE_BUNGEE && mBloverKnockbackDistanceRemaining <= 0)
 			{
 				UpdateZombieBungee();
 			}
-			if (mZombieType == ZombieType::ZOMBIE_POGO)
+			if (mZombieType == ZombieType::ZOMBIE_POGO && mBloverKnockbackDistanceRemaining <= 0)
 			{
 				UpdateZombiePogo();
 			}
@@ -4569,6 +4643,32 @@ void Zombie::UpdateActions()
 	if (mZombieHeight == ZombieHeight::HEIGHT_FALLING)
 	{
 		UpdateZombieFalling();
+	}
+	if (mSpawnedByZombieRain && mZombieHeight != ZombieHeight::HEIGHT_FALLING && !mInPool && !IsFlying() &&
+		Zombie::ZombieTypeCanGoInPool(mZombieType) && mBoard != nullptr &&
+		mBoard->IsPoolSquare(mBoard->PixelToGridXKeepOnBoard(static_cast<int>(mPosX + mWidth / 2), static_cast<int>(mPosY)), mRow))
+	{
+		if (mZombieType == ZombieType::ZOMBIE_DOLPHIN_RIDER)
+		{
+			mInPool = true;
+			mZombiePhase = ZombiePhase::PHASE_DOLPHIN_RIDING;
+			mZombieAttackRect = Rect(-29, 0, 70, 115);
+			PlayZombieReanim("anim_ride", ReanimLoopType::REANIM_LOOP_FULL_LAST_FRAME, 0, 12.0f);
+			PoolSplash(true);
+		}
+		else if (mZombieType == ZombieType::ZOMBIE_SNORKEL)
+		{
+			mInPool = true;
+			mZombiePhase = ZombiePhase::PHASE_SNORKEL_WALKING_IN_POOL;
+			PlayZombieReanim("anim_swim", ReanimLoopType::REANIM_LOOP_FULL_LAST_FRAME, 0, 12.0f);
+			PoolSplash(true);
+		}
+		else
+		{
+			mInPool = true;
+			mZombieHeight = ZombieHeight::HEIGHT_IN_TO_POOL;
+			PoolSplash(true);
+		}
 	}
 	if (mZombieHeight == ZombieHeight::HEIGHT_IN_TO_CHIMNEY)
 	{
@@ -4702,9 +4802,17 @@ void Zombie::CheckForBoardEdge()
 void Zombie::UpdatePlaying()
 {
 	PVZP_ASSERT(mBodyHealth > 0 || mZombiePhase == ZombiePhase::PHASE_BOBSLED_CRASHING);
+	bool aDolphinButterException = CanDolphinBeButterStunned(this);
+	if (mBoard->mSunMoney >= TWO_AND_HALF_MILLION_SUN_THRESHOLD &&
+		mZombieType != ZombieType::ZOMBIE_BUNGEE && !aDolphinButterException && mButteredCounter > 0)
+	{
+		mButteredCounter = 0;
+		RemoveButter();
+	}
 	if (((IsGargantuarType(mZombieType) || IsBulwarkType(mZombieType)) &&
 		mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD) ||
-		(IsConeOrBucketZombie(mZombieType) && mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD))
+		(IsConeOrBucketZombie(mZombieType) && mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD) ||
+		mBoard->mSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD)
 	{
 		bool aWasChilled = mChilledCounter > 0;
 		mChilledCounter = 0;
@@ -4712,7 +4820,7 @@ void Zombie::UpdatePlaying()
 			RemoveIceTrap();
 		else if (aWasChilled)
 			UpdateAnimSpeed();
-		if (mButteredCounter > 0)
+		if (mButteredCounter > 0 && mZombieType != ZombieType::ZOMBIE_BUNGEE && !aDolphinButterException)
 		{
 			mButteredCounter = 0;
 			RemoveButter();
@@ -4790,11 +4898,18 @@ void Zombie::UpdatePlaying()
 
 	if (mZombiePhase == ZombiePhase::PHASE_RISING_FROM_GRAVE)
 	{
-		UpdateZombieRiseFromGrave();
+		if (mBloverKnockbackDistanceRemaining > 0)
+			UpdateZombiePosition();
+		else
+			UpdateZombieRiseFromGrave();
 		return;
 	}
 
-	if (!IsImmobilizied())
+	if (mBloverKnockbackDistanceRemaining > 0)
+	{
+		UpdateZombiePosition();
+	}
+	else if (!IsImmobilizied())
 	{
 		UpdateActions();
 		UpdateZombiePosition();
@@ -4804,7 +4919,7 @@ void Zombie::UpdatePlaying()
 		CheckForBoardEdge();
 	}
 
-	if (mZombieType == ZombieType::ZOMBIE_BOSS)
+	if (mZombieType == ZombieType::ZOMBIE_BOSS && mBloverKnockbackDistanceRemaining <= 0)
 	{
 		UpdateBoss();
 	}
@@ -4984,7 +5099,7 @@ void Zombie::AnimateChewSound()
 	Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW);
 	if (aPlant)
 	{
-		if (aPlant->mSeedType == SeedType::SEED_HYPNOSHROOM && !aPlant->mIsAsleep)
+		if (aPlant->mSeedType == SeedType::SEED_HYPNOSHROOM && !aPlant->mIsAsleep && !IsSunTierInvulnerable())
 		{
 			mApp->PlayFoley(FoleyType::FOLEY_FLOOP);
 			aPlant->Die();
@@ -4997,7 +5112,7 @@ void Zombie::AnimateChewSound()
 			mAnimTicksPerFrame = 18;
 			UpdateAnimSpeed();
 		}
-		else if (aPlant->mSeedType == SeedType::SEED_GARLIC)
+		else if (aPlant->mSeedType == SeedType::SEED_GARLIC && !IsSunTierInvulnerable())
 		{
 			if (!mYuckyFace)
 			{
@@ -5009,7 +5124,7 @@ void Zombie::AnimateChewSound()
 		}
 		else
 		{
-			if (aPlant->mSeedType == SeedType::SEED_WALLNUT || aPlant->mSeedType == SeedType::SEED_TALLNUT || aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
+			if (aPlant->mSeedType == SeedType::SEED_WALLNUT || aPlant->IsTallNut() || aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
 			{
 				mApp->PlayFoley(FoleyType::FOLEY_CHOMP_SOFT);
 			}
@@ -5050,7 +5165,7 @@ void Zombie::AnimateChewEffect()
 	Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW);
 	if (aPlant)
 	{
-		if (aPlant->mSeedType == SeedType::SEED_WALLNUT || aPlant->mSeedType == SeedType::SEED_TALLNUT)
+		if (aPlant->mSeedType == SeedType::SEED_WALLNUT || aPlant->IsTallNut())
 		{
 			int aRenderOrder = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_PROJECTILE, mRow, 0);
 			ZombieDrawPosition aDrawPos;
@@ -5464,14 +5579,15 @@ void Zombie::UpdateReanim()
 	{
 		if (mZombiePhase == ZombiePhase::PHASE_ZOMBIE_DYING)
 		{
-			float aShakeRange = PvzpAnimateCurveFloatTime(0.7f, 1.0f, aBodyReanim->mAnimTime, 0.0f, 1.0f, PvzpCurves::CURVE_EASE_OUT);
+			float aShakeRange = PvzpAnimateCurveFloatTime(0.7f, 1.0f, aBodyReanim->mAnimTime, 0.0f, 1.0f, PvzpCurves::CURVE_EASE_OUT) * mApp->GetScreenShakeScale();
 			anOffsetX += RandRangeFloat(-aShakeRange, aShakeRange);
 			anOffsetY += RandRangeFloat(-aShakeRange, aShakeRange);
 		}
 		else if (mBodyHealth < 200)
 		{
-			anOffsetX += RandRangeFloat(-1.0f, 1.0f);
-			anOffsetY += RandRangeFloat(-1.0f, 1.0f);
+			float aShakeScale = mApp->GetScreenShakeScale();
+			anOffsetX += RandRangeFloat(-1.0f, 1.0f) * aShakeScale;
+			anOffsetY += RandRangeFloat(-1.0f, 1.0f) * aShakeScale;
 		}
 	}
 	if (mZombieType == ZombieType::ZOMBIE_FOOTBALL && mScaleZombie < 1.0f)
@@ -6599,7 +6715,7 @@ bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
 	if (mZombiePhase == ZombiePhase::PHASE_LADDER_CARRYING || mZombiePhase == ZombiePhase::PHASE_LADDER_PLACING)
 	{
 		bool aPlaceLadder = false;
-		if (thePlant->mSeedType == SeedType::SEED_WALLNUT || thePlant->mSeedType == SeedType::SEED_TALLNUT || thePlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
+		if (thePlant->mSeedType == SeedType::SEED_WALLNUT || thePlant->IsTallNut() || thePlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
 		{
 			aPlaceLadder = true;
 		}
@@ -6673,6 +6789,36 @@ Plant* Zombie::FindPlantTarget(ZombieAttackType theAttackType)
 		if (aFirstSpikyPlant != nullptr)
 			mFirstIgnoredSpikyPlantID = static_cast<PlantID>(mBoard->mPlants.DataArrayGetID(aFirstSpikyPlant));
 	}
+	if (theAttackType == ZombieAttackType::ATTACKTYPE_CHEW && IsGargantuarType(mZombieType) &&
+		mZombieType != ZombieType::ZOMBIE_BULWARK_GARGANTUAR &&
+		mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+	{
+		// At the 1m tier, ignore only the first spike plant; choose the next target by distance,
+		// not plant allocation order, so a farther Tallnut cannot be selected through another Spikerock.
+		Plant* aClosestPlant = nullptr;
+		int aClosestDistance = std::numeric_limits<int>::max();
+		Rect aZombieRect = GetZombieRect();
+		int aZombieCenterX = aZombieRect.mX + aZombieRect.mWidth / 2;
+		for (Plant* aPlant : mBoard->mPlants)
+		{
+			if (aPlant->mDead || aPlant->mRow != mRow || !CanTargetPlant(aPlant, theAttackType))
+				continue;
+
+			Rect aPlantRect = aPlant->GetPlantRect();
+			if (GetRectOverlap(aAttackRect, aPlantRect) < 20)
+				continue;
+
+			int aPlantCenterX = aPlantRect.mX + aPlantRect.mWidth / 2;
+			int aDistance = IsWalkingBackwards() ? aPlantCenterX - aZombieCenterX : aZombieCenterX - aPlantCenterX;
+			if (aDistance >= 0 && aDistance < aClosestDistance)
+			{
+				aClosestDistance = aDistance;
+				aClosestPlant = aPlant;
+			}
+		}
+		if (aClosestPlant != nullptr)
+			return aClosestPlant;
+	}
 
 	for (Plant* aPlant : mBoard->mPlants)
 	{
@@ -6686,6 +6832,33 @@ Plant* Zombie::FindPlantTarget(ZombieAttackType theAttackType)
 				return aPlant;
 			}
 		}
+	}
+
+	// A submerged snorkel can pass a pool plant between its narrow bite-rectangle checks.
+	// Let it surface to eat an eligible plant as it approaches within one attack reach.
+	if (theAttackType == ZombieAttackType::ATTACKTYPE_CHEW && mZombieType == ZombieType::ZOMBIE_SNORKEL &&
+		mInPool && mZombiePhase == ZombiePhase::PHASE_SNORKEL_WALKING_IN_POOL)
+	{
+		Plant* aClosestPlant = nullptr;
+		int aClosestGap = std::numeric_limits<int>::max();
+		for (Plant* aPlant : mBoard->mPlants)
+		{
+			if (aPlant->mDead || aPlant->mRow != mRow || !mBoard->IsPoolSquare(aPlant->mPlantCol, aPlant->mRow) ||
+				!CanTargetPlant(aPlant, theAttackType))
+				continue;
+
+			Rect aPlantRect = aPlant->GetPlantRect();
+			int aGap = IsWalkingBackwards()
+				? aAttackRect.mX - (aPlantRect.mX + aPlantRect.mWidth)
+				: aPlantRect.mX - (aAttackRect.mX + aAttackRect.mWidth);
+			if (aGap >= 0 && aGap <= 60 && aGap < aClosestGap)
+			{
+				aClosestPlant = aPlant;
+				aClosestGap = aGap;
+			}
+		}
+		if (aClosestPlant != nullptr)
+			return aClosestPlant;
 	}
 
 	return nullptr;
@@ -7095,7 +7268,6 @@ void Zombie::CheckIfPreyCaught()
 		mZombiePhase == ZombiePhase::PHASE_DANCER_SNAPPING_FINGERS_WITH_LIGHT ||
 		mZombiePhase == ZombiePhase::PHASE_DANCER_SNAPPING_FINGERS_HOLD ||
 		mZombiePhase == ZombiePhase::PHASE_DOLPHIN_WALKING ||
-		mZombiePhase == ZombiePhase::PHASE_DOLPHIN_WALKING_WITHOUT_DOLPHIN ||
 		mZombiePhase == ZombiePhase::PHASE_DOLPHIN_INTO_POOL ||
 		mZombiePhase == ZombiePhase::PHASE_DOLPHIN_RIDING ||
 		mZombiePhase == ZombiePhase::PHASE_DOLPHIN_IN_JUMP ||
@@ -7182,6 +7354,9 @@ void Zombie::CheckForPool()
 	{
 		return;
 	}
+	// Wait until falling zombies land before starting their pool transition.
+	if (mZombieHeight == ZombieHeight::HEIGHT_FALLING)
+		return;
 	if (mZombieType == ZombieType::ZOMBIE_DOLPHIN_RIDER || mZombieType == ZombieType::ZOMBIE_SNORKEL)
 	{
 		return;
@@ -7360,7 +7535,7 @@ void Zombie::EatPlant(Plant* thePlant)
 	thePlant->mRecentlyEatenCountdown = 50;
 	if (mApp->IsIZombieLevel() && mJustGotShotCounter < -500)
 	{
-		if (thePlant->mSeedType == SeedType::SEED_WALLNUT || thePlant->mSeedType == SeedType::SEED_TALLNUT || thePlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
+		if (thePlant->mSeedType == SeedType::SEED_WALLNUT || thePlant->IsTallNut() || thePlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
 		{
 			thePlant->mPlantHealth -= DAMAGE_PER_EAT;
 		}
@@ -7831,6 +8006,13 @@ void Zombie::DropShield(unsigned int theDamageFlags)
 		}
 
 		mZombiePhase = ZombiePhase::PHASE_NEWSPAPER_MADDENING;
+		if (mBoard != nullptr && mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD)
+		{
+			mBodyHealth = static_cast<int32_t>(std::min<int64_t>(
+				static_cast<int64_t>(mBodyHealth) * 2, std::numeric_limits<int32_t>::max()));
+			mBodyMaxHealth = static_cast<int32_t>(std::min<int64_t>(
+				static_cast<int64_t>(mBodyMaxHealth) * 2, std::numeric_limits<int32_t>::max()));
+		}
 		PlayZombieReanim("anim_gasp", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 10, 8.0f);
 		DetachShield();
 
@@ -8261,6 +8443,8 @@ void Zombie::TakeBodyDamage(int theDamage, unsigned int theDamageFlags)
 
 void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 {
+	if (IsSunTierInvulnerable())
+		return;
 	if (mZombiePhase == ZombiePhase::PHASE_JACK_IN_THE_BOX_POPPING || IsDeadOrDying())
 		return;
 	if (!CanBeTargetedByPlants())
@@ -8329,14 +8513,21 @@ bool Zombie::CanBeChilled()
 {
 	if (mZombieType == ZombieType::ZOMBIE_ZAMBONI || IsBobsledTeamWithSled())
 		return false;
-	if ((IsGargantuarType(mZombieType) || IsBulwarkType(mZombieType)) && mBoard != nullptr &&
-		mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
-		return false;
-	if (IsConeOrBucketZombie(mZombieType) && mBoard != nullptr &&
-		mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD)
-		return false;
-	if (mZombieType == ZombieType::ZOMBIE_IMP && mBoard != nullptr && mBoard->mZombieStrengthTier >= 4)
-		return false;
+	if (!mSpawnedByZombieRain)
+	{
+		if (IsSunTierInvulnerable())
+			return false;
+		if (mBoard != nullptr && mBoard->mSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD)
+			return false;
+		if ((IsGargantuarType(mZombieType) || IsBulwarkType(mZombieType)) && mBoard != nullptr &&
+			mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+			return false;
+		if (IsConeOrBucketZombie(mZombieType) && mBoard != nullptr &&
+			mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD)
+			return false;
+		if (mZombieType == ZombieType::ZOMBIE_IMP && mBoard != nullptr && mBoard->mZombieStrengthTier >= 4)
+			return false;
+	}
 
 	if (IsDeadOrDying())
 		return false;
@@ -8382,19 +8573,25 @@ bool Zombie::CanBeFrozen()
 	return mZombieType != ZombieType::ZOMBIE_BUNGEE || mZombiePhase == ZombiePhase::PHASE_BUNGEE_AT_BOTTOM;
 }
 
-bool Zombie::CanBeTargetedByPlants() const
+bool Zombie::CanBeTargetedByPlants(bool theIgnoreSunTierInvulnerability) const
 {
-	return mZombieType != ZombieType::ZOMBIE_SNORKEL ||
-		(mIsEating && mZombiePhase == ZombiePhase::PHASE_SNORKEL_EATING_IN_POOL);
+	return (theIgnoreSunTierInvulnerability || !IsSunTierInvulnerable()) && (mZombieType != ZombieType::ZOMBIE_SNORKEL ||
+		(!mInPool || mIsEating));
 }
 
-bool Zombie::EffectedByDamage(unsigned int theDamageRangeFlags)
+bool Zombie::IsSunTierInvulnerable() const
+{
+	return mZombieType == ZombieType::ZOMBIE_DOLPHIN_RIDER && mBoard != nullptr &&
+		mBoard->mSunMoney >= TWO_MILLION_SUN_THRESHOLD && !mDolphinFirstLeapComplete;
+}
+
+bool Zombie::EffectedByDamage(unsigned int theDamageRangeFlags, bool theIgnoreSunTierInvulnerability)
 {
 	if (!TestBit(theDamageRangeFlags, static_cast<int>(DamageRangeFlags::DAMAGES_DYING)) && IsDeadOrDying())
 	{
 		return false;
 	}
-	if (!CanBeTargetedByPlants())
+	if (!CanBeTargetedByPlants(theIgnoreSunTierInvulnerability))
 		return false;
 
 	if (TestBit(theDamageRangeFlags, static_cast<int>(DamageRangeFlags::DAMAGES_ONLY_MINDCONTROLLED)))
@@ -8697,6 +8894,9 @@ void Zombie::RemoveIceTrap()
 
 void Zombie::HitIceTrap()
 {
+	if (!CanBeChilled())
+		return;
+
 	bool cold = false;
 	if (mChilledCounter > 0 || mIceTrapCounter != 0)
 	{
@@ -8829,12 +9029,31 @@ void Zombie::RemoveButter()
 
 void Zombie::ApplyButter()
 {
+	if (IsSunTierInvulnerable())
+		return;
+	if (mBoard != nullptr && mBoard->mSunMoney >= TWO_AND_HALF_MILLION_SUN_THRESHOLD &&
+		mZombieType != ZombieType::ZOMBIE_BUNGEE && !CanDolphinBeButterStunned(this))
+		return;
 	if (IsBulwarkType(mZombieType))
 		return;
 	if ((IsGargantuarType(mZombieType) || IsBulwarkType(mZombieType)) && mBoard != nullptr &&
 		mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
 		return;
-	if (!mHasHead || !CanBeFrozen())
+	bool aCanBeButterStunned = CanBeFrozen();
+	if (!aCanBeButterStunned && mZombieType == ZombieType::ZOMBIE_BUNGEE && mBoard != nullptr &&
+		mBoard->mSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD && !IsDeadOrDying() && !mMindControlled &&
+		mZombiePhase == ZombiePhase::PHASE_BUNGEE_AT_BOTTOM)
+	{
+		// Cold slows are disabled at this tier, but grounded Bungees retain their butter-stun exception.
+		aCanBeButterStunned = true;
+	}
+	if (!aCanBeButterStunned && mBoard != nullptr &&
+		mBoard->mSunMoney >= THREE_AND_HALF_MILLION_SUN_THRESHOLD && CanDolphinBeButterStunned(this))
+	{
+		// Dolphin Riders keep the 2m pre-leap immunity; after the first leap, butter still stuns them.
+		aCanBeButterStunned = true;
+	}
+	if (!mHasHead || !aCanBeButterStunned)
 		return;
 
 	bool aIsGargantuar = IsGargantuarType(mZombieType);

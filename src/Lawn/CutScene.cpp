@@ -94,7 +94,7 @@ static const int	TimeIntro_FadeOut				= 10890;
 static const int	TimeIntro_FadeOutEnd			= 11890;
 static const int	TimeIntro_End					= 13890;
 static const int	TimeLawnMowerDuration			= 250;
-static const int	TimeLawnMowerStart[MAX_GRID_SIZE_Y]	= { 6300, 6250, 6200, 6150, 6100, 6050, 6000, 5950, 5900, 5850 };
+static const int	TimeLawnMowerStart[MAX_GRID_SIZE_Y]	= { 6300, 6250, 6200, 6150, 6100, 6050 };
 
 CutScene::CutScene()
 {
@@ -1260,8 +1260,18 @@ void CutScene::AnimateBoard()
 				LawnMower* aLawnMower = mBoard->FindLawnMowerInRow(aGridY);
 				if (aLawnMower)
 				{
+					const bool aWasVisible = aLawnMower->mVisible;
 					aLawnMower->mVisible = true;
 					aLawnMower->mPosX = CalcPosition(aTimeLawnMowerStart, aTimeLawnMowerStart + TimeLawnMowerDuration, -80, -21);
+					if (!aWasVisible)
+					{
+						const std::string aDetailsJson = std::format(
+							R"({{"mower_id":{},"mower_type":{},"row_index":{},"lane":{},"state":{},"visible":{},"x":{:.2f},"y":{:.2f}}})",
+							mBoard->mLawnMowers.DataArrayGetID(aLawnMower), static_cast<int>(aLawnMower->mMowerType),
+							aLawnMower->mRow, aLawnMower->mRow + 1, static_cast<int>(aLawnMower->mMowerState),
+							aLawnMower->mVisible ? "true" : "false", aLawnMower->mPosX, aLawnMower->mPosY);
+						mBoard->RecordGameplayEvent("lawn_mower_deployed", aDetailsJson);
+					}
 				}
 			}
 		}
@@ -1471,7 +1481,8 @@ void CutScene::UpdateZombiesWon()
 {
 	if (mCutsceneTime > LostTimePanRightStart && mCutsceneTime <= LostTimePanRightEnd)
 	{
-		mBoard->Move(CalcPosition(LostTimePanRightStart, LostTimePanRightEnd, 0, BOARD_OFFSET), 0);
+		const int aViewportCenterOffset = std::max(0, (mApp->mWidth - BOARD_WIDTH) / 2);
+		mBoard->Move(CalcPosition(LostTimePanRightStart, LostTimePanRightEnd, 0, BOARD_OFFSET + aViewportCenterOffset), 0);
 	}
 
 	if (mCutsceneTime == LostTimeBrainGraphicStart - 400 || mCutsceneTime == LostTimeBrainGraphicStart - 900)
@@ -1484,7 +1495,9 @@ void CutScene::UpdateZombiesWon()
 	{
 		ReanimatorEnsureDefinitionLoaded(ReanimationType::REANIM_ZOMBIES_WON, true);
 		int aRenderPosition = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_SCREEN_FADE, 0, 0);
-		Reanimation* aReanimation = mApp->AddReanimation(-BOARD_OFFSET, 0, aRenderPosition, ReanimationType::REANIM_ZOMBIES_WON);
+		const int aViewportCenterOffset = std::max(0, (mApp->mWidth - BOARD_WIDTH) / 2);
+		Reanimation* aReanimation = mApp->AddReanimation(-BOARD_OFFSET + aViewportCenterOffset, 0,
+			aRenderPosition, ReanimationType::REANIM_ZOMBIES_WON);
 		aReanimation->mAnimRate = 12.0f;
 		aReanimation->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
 		aReanimation->GetTrackInstanceByName("fullscreen")->mTrackColor = Color::Black;
@@ -1513,13 +1526,16 @@ void CutScene::UpdateZombiesWon()
 			int aFlagsCompleted = mBoard->GetSurvivalFlagsCompleted();
 			std::string aFlagsStr = mApp->Pluralize(aFlagsCompleted, "[ONE_FLAG]", "[COUNT_FLAGS]");
 			std::string aStr = PvzpReplaceString("[SURVIVAL_DEATH_MESSAGE]", "{FLAGS}", aFlagsStr);
+			const std::string aBreachReport = mBoard->GetZombieBreachReport();
+			if (!aBreachReport.empty())
+				aStr = std::format("{}\n\n{}", aStr, aBreachReport);
 			GameOverDialog* aDialog = new GameOverDialog(aStr, true);
 			mApp->AddDialog(Dialogs::DIALOG_GAME_OVER, aDialog);
 			mApp->mWidgetManager->SetFocus(aDialog);
 		}
 		else
 		{
-			GameOverDialog* aDialog = new GameOverDialog("", false);
+			GameOverDialog* aDialog = new GameOverDialog(mBoard->GetZombieBreachReport(), false);
 			mApp->AddDialog(Dialogs::DIALOG_GAME_OVER, aDialog);
 			mApp->mWidgetManager->SetFocus(aDialog);
 		}

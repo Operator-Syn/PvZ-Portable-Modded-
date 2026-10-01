@@ -1,6 +1,6 @@
 # PvZ-Portable architecture map
 
-**Baseline:** current worktree at the snapshot recorded in [baseline.md](baseline.md). These notes are source-observed unless explicitly labeled otherwise; no runtime behavior is claimed as verified here.
+**Current structure:** see [source modules and refactoring contract](refactoring.md) for responsibility ownership and checks. The snapshot in [baseline.md](baseline.md) is historical. These notes are source-observed unless explicitly labeled otherwise.
 
 ## Repository layers
 
@@ -24,6 +24,7 @@ These are navigation paths, not complete call graphs. Use clangd's definition/re
 
 ## Maintainer entry points
 
+- [Source modules, design principles, and checks](refactoring.md)
 - [Gameplay systems and data flow](gameplay.md)
 - [Engine, effects, rendering, and profiling](engine-effects.md)
 - [Resources, persistence, platforms, and build](resources-persistence-platforms.md)

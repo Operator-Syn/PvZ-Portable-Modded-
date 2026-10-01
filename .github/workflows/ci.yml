@@ -52,8 +52,9 @@ jobs:
       run: |
         sudo -u builder bash -lc '
           mkdir build
-          cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DPVZ_BUILD_TESTS=ON
           cmake --build build
+          ctest --test-dir build --output-on-failure
 
           mkdir -p dist
           cp build/pvz-portable dist/

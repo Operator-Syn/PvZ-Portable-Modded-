@@ -6,6 +6,8 @@
 
 `src/PvzpLib/` contains project-specific support for attachments, effects, particles, reanimations, and trails. `EffectSystem::Update` coordinates effect updates and delegates to the corresponding holders/systems. `PvzpParticleHolder` owns particle-related pools and update work; `PvzpParticleSystem` and `PvzpParticleEmitter` define system/emitter behavior.
 
+Particle startup resources and drawing are separated into `PvzpParticleDefinitions.cpp` and `PvzpParticleRendering.cpp`; simulation and worker dispatch remain in `PvzpParticle.cpp`.
+
 The broader `src/SexyAppFramework/` tree supplies framework functionality including graphics, widgets, resource management, pak access, and audio. Prefer using the existing framework path when a change belongs there rather than adding parallel infrastructure in `Lawn`.
 
 ## Rendering path

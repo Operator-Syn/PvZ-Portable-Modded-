@@ -8,7 +8,7 @@
 
 ## Persistence
 
-`src/Lawn/System/SaveGame.cpp` contains the portable mid-level `.v4` serialization path and legacy compatibility handling. The repository README describes global user data separately from level saves. `.v4` uses explicit field synchronization and TLV-style records; legacy `.dat` files are raw-layout dumps and have cross-platform limitations. See the README's “Save data compatibility” section and the save entry points in `Board.cpp`.
+`src/Lawn/System/SaveGame.cpp` is the file boundary. Portable format validation, entity/effect serialization, Board fields, legacy decoding, and restoration have separate `SaveGame*` units described in the [responsibility map](refactoring.md). The repository README describes global user data separately from level saves. `.v4` uses explicit field synchronization and TLV-style records; legacy `.dat` files are raw-layout dumps and have cross-platform limitations. See the README's “Save data compatibility” section and the save entry points in `Board.cpp`.
 
 When adding persistent state, inspect the portable serializer and its older-field defaults, then use the existing converter at `scripts/pvzp-v4-converter.py` only with test/sample data. Do not use private live saves as documentation fixtures.
 

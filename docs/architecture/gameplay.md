@@ -6,12 +6,12 @@
 
 `Board` holds the active lawn state and coordinates level updates, game objects, wave progression, placement, and drawing. The main update path is `Board::Update`, which reaches `Board::UpdateGameObjects` for the entity collections. `Board::Draw` delegates ordered game-object gathering/drawing to `Board::DrawGameObjects`.
 
-Start at `src/Lawn/Board.h` for the board's object/state surface and `src/Lawn/Board.cpp` for behavior. Board-level targeting helpers and wave/challenge decisions may affect several plant or zombie types; check those consumers before changing shared behavior.
+Start at `src/Lawn/Board.h` for the board's object/state surface and `src/Lawn/Board.cpp` for frame coordination. Placement, waves, combat, input, and drawing have separate units in the [responsibility map](refactoring.md). Board-level targeting helpers and wave/challenge decisions may affect several plant or zombie types; check those consumers before changing shared behavior.
 
 ## Combat flow
 
-1. Plants update in `src/Lawn/Plant.cpp`; plant-specific logic selects targets and calls firing or ability helpers.
-2. `src/Lawn/Projectile.cpp` advances projectile motion and handles collisions, impact effects, direct damage, and splash damage.
+1. Plants update through `src/Lawn/Plant.cpp` and its responsibility modules; plant-specific logic selects targets and calls firing or ability helpers.
+2. The `Projectile*` units separate lifecycle, motion, collisions, impact, and presentation.
 3. Zombies update in `src/Lawn/Zombie.cpp`; type and phase determine movement, attacks, armor/body damage, and susceptibility to effects.
 4. Board helpers coordinate cross-entity effects such as explosions, lane-wide abilities, target queries, and zombie tier changes.
 
@@ -23,7 +23,7 @@ Gargantuar smashes preserve a Pumpkin shell layered over Tall-nut or Chomper Nut
 
 Cattail targets across lanes. Its target selection and homing spike redirection prioritize Balloon Zombies first, then the leftmost eligible hitbox; distance from the Cattail or projectile breaks ties. There is no per-zombie Cattail targeting limit, so every eligible Cattail may select the same target. Each homing spike can redirect once if its target becomes invalid, then coasts offscreen.
 
-Plant healing is centralized in `Board.cpp`'s `HealPlant` helper. Sun Magnet stacks, Chomper healing, Pumpkin and Tall-nut regeneration, and Gloom-shroom regeneration all pass through it, so Pumpkin's >=5,000-sun healing multiplier applies consistently. Gloom-shrooms regenerate 25 HP/s and add 150 sun/s each to the board's overdrive upkeep.
+Plant healing is centralized in `BoardPlantHealing.cpp`'s `PlantHealing::HealPlant` helper. Sun Magnet stacks, Chomper healing, Pumpkin and Tall-nut regeneration, and Gloom-shroom regeneration all pass through it, so Pumpkin's >=5,000-sun healing multiplier applies consistently. Gloom-shrooms regenerate 25 HP/s and add 150 sun/s each to the board's overdrive upkeep.
 
 In the widened Survival: Endless viewport, Catapult Zombies wait until at least one quarter of their hitbox is visible and they are targetable by ground attacks before beginning a volley.
 

@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.12...4.0)
 
 project(pvz-portable LANGUAGES C CXX)
 
+option(PVZ_BUILD_TESTS "Build asset-free gameplay and save-format regression tests" OFF)
+
 include(CMake/ProjectVersion.cmake)
 
 option(BUILD_STATIC "Statically link dependencies for a standalone exe (Windows MinGW, Linux)" OFF)
@@ -327,4 +329,13 @@ elseif (IOS)
 		set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/ios/Assets.xcassets"
 			PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 	endif()
+endif()
+
+# Keep regression tests opt-in so platform packaging retains its existing target set.
+if(PVZ_BUILD_TESTS)
+	if(ANDROID OR IOS OR EMSCRIPTEN OR NINTENDO_SWITCH)
+		message(FATAL_ERROR "PVZ_BUILD_TESTS requires a native desktop build")
+	endif()
+	enable_testing()
+	add_subdirectory(tests)
 endif()

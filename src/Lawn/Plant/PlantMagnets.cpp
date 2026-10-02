@@ -57,6 +57,7 @@
 
 
 #include "PlantRules.h"
+#include "PlantHealing.h"
 #include "../Rules/TargetingRules.h"
 
 MagnetItem* Plant::GetFreeMagnetItem()
@@ -501,15 +502,11 @@ void Plant::UpdateGoldMagnetShroom()
 	if (mSeedType == SeedType::SEED_SUN_MAGNET && mSunMagnetCoffeeTicksRemaining > 0)
 	{
 		--mSunMagnetCoffeeTicksRemaining;
-		if (--mSunMagnetCoffeeTicksUntilDamage <= 0)
+		PlantHealing::ApplyPlantHealthRate(this, -4.0f);
+		if (mPlantHealth <= 0)
 		{
-			mSunMagnetCoffeeTicksUntilDamage = 60;
-			mPlantHealth -= 4;
-			if (mPlantHealth <= 0)
-			{
-				Die();
-				return;
-			}
+			Die();
+			return;
 		}
 		if (mSunMagnetCoffeeTicksRemaining == 0)
 			mSunMagnetCoffeeTicksUntilDamage = 0;

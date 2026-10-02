@@ -193,12 +193,26 @@ Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, const st
 			}
 
 			Rect aZombieRect = aZombie->GetZombieRect();
+			if (mSeedType == SeedType::SEED_EPHRAIM && mShootingCounter > 0)
+			{
+				const int aPlantCenterX = mX + mWidth / 2;
+				const int aZombieCenterX = aZombieRect.mX + aZombieRect.mWidth / 2;
+				const bool aAttackingLeft = mTargetX < aPlantCenterX;
+				if ((aZombieCenterX < aPlantCenterX) != aAttackingLeft)
+					continue;
+			}
 			if (!needPortalCheck && GetRectOverlap(aAttackRect, aZombieRect) < -aExtraRange)
 			{
 				continue;
 			}
 
 			int aWeight = -aZombieRect.mX;
+			if (mSeedType == SeedType::SEED_EPHRAIM)
+			{
+				const int aPlantCenterX = mX + mWidth / 2;
+				const int aZombieCenterX = aZombieRect.mX + aZombieRect.mWidth / 2;
+				aWeight = -std::abs(aZombieCenterX - aPlantCenterX);
+			}
 			if (aCanTargetAcrossLanes)
 			{
 				aWeight = -Distance2D(mX + 40.0f, mY + 40.0f, aZombieRect.mX + aZombieRect.mWidth / 2, aZombieRect.mY + aZombieRect.mHeight / 2);
@@ -303,6 +317,7 @@ Rect Plant::GetPlantAttackRect(PlantWeapon thePlantWeapon)
 	case SeedType::SEED_SQUASH:         aRect = Rect(mX + 20,       mY,             mWidth - 35,        mHeight);               break;
 	case SeedType::SEED_CHOMPER:
 	case SeedType::SEED_CHOMPERNUT:     aRect = Rect(mX + 80,       mY - 160,        280,                mHeight + 320);        break;
+	case SeedType::SEED_EPHRAIM:        aRect = Rect(mX - EPHRAIM_ATTACK_RANGE_BEHIND, mY, mWidth + EPHRAIM_ATTACK_RANGE_BEHIND + EPHRAIM_ATTACK_RANGE_FRONT, mHeight); break;
 	case SeedType::SEED_SPIKEWEED:
 	case SeedType::SEED_SPIKEROCK:      aRect = Rect(mX + 20,       mY,             mWidth - 50,        mHeight);               break;
 	case SeedType::SEED_POTATOMINE:     aRect = Rect(mX,            mY,             mWidth - 25,        mHeight);               break;

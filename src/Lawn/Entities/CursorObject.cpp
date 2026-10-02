@@ -25,6 +25,7 @@
 #include "../../LawnApp.h"
 #include "CursorObject.h"
 #include "../../Resources.h"
+#include "../../PvzpLib/PvzpCommon.h"
 #include "../../PvzpLib/Reanimator.h"
 #include "widget/WidgetManager.h"
 
@@ -79,6 +80,45 @@ void CursorObject::Die()
 
 void CursorObject::Draw(Graphics* g)
 {
+	if (mType == SeedType::SEED_EPHRAIM &&
+		(mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_BANK ||
+		 mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_USABLE_COIN ||
+		 mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_DUPLICATOR))
+	{
+		const int aMouseX = mApp->mWidgetManager->mLastMouseX;
+		const int aMouseY = mApp->mWidgetManager->mLastMouseY;
+		const int aGridX = mBoard->PlantingPixelToGridX(aMouseX, aMouseY, mType);
+		const int aGridY = mBoard->PlantingPixelToGridY(aMouseX, aMouseY, mType);
+		if (aMouseX >= LAWN_XMIN && aMouseX < LAWN_XMIN + mBoard->GetNumPlayableColumns() * 80 &&
+			aMouseY >= LAWN_YMIN && aMouseY < LAWN_YMIN + mBoard->GetNumPlayableRows() * mBoard->GetGridRowSpacing() &&
+			aGridX >= 0 && aGridX < mBoard->GetNumPlayableColumns() &&
+			aGridY >= 0 && aGridY < mBoard->GetNumPlayableRows())
+		{
+			const int aPlantX = mBoard->GridToPixelX(aGridX, aGridY);
+			const int aPlantY = mBoard->GridToPixelY(aGridX, aGridY);
+			const int aAttackStartX = aPlantX - Plant::EPHRAIM_ATTACK_RANGE_BEHIND;
+			const int aAttackEndX = aPlantX + 80 + Plant::EPHRAIM_ATTACK_RANGE_FRONT;
+			GraphicsStateGuard aStateGuard(*g);
+			g->SetColorizeImages(true);
+			g->SetColor(Color(90, 190, 255, 155));
+			for (int aCol = 0; aCol < mBoard->GetNumPlayableColumns(); ++aCol)
+			{
+				const int aTileX = mBoard->GridToPixelX(aCol, aGridY);
+				const int aTileCenterX = aTileX + 40;
+				if (aTileCenterX < aAttackStartX || aTileCenterX > aAttackEndX)
+					continue;
+				PvzpDrawImageCelCenterScaledF(g, IMAGE_PLANTSHADOW2,
+					aTileX + 40.0f - mX, aPlantY + 45.0f - mY, 0, 1.35f, 1.35f);
+			}
+
+			// Mark the tile that will own the plant, since Ephraim's sprite extends
+			// across neighboring tiles even though his gameplay footprint is one tile.
+			g->SetColor(Color(255, 220, 110, 220));
+			PvzpDrawImageCelCenterScaledF(g, IMAGE_PLANTSHADOW2,
+				aPlantX + 40.0f - mX, aPlantY + 45.0f - mY, 0, 1.8f, 1.8f);
+		}
+	}
+
 	switch (mCursorType)
 	{
 	case CursorType::CURSOR_TYPE_SHOVEL:

@@ -26,6 +26,7 @@ These are navigation paths, not complete call graphs. Use clangd's definition/re
 
 - [Source modules, design principles, and checks](refactoring.md)
 - [Gameplay systems and data flow](gameplay.md)
+- [Adding a plant](adding-plants.md)
 - [Engine, effects, rendering, and profiling](engine-effects.md)
 - [Resources, persistence, platforms, and build](resources-persistence-platforms.md)
 - [Fork-specific source delta](fork-delta.md)

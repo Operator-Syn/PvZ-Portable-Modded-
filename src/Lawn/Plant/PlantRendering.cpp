@@ -582,7 +582,124 @@ void Plant::Draw(Graphics* g)
 	}
 
 	int aImageIndex = mFrame;
+	int aImageCol = aImageIndex;
+	int aImageRow = 0;
+	uint32_t anIdleAnimationCounter = 0;
 	Image* aPlantImage = Plant::GetImage(mSeedType);
+	if (mSeedType == SeedType::SEED_EPHRAIM)
+	{
+		const int anAttackSet = std::clamp(mEphraimAttackSet, 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
+		if (mShootingCounter > 0)
+		{
+			const int aWindupCount = anAttackSet == 0 ? EPHRAIM_LANCE_INTRO_FRAME_COUNT + EPHRAIM_LANCE_WINDUP_FRAME_COUNT
+				: anAttackSet == 1 ? EPHRAIM_CRITICAL_LANCE_WINDUP_FRAME_COUNT
+				: anAttackSet == 2 ? EPHRAIM_JAVELIN_WINDUP_FRAME_COUNT : EPHRAIM_CRITICAL_JAVELIN_WINDUP_FRAME_COUNT;
+			if (mFrame < aWindupCount && IMAGE_EPHRAIM_SEQUENCES != nullptr)
+			{
+				aPlantImage = IMAGE_EPHRAIM_SEQUENCES;
+				aImageCol = mFrame;
+				aImageRow = anAttackSet;
+			}
+			else
+			{
+				const int aAttackFrame = std::max(0, mFrame - aWindupCount);
+				aImageRow = anAttackSet + 1;
+				aImageCol = aAttackFrame;
+				if (aAttackFrame >= 14 && anAttackSet < 2)
+				{
+					if (IMAGE_EPHRAIM_ATTACK_TAIL != nullptr)
+					{
+						aPlantImage = IMAGE_EPHRAIM_ATTACK_TAIL;
+						aImageCol = aAttackFrame - 14;
+						aImageRow = anAttackSet;
+					}
+					else
+					{
+						// Keep the last in-range lance pose if the optional tail atlas
+						// is absent; never ask the texture code for an invalid source rect.
+						aImageCol = 13;
+					}
+				}
+			}
+		}
+		else
+		{
+			aImageCol = 0;
+			aImageRow = 0;
+			anIdleAnimationCounter = IsOnBoard() ? mBoard->mMainCounter : mApp->mAppCounter;
+			if (IMAGE_EPHRAIM_SEQUENCES != nullptr && IMAGE_EPHRAIM_SEQUENCES->mNumCols >= 6)
+			{
+				// Ease through the attack intro and reverse back to its start. At the
+				// game's 100 Hz update rate this makes one breathing loop take 3.6s.
+				static constexpr int IDLE_INTRO_FRAMES[] = { 0, 1, 2, 3, 4, 5, 4, 3, 2, 1 };
+				aPlantImage = IMAGE_EPHRAIM_SEQUENCES;
+				aImageCol = IDLE_INTRO_FRAMES[(anIdleAnimationCounter % 360) / 36];
+			}
+		}
+	}
+	if (mSeedType == SeedType::SEED_EPHRAIM)
+	{
+		if (aPlantImage == nullptr || aPlantImage->mNumCols <= 0 || aPlantImage->mNumRows <= 0)
+			return;
+		if (aImageCol < 0 || aImageCol >= aPlantImage->mNumCols || aImageRow < 0 || aImageRow >= aPlantImage->mNumRows)
+		{
+			aPlantImage = IMAGE_EPHRAIM_PLANT;
+			aImageCol = 0;
+			aImageRow = 0;
+			if (aPlantImage == nullptr || aPlantImage->mNumCols <= 0 || aPlantImage->mNumRows <= 0)
+				return;
+		}
+	}
+	auto DrawPlantImageCel = [&](Graphics* theGraphics)
+	{
+		if (mSeedType != SeedType::SEED_EPHRAIM)
+		{
+			PvzpDrawImageCelF(theGraphics, aPlantImage, aOffsetX, aOffsetY, aImageCol, aImageRow);
+			return;
+		}
+
+		const int aCelWidth = aPlantImage->GetCelWidth();
+		const int aCelHeight = aPlantImage->GetCelHeight();
+		const bool anIdlePose = mShootingCounter == 0;
+		float aBreathingScale = 1.0f;
+		if (anIdlePose)
+		{
+			aBreathingScale += std::sin(static_cast<float>(anIdleAnimationCounter) * 2.0f * PI / 360.0f) * 0.012f;
+		}
+		const int aScaledWidth = static_cast<int>(std::round(aCelWidth * EPHRAIM_DRAW_SCALE * aBreathingScale));
+		const int aScaledHeight = static_cast<int>(std::round(aCelHeight * EPHRAIM_DRAW_SCALE * aBreathingScale));
+		// The source frame has transparent padding and an off-center pose. Center
+		// the visible pixels on the plant tile instead of centering the full atlas
+		// cell. Attack poses keep the cell centered because their action spans the
+		// full tile area while moving through the animation.
+		float aVisibleCenterX = aCelWidth * 0.5f;
+		if (anIdlePose)
+		{
+			static constexpr float IDLE_INTRO_VISIBLE_CENTER_X[] = { 53.0f, 51.0f, 45.5f, 45.0f, 38.5f, 37.0f };
+			if (aPlantImage == IMAGE_EPHRAIM_SEQUENCES && aImageRow == 0 && aImageCol >= 0 && aImageCol < 6)
+			{
+				// Keep most of the centering, but preserve 30% of the intro's
+				// original horizontal sway so the idle feels alive without drifting.
+				constexpr float IDLE_CENTER_ANCHOR_X = 45.0f;
+				constexpr float IDLE_SWAY_PRESERVATION = 0.30f;
+				const float aPoseCenterX = IDLE_INTRO_VISIBLE_CENTER_X[aImageCol];
+				aVisibleCenterX = IDLE_CENTER_ANCHOR_X + (aPoseCenterX - IDLE_CENTER_ANCHOR_X) * (1.0f - IDLE_SWAY_PRESERVATION);
+			}
+			else
+				aVisibleCenterX = 54.0f;
+		}
+		const float aFootAnchorOffset = anIdlePose ? 83.0f * EPHRAIM_DRAW_SCALE * aBreathingScale : aCelHeight * EPHRAIM_DRAW_SCALE;
+		const int aDrawX = static_cast<int>(std::round(aOffsetX + mWidth * 0.5f - aVisibleCenterX * EPHRAIM_DRAW_SCALE * aBreathingScale));
+		const int aDrawY = static_cast<int>(std::round(aOffsetY + mHeight - aFootAnchorOffset));
+		const Rect aSourceRect(aImageCol * aCelWidth, aImageRow * aCelHeight, aCelWidth, aCelHeight);
+		const Rect aDestRect(aDrawX, aDrawY, aScaledWidth, aScaledHeight);
+		Graphics aScaledGraphics(*theGraphics);
+		aScaledGraphics.SetFastStretch(true);
+		// The PNG source faces left. Face right while idle and toward targets on
+		// the right; leave the original orientation only for attacks to the left.
+		const bool aMirrorAtlas = mShootingCounter == 0 || mTargetX >= mX + mWidth / 2;
+		aScaledGraphics.DrawImageMirror(aPlantImage, aDestRect, aSourceRect, aMirrorAtlas);
+	};
 
 	if (mSquished)
 	{
@@ -713,14 +830,14 @@ void Plant::Draw(Graphics* g)
 				g->SetColor(GetFlashingColor(mBoard->mMainCounter, 90));
 			}
 
-			PvzpDrawImageCelF(g, aPlantImage, aOffsetX, aOffsetY, aImageIndex, 0);
+			DrawPlantImageCel(g);
 			g->SetColorizeImages(false);
 			if (mHighlighted)
 			{
 				g->SetDrawMode(Graphics::DRAWMODE_ADDITIVE);
 				g->SetColorizeImages(true);
 				g->SetColor(Color(255, 255, 255, 196));
-				PvzpDrawImageCelF(g, aPlantImage, aOffsetX, aOffsetY, aImageIndex, 0);
+				DrawPlantImageCel(g);
 				g->SetDrawMode(Graphics::DRAWMODE_NORMAL);
 				g->SetColorizeImages(false);
 			}
@@ -729,7 +846,7 @@ void Plant::Draw(Graphics* g)
 				g->SetDrawMode(Graphics::DRAWMODE_ADDITIVE);
 				g->SetColorizeImages(true);
 				g->SetColor(Color(255, 255, 255, std::clamp(mEatenFlashCountdown * 3, 0, 255)));
-				PvzpDrawImageCelF(g, aPlantImage, aOffsetX, aOffsetY, aImageIndex, 0);
+				DrawPlantImageCel(g);
 				g->SetDrawMode(Graphics::DRAWMODE_NORMAL);
 				g->SetColorizeImages(false);
 			}
@@ -868,18 +985,42 @@ void Plant::DrawSeedType(Graphics* g, SeedType theSeedType, SeedType theImitater
 			{
 				aCelRow = 2;
 			}
+			else if (aSeedType == SeedType::SEED_EPHRAIM)
+			{
+				aCelCol = 0;
+			}
 			else if (aSeedType == SeedType::SEED_TWINSUNFLOWER)
 			{
 				aCelRow = 1;
 			}
 
 			Image* aPlantImage = Plant::GetImage(aSeedType);
-			if (aPlantImage->mNumCols <= 2)
+			if (aSeedType == SeedType::SEED_EPHRAIM)
 			{
-				aCelCol = aPlantImage->mNumCols - 1;
+				const int aCelWidth = aPlantImage->GetCelWidth();
+				const int aCelHeight = aPlantImage->GetCelHeight();
+				const float aScaleX = aSeedG.mScaleX * 140.0f / aCelWidth;
+				const float aScaleY = aSeedG.mScaleY * 90.0f / aCelHeight;
+				// This source pose faces left. Flip inside the seed cell and offset
+				// by its measured opaque bounds so the figure itself stays centered.
+				const float aCenterOffsetX = 16.5f * aScaleX;
+				const Rect aSourceRect(0, 0, aCelWidth, aCelHeight);
+				const Rect aDestRect(
+					static_cast<int>(std::round(thePosX + aOffsetX + aCenterOffsetX)),
+					static_cast<int>(std::round(thePosY + aOffsetY)),
+					static_cast<int>(std::round(140.0f * aScaleX)),
+					static_cast<int>(std::round(90.0f * aScaleY)));
+				aSeedG.DrawImageMirror(aPlantImage, aDestRect, aSourceRect, true);
 			}
+			else
+			{
+				if (aPlantImage->mNumCols <= 2)
+				{
+					aCelCol = aPlantImage->mNumCols - 1;
+				}
 
-			PvzpDrawImageCelScaledF(&aSeedG, aPlantImage, thePosX + aOffsetX, thePosY + aOffsetY, aCelCol, aCelRow, aSeedG.mScaleX, aSeedG.mScaleY);
+				PvzpDrawImageCelScaledF(&aSeedG, aPlantImage, thePosX + aOffsetX, thePosY + aOffsetY, aCelCol, aCelRow, aSeedG.mScaleX, aSeedG.mScaleY);
+			}
 		}
 	}
 }

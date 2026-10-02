@@ -179,6 +179,8 @@ enum BoardBaseFieldId : uint32_t
 	BOARD_FIELD_PARTICLE_SHAKE_SCALE,
 	BOARD_FIELD_PLANTERN_FLAME_DAMAGE_PERCENT,
 	BOARD_FIELD_ZOMBIE_TIER_SUN_MONEY,
+	BOARD_FIELD_CONTINUOUS_SUN_COST_REMAINDER,
+	BOARD_FIELD_CONTINUOUS_PAID_GLOOM_COUNT,
 	BOARD_FIELD_COUNT
 };
 
@@ -526,6 +528,23 @@ static constexpr BoardBaseFieldEntry gBoardBaseFields[] = {
 		{
 			c.mFailed = true;
 			theBoard->mZombieTierSunMoney = std::max(0, theBoard->mSunMoney);
+		}
+	} },
+	{ BOARD_FIELD_CONTINUOUS_SUN_COST_REMAINDER, [](PortableSaveContext& c, Board* theBoard){
+		c.SyncFloat(theBoard->mContinuousSunCostRemainder);
+		if (c.mReading && !(theBoard->mContinuousSunCostRemainder >= 0.0f && theBoard->mContinuousSunCostRemainder < 1.0f))
+		{
+			c.mFailed = true;
+			theBoard->mContinuousSunCostRemainder = 0.0f;
+		}
+	} },
+	{ BOARD_FIELD_CONTINUOUS_PAID_GLOOM_COUNT, [](PortableSaveContext& c, Board* theBoard){
+		c.SyncInt32(theBoard->mContinuousPaidGloomShroomCount);
+		if (c.mReading && (theBoard->mContinuousPaidGloomShroomCount < 0 ||
+			theBoard->mContinuousPaidGloomShroomCount > static_cast<int32_t>(DATA_ARRAY_MAX_SIZE)))
+		{
+			c.mFailed = true;
+			theBoard->mContinuousPaidGloomShroomCount = 0;
 		}
 	} },
 };

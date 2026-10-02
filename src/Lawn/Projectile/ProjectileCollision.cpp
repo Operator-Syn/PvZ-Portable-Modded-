@@ -424,6 +424,8 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 
 Rect Projectile::GetProjectileRect()
 {
+	if (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN)
+		return Rect(mVelX > 0.0f ? mX + mWidth - 12 : mX, mY, 12, mHeight);
 	if (mProjectileType == ProjectileType::PROJECTILE_PEA || mGatlingCherryShot ||
 		mProjectileType == ProjectileType::PROJECTILE_SNOWPEA ||
 		mProjectileType == ProjectileType::PROJECTILE_ZOMBIE_PEA)

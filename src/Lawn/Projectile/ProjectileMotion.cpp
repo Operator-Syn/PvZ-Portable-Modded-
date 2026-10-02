@@ -247,7 +247,11 @@ void Projectile::UpdateLobMotion()
 
 void Projectile::UpdateNormalMotion()
 {
-	if (mMotionType == ProjectileMotion::MOTION_BACKWARDS)
+	if (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN)
+	{
+		mPosX += mVelX;
+	}
+	else if (mMotionType == ProjectileMotion::MOTION_BACKWARDS)
 	{
 		mPosX -= 3.33f;
 	}

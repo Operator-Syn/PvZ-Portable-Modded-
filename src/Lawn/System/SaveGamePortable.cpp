@@ -1222,6 +1222,7 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 			AppendFieldWithSync(aOut, 105U, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mThreeMillionSunDurabilityApplied); });
 			AppendFieldWithSync(aOut, 106U, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mSpawnedByZombieRain); });
 			AppendFieldWithSync(aOut, 107U, [&](PortableSaveContext& c){ c.SyncFloat(aZombie.mContinuousHealthRemainder); });
+			AppendFieldWithSync(aOut, 108U, [&](PortableSaveContext& c){ c.SyncInt32(aZombie.mEphraimStaggerCounter); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Zombie& aZombie)
 		{
@@ -1247,6 +1248,10 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mSpawnedByZombieRain); });
 			else if (aFieldId == 107U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncFloat(aZombie.mContinuousHealthRemainder); });
+			else if (aFieldId == 108U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aZombie.mEphraimStaggerCounter); });
+			if (aZombie.mEphraimStaggerCounter < 0 || aZombie.mEphraimStaggerCounter > Plant::EPHRAIM_JAVELIN_STAGGER_TICKS)
+				aZombie.mEphraimStaggerCounter = 0;
 			if (!(aZombie.mContinuousHealthRemainder > -1.0f && aZombie.mContinuousHealthRemainder < 1.0f))
 				aZombie.mContinuousHealthRemainder = 0.0f;
 			if (aZombie.mTierBucketArmorHealth < 0 || aZombie.mTierBucketArmorMaxHealth < 0 ||
@@ -1258,6 +1263,17 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 				aZombie.mTierBucketArmorMaxHealth = 0;
 			}
 		});
+}
+
+static void SyncEphraimAfterimagePortable(PortableSaveContext& c, Plant::EphraimAfterimage& theEcho)
+{
+	c.SyncInt32(theEcho.mAttackSet);
+	c.SyncInt32(theEcho.mElapsedTicks);
+	c.SyncInt32(theEcho.mDelayTicks);
+	c.SyncInt32(theEcho.mHitStopTicks);
+	c.SyncInt32(theEcho.mPauseFlags);
+	c.SyncInt32(theEcho.mTargetX);
+	c.SyncInt32(theEcho.mTrailOffset);
 }
 
 static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
@@ -1276,6 +1292,16 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 			AppendFieldWithSync(aOut, 107U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimHitStopCounter); });
 			AppendFieldWithSync(aOut, 109U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAttackPauseFlags); });
 			AppendFieldWithSync(aOut, 110U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAfterimageFrame); });
+			AppendFieldWithSync(aOut, 111U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAfterimageChancePercent); });
+			AppendFieldWithSync(aOut, 112U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAfterimageFailureCount); });
+			AppendFieldWithSync(aOut, 113U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAfterimagesRemaining); });
+			AppendFieldWithSync(aOut, 114U, [&](PortableSaveContext& c)
+			{
+				uint32_t aCount = static_cast<uint32_t>(aPlant.mEphraimAfterimages.size());
+				c.SyncUInt32(aCount);
+				for (Plant::EphraimAfterimage& anEcho : aPlant.mEphraimAfterimages)
+					SyncEphraimAfterimagePortable(c, anEcho);
+			});
 			AppendFieldWithSync(aOut, 108U, [&](PortableSaveContext& c){ c.SyncFloat(aPlant.mContinuousHealthRemainder); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Plant& aPlant)
@@ -1302,6 +1328,55 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAttackPauseFlags); });
 			else if (aFieldId == 110U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAfterimageFrame); });
+			else if (aFieldId == 111U)
+			{
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAfterimageChancePercent); });
+				// Recover the tally for saves made before the explicit count was added.
+				const int aChance = std::clamp(aPlant.mEphraimAfterimageChancePercent, Plant::EPHRAIM_AFTERIMAGE_CHANCE_PERCENT, 100);
+				aPlant.mEphraimAfterimageFailureCount = std::clamp((aChance -
+					Plant::EPHRAIM_AFTERIMAGE_CHANCE_PERCENT + Plant::EPHRAIM_AFTERIMAGE_CHANCE_INCREMENT_PERCENT - 1) /
+					Plant::EPHRAIM_AFTERIMAGE_CHANCE_INCREMENT_PERCENT, 0, Plant::EPHRAIM_MAX_AFTERIMAGES);
+			}
+			else if (aFieldId == 112U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAfterimageFailureCount); });
+			else if (aFieldId == 113U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAfterimagesRemaining); });
+			else if (aFieldId == 114U)
+			{
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
+				{
+					uint32_t aCount = 0;
+					c.SyncUInt32(aCount);
+					// Seven int32 fields per echo; bound allocation by the actual payload.
+					if (c.mFailed || aSize < 4 || aCount > (aSize - 4) / 28)
+					{
+						c.mFailed = true;
+						return;
+					}
+					std::vector<Plant::EphraimAfterimage> anEchoes(aCount);
+					for (Plant::EphraimAfterimage& anEcho : anEchoes)
+					{
+						SyncEphraimAfterimagePortable(c, anEcho);
+						const int aPauseMask = Plant::EPHRAIM_ATTACK_FLAG_AFTERIMAGE_IMPACT | Plant::EPHRAIM_ATTACK_FLAG_AFTERIMAGE_ANTICIPATION |
+							Plant::EPHRAIM_ATTACK_FLAG_RANGED | Plant::EPHRAIM_ATTACK_FLAG_RECOIL | Plant::EPHRAIM_ATTACK_FLAG_RELEASE;
+						if (c.mFailed || anEcho.mAttackSet < 0 || anEcho.mAttackSet >= Plant::EPHRAIM_ATTACK_VARIANT_COUNT ||
+							((anEcho.mPauseFlags & Plant::EPHRAIM_ATTACK_FLAG_RANGED) != 0 && anEcho.mAttackSet < 2) ||
+							anEcho.mElapsedTicks < 0 || anEcho.mElapsedTicks >= Plant::EPHRAIM_ATTACK_DURATION_TICKS[anEcho.mAttackSet] ||
+							anEcho.mDelayTicks < 0 || anEcho.mDelayTicks > (Plant::EPHRAIM_MAX_AFTERIMAGES - 1) * 12 ||
+							anEcho.mHitStopTicks < 0 || anEcho.mHitStopTicks > Plant::EPHRAIM_HIT_STOP_TICKS ||
+							(anEcho.mPauseFlags & ~aPauseMask) != 0 || anEcho.mTrailOffset < Plant::EPHRAIM_AFTERIMAGE_TRAIL_OFFSET ||
+							anEcho.mTrailOffset > Plant::EPHRAIM_AFTERIMAGE_TRAIL_OFFSET +
+								(Plant::EPHRAIM_MAX_AFTERIMAGES - 1) * Plant::EPHRAIM_AFTERIMAGE_SPACING)
+						{
+							c.mFailed = true;
+							return;
+						}
+					}
+					aPlant.mEphraimAfterimages = std::move(anEchoes);
+					aPlant.mEphraimAfterimageFrame = -1;
+				}))
+					theContext.mFailed = true;
+			}
 			else if (aFieldId == 108U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncFloat(aPlant.mContinuousHealthRemainder); });
 			if (!(aPlant.mContinuousHealthRemainder > -1.0f && aPlant.mContinuousHealthRemainder < 1.0f))
@@ -1312,11 +1387,22 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 				aPlant.mEphraimHitStopCounter = 0;
 			if (aPlant.mEphraimAttackPauseFlags < 0 || aPlant.mEphraimAttackPauseFlags > Plant::EPHRAIM_ATTACK_FLAGS_MASK)
 				aPlant.mEphraimAttackPauseFlags = 0;
+			if (aPlant.mEphraimAttackSet < 2)
+				aPlant.mEphraimAttackPauseFlags &= ~Plant::EPHRAIM_ATTACK_FLAG_RANGED;
 			const int anAfterimageSet = (aPlant.mEphraimAttackPauseFlags & Plant::EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_MASK) >> Plant::EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_SHIFT;
 			if (anAfterimageSet >= Plant::EPHRAIM_ATTACK_VARIANT_COUNT)
 				aPlant.mEphraimAttackPauseFlags &= ~Plant::EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_MASK;
 			if (aPlant.mEphraimAfterimageFrame < -1 || aPlant.mEphraimAfterimageFrame >= Plant::EPHRAIM_ATTACK_ANIMATION_TICKS)
 				aPlant.mEphraimAfterimageFrame = -1;
+			if (aPlant.mEphraimAfterimageChancePercent < Plant::EPHRAIM_AFTERIMAGE_CHANCE_PERCENT || aPlant.mEphraimAfterimageChancePercent > 100)
+			{
+				aPlant.mEphraimAfterimageChancePercent = Plant::EPHRAIM_AFTERIMAGE_CHANCE_PERCENT;
+				aPlant.mEphraimAfterimageFailureCount = 0;
+			}
+			if (aPlant.mEphraimAfterimageFailureCount < 0 || aPlant.mEphraimAfterimageFailureCount > Plant::EPHRAIM_MAX_AFTERIMAGES)
+				aPlant.mEphraimAfterimageFailureCount = 0;
+			if (aPlant.mEphraimAfterimagesRemaining < 0 || aPlant.mEphraimAfterimagesRemaining > Plant::EPHRAIM_MAX_AFTERIMAGES)
+				aPlant.mEphraimAfterimagesRemaining = 0;
 			if (aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_PEA &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_BUTTER &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_CHERRYBOMB &&
@@ -1359,6 +1445,7 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 			AppendFieldWithSync(aOut, 107U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mWintermelonCherryShot); });
 			AppendFieldWithSync(aOut, 108U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mTwoMillionSunCatTailDamage); });
 			AppendFieldWithSync(aOut, 109U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mPlanternAutoCoffeeBean); });
+			AppendFieldWithSync(aOut, 110U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mEphraimChargedJavelin); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Projectile& aProjectile)
 		{
@@ -1389,6 +1476,8 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mTwoMillionSunCatTailDamage); });
 			else if (aFieldId == 109U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mPlanternAutoCoffeeBean); });
+			else if (aFieldId == 110U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mEphraimChargedJavelin); });
 				if (aProjectile.mCattailRedirectionCount < 0)
 					aProjectile.mCattailRedirectionCount = 0;
 				else if (aProjectile.mCattailRedirectionCount > 1)

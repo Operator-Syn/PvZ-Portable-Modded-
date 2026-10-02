@@ -61,7 +61,7 @@
 
 int Plant::CalcRenderOrder()
 {
-	if (mSeedType == SeedType::SEED_EPHRAIM && (mShootingCounter > 0 || mEphraimAfterimageFrame >= 0))
+	if (mSeedType == SeedType::SEED_EPHRAIM && (mShootingCounter > 0 || !mEphraimAfterimages.empty()))
 	{
 		// Keep the attack pose in front of zombies so the spear and slash frames
 		// remain visible while they pass through the targets they hit.
@@ -781,7 +781,8 @@ void Plant::Animate()
 	}
 
 	UpdateBlink();
-	if (mSeedType == SeedType::SEED_EPHRAIM && mShootingCounter > 0)
+	if (mSeedType == SeedType::SEED_EPHRAIM &&
+		(mShootingCounter > 0 || (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RECOVERY) != 0))
 	{
 		const int anAttackSet = std::clamp(mEphraimAttackSet, 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
 		const int anAnimationTicks = EPHRAIM_ATTACK_DURATION_TICKS[anAttackSet];

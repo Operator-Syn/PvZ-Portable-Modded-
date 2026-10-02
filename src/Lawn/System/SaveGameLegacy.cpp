@@ -461,7 +461,21 @@ template <typename T> inline static void SyncDataArray(SaveGameContext& theConte
 		auto& aSlot = aBlock[i];
 		theDataArray.DataArrayGetIDAt(i) = aSlot.mID;
 		if (aSlot.mID & DATA_ARRAY_KEY_MASK)
-			std::copy_n(aSlot.mItem, sizeof(T), reinterpret_cast<unsigned char*>(&theDataArray.DataArrayGetItemAt(i)));
+		{
+			T& anItem = theDataArray.DataArrayGetItemAt(i);
+			auto* aBytes = reinterpret_cast<unsigned char*>(&anItem);
+			if constexpr (std::is_same_v<T, Plant>)
+			{
+				// Raw legacy bytes cannot restore ownership of a heap-backed echo list.
+				const size_t anOffset = reinterpret_cast<unsigned char*>(&anItem.mEphraimAfterimages) - aBytes;
+				const size_t anEnd = anOffset + sizeof(anItem.mEphraimAfterimages);
+				std::copy_n(aSlot.mItem, anOffset, aBytes);
+				std::copy_n(aSlot.mItem + anEnd, sizeof(T) - anEnd, aBytes + anEnd);
+				anItem.mEphraimAfterimages.clear();
+			}
+			else
+				std::copy_n(aSlot.mItem, sizeof(T), aBytes);
+		}
 	}
 }
 

@@ -84,6 +84,7 @@ public:
 	bool                    mMillionSunDamage = false;
 	bool                    mTwoMillionSunCatTailDamage = false;
 	bool                    mWintermelonCherryShot = false;
+	bool                    mEphraimChargedJavelin = false;
 	ZombieID                mPiercedZombieIDs[MAX_PIERCING_HITS];
 
 public:

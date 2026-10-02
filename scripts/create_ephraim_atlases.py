@@ -75,6 +75,12 @@ def main() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     for name, frames in ANIMATIONS.items():
         build_atlas(name, frames)
+    # Separate horizontal flight sprite beside the javelin row, facing left.
+    subprocess.run([
+        "ffmpeg", "-v", "error", "-y", "-i", str(SOURCE),
+        "-vf", "crop=62:8:434:369,scale=136:18:flags=neighbor",
+        "-frames:v", "1", str(OUTPUT / "javelin_projectile.png"),
+    ], check=True)
 
 
 if __name__ == "__main__":

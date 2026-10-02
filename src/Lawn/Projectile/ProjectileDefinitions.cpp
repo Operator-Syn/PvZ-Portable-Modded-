@@ -60,7 +60,9 @@ constinit const ProjectileDefinition gProjectileDefinition[] = {
 	{ .mProjectileType = ProjectileType::PROJECTILE_ZOMBIE_PEA, .mImageRow = 0, .mDamage = 20 },
 	{ .mProjectileType = ProjectileType::PROJECTILE_CHERRYBOMB, .mImageRow = 0, .mDamage = 1800 },
 	{ .mProjectileType = ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB, .mImageRow = 0, .mDamage = 1800 },
-	{ .mProjectileType = ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB, .mImageRow = 0, .mDamage = 1800 }
+	{ .mProjectileType = ProjectileType::PROJECTILE_PLANTERN_CHERRY_BOMB, .mImageRow = 0, .mDamage = 1800 },
+	{ .mProjectileType = ProjectileType::PROJECTILE_EPHRAIM_JAVELIN, .mImageRow = 0,
+		.mDamage = Plant::EPHRAIM_ATTACK_DAMAGE * Plant::EPHRAIM_PROJECTILE_DAMAGE_PERCENT / 100 }
 };
 
 const ProjectileDefinition& Projectile::GetProjectileDef()

@@ -119,7 +119,7 @@ constinit const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {
 	{ .mSeedType = SeedType::SEED_LEFTPEATER,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_REPEATER,      .mPacketIndex = 5,  .mSeedCost = 200, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 150,  .mPlantName = "REPEATER" },
 	{ .mSeedType = SeedType::SEED_SUN_MAGNET,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_GOLD_MAGNET,  .mPacketIndex = 27, .mSeedCost = 25,  .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "SUN_MAGNET" },
 	{ .mSeedType = SeedType::SEED_CHOMPERNUT,         .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_TALLNUT,        .mPacketIndex = -1, .mSeedCost = 0,   .mRefreshTime = 0,      .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "CHOMPER_NUT" },
-	{ .mSeedType = SeedType::SEED_EPHRAIM,            .mPlantImage = gEphraimPlantImages, .mReanimationType = ReanimationType::REANIM_NONE,           .mPacketIndex = -1, .mSeedCost = 50,  .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 100,  .mPlantName = "EPHRAIM" }
+	{ .mSeedType = SeedType::SEED_EPHRAIM,            .mPlantImage = gEphraimPlantImages, .mReanimationType = ReanimationType::REANIM_NONE,           .mPacketIndex = -1, .mSeedCost = 300, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 100,  .mPlantName = "EPHRAIM" }
 };
 
 const PlantDefinition& GetPlantDefinition(SeedType theSeedType)

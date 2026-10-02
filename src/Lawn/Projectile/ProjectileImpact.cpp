@@ -166,6 +166,16 @@ void Projectile::DoImpact(Zombie* theZombie)
 			aDamage += std::max(50, aCurrentBodyHealthBonus);
 		}
 		theZombie->TakeDamage(aDamage, aDamageFlags);
+		if (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN && mEphraimChargedJavelin &&
+			!theZombie->IsDeadOrDying() && theZombie->mZombieType != ZombieType::ZOMBIE_BOSS &&
+			theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE)
+		{
+			// A small impact displacement follows the throw direction, including leftward throws.
+			theZombie->mPosX += mVelX < 0.0f ? -Plant::EPHRAIM_JAVELIN_KNOCKBACK_DISTANCE : Plant::EPHRAIM_JAVELIN_KNOCKBACK_DISTANCE;
+			theZombie->mX = static_cast<int>(theZombie->mPosX);
+			theZombie->mEphraimStaggerCounter = Plant::EPHRAIM_JAVELIN_STAGGER_TICKS;
+			theZombie->UpdateAnimSpeed();
+		}
 	}
 
 	float aLastPosX = mPosX - mVelX;

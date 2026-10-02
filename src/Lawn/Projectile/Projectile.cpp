@@ -92,6 +92,7 @@ void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, in
 	mMillionSunDamage = false;
 	mTwoMillionSunCatTailDamage = false;
 	mWintermelonCherryShot = false;
+	mEphraimChargedJavelin = false;
 	std::fill(std::begin(mPiercedZombieIDs), std::end(mPiercedZombieIDs), ZombieID::ZOMBIEID_NULL);
 	mOnHighGround = mBoard->mGridSquareType[aGridX][theRow] == GridSquareType::GRIDSQUARE_HIGH_GROUND;
 	if (mBoard->StageHasRoof() && theX < 480)
@@ -109,6 +110,10 @@ void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, in
 
 	switch (mProjectileType)
 	{
+	case ProjectileType::PROJECTILE_EPHRAIM_JAVELIN:
+		mWidth = Plant::EPHRAIM_JAVELIN_WIDTH;
+		mHeight = Plant::EPHRAIM_JAVELIN_HEIGHT;
+		break;
 	case ProjectileType::PROJECTILE_CABBAGE:
 	case ProjectileType::PROJECTILE_BUTTER:
 		mRotation = -7 * PI / 25;  // DEG_TO_RAD(-50.4f);

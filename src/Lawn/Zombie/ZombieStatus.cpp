@@ -78,7 +78,7 @@ static ZombieRules::ColdState ColdStateForZombie(Zombie& theZombie)
 
 bool Zombie::IsImmobilizied()
 {
-	return mIceTrapCounter > 0 || mButteredCounter > 0;
+	return mIceTrapCounter > 0 || mButteredCounter > 0 || (mEphraimStaggerCounter > 0 && !IsDeadOrDying());
 }
 
 bool Zombie::IsMovingAtChilledSpeed()

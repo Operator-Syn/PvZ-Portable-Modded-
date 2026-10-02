@@ -1154,6 +1154,11 @@ bool Sexy::ExtractInitResources(ResourceManager* theManager)
 		else
 			PvzpLogLn("Ephraim animation atlas missing; run scripts/create_ephraim_atlases.py");
 	}
+	IMAGE_EPHRAIM_JAVELIN = gSexyAppBase->GetImage("properties/ephraim/atlases/javelin_projectile.png");
+	if (IMAGE_EPHRAIM_JAVELIN != nullptr)
+		PvzpMarkImageForSanding(IMAGE_EPHRAIM_JAVELIN);
+	else
+		PvzpLogLn("Ephraim javelin sprite missing; run scripts/create_ephraim_atlases.py");
 	IMAGE_EPHRAIM_PLANT = gSexyAppBase->GetImage("properties/ephraim/atlases/idle.png");
 	if (IMAGE_EPHRAIM_PLANT != nullptr)
 	{
@@ -1352,6 +1357,7 @@ Image* Sexy::IMAGE_PEA_SHADOWS;
 Image* Sexy::IMAGE_PEA_SPLATS;
 Image* Sexy::IMAGE_EPHRAIM_PLANT;
 Image* Sexy::IMAGE_EPHRAIM_SEQUENCES[4] = {};
+Image* Sexy::IMAGE_EPHRAIM_JAVELIN;
 Image* Sexy::IMAGE_PHONOGRAPH;
 Image* Sexy::IMAGE_PINATA;
 Image* Sexy::IMAGE_PLANTSHADOW;

@@ -59,7 +59,7 @@
 #include "PlantRules.h"
 #include "../Rules/TargetingRules.h"
 
-Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, const std::vector<Zombie*>* theExcludedZombies)
+Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, const std::vector<Zombie*>* theExcludedZombies, const int* theAttackTargetX, bool theMeleeOnly)
 {
 	Sexy::FrameProfileScope aProfileScope(Sexy::FrameProfileMetric::PLANT_TARGETING, true);
 	int aDamageRangeFlags = GetDamageRangeFlags(thePlantWeapon);
@@ -193,11 +193,14 @@ Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, const st
 			}
 
 			Rect aZombieRect = aZombie->GetZombieRect();
-			if (mSeedType == SeedType::SEED_EPHRAIM && mShootingCounter > 0)
+			if (mSeedType == SeedType::SEED_EPHRAIM && theMeleeOnly &&
+				std::abs(aZombieRect.mX + aZombieRect.mWidth / 2 - (mX + mWidth / 2)) > EPHRAIM_ATTACK_RANGE_FRONT)
+				continue;
+			if (mSeedType == SeedType::SEED_EPHRAIM && (mShootingCounter > 0 || theAttackTargetX != nullptr))
 			{
 				const int aPlantCenterX = mX + mWidth / 2;
 				const int aZombieCenterX = aZombieRect.mX + aZombieRect.mWidth / 2;
-				const bool aAttackingLeft = mTargetX < aPlantCenterX;
+				const bool aAttackingLeft = (theAttackTargetX ? *theAttackTargetX : mTargetX) < aPlantCenterX;
 				if ((aZombieCenterX < aPlantCenterX) != aAttackingLeft)
 					continue;
 			}
@@ -317,7 +320,7 @@ Rect Plant::GetPlantAttackRect(PlantWeapon thePlantWeapon)
 	case SeedType::SEED_SQUASH:         aRect = Rect(mX + 20,       mY,             mWidth - 35,        mHeight);               break;
 	case SeedType::SEED_CHOMPER:
 	case SeedType::SEED_CHOMPERNUT:     aRect = Rect(mX + 80,       mY - 160,        280,                mHeight + 320);        break;
-	case SeedType::SEED_EPHRAIM:        aRect = Rect(mX - EPHRAIM_ATTACK_RANGE_BEHIND, mY, mWidth + EPHRAIM_ATTACK_RANGE_BEHIND + EPHRAIM_ATTACK_RANGE_FRONT, mHeight); break;
+	case SeedType::SEED_EPHRAIM:        aRect = Rect(0, mY, BOARD_WIDTH, mHeight); break;
 	case SeedType::SEED_SPIKEWEED:
 	case SeedType::SEED_SPIKEROCK:      aRect = Rect(mX + 20,       mY,             mWidth - 50,        mHeight);               break;
 	case SeedType::SEED_POTATOMINE:     aRect = Rect(mX,            mY,             mWidth - 25,        mHeight);               break;

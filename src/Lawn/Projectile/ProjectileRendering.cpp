@@ -51,6 +51,9 @@ void Projectile::Draw(Graphics* g)
 	float aScale = 1.0f;
 	switch (mProjectileType)
 	{
+	case ProjectileType::PROJECTILE_EPHRAIM_JAVELIN:
+		aImage = IMAGE_EPHRAIM_JAVELIN;
+		break;
 	case ProjectileType::PROJECTILE_COBBIG:
 		aImage = IMAGE_REANIM_COBCANNON_COB;
 		aScale = 0.9f;
@@ -115,7 +118,7 @@ void Projectile::Draw(Graphics* g)
 		break;
 	}
 
-	bool aMirror = false;
+	bool aMirror = mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN && mVelX > 0.0f;
 	if (mMotionType == ProjectileMotion::MOTION_BEE_BACKWARDS)
 	{
 		aMirror = true;

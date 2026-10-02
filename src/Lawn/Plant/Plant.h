@@ -184,18 +184,44 @@ public:
 
 	// Each variant owns one complete windup, strike and recovery atlas.
 	static constexpr std::array<int, 4> EPHRAIM_ATLAS_FRAME_COUNTS = { 21, 21, 7, 11 };
-	static constexpr std::array<int, 4> EPHRAIM_ATTACK_DURATION_TICKS = { 126, 140, 70, 110 };
-	static constexpr std::array<int, 4> EPHRAIM_ATTACK_IMPACT_FRAMES = { 11, 11, 4, 8 };
-	static constexpr std::array<int, 4> EPHRAIM_ATTACK_IMPACT_TICKS = { 66, 74, 40, 80 };
-	static constexpr std::array<int, 4> EPHRAIM_ATTACK_ANTICIPATION_TICKS = { 8, 10, 6, 12 };
-	static constexpr std::array<int, 4> EPHRAIM_ATTACK_HITSTOP_TICKS = { 12, 12, 10, 15 };
-	static constexpr std::array<int, 4> EPHRAIM_ATTACK_MISS_STOP_TICKS = { 6, 6, 5, 8 };
+	// Hold preparation/recovery poses; pass quickly through drawn motion smears.
+	static constexpr std::array<std::array<int, 21>, 4> EPHRAIM_ATTACK_FRAME_TICKS = {{
+		{ 6, 6, 6, 6, 8, 9, 6, 5, 4, 4, 4, 3, 5, 5, 6, 6, 8, 6, 6, 7, 10 },
+		{ 6, 9, 12, 14, 12, 11, 6, 3, 2, 2, 2, 2, 5, 5, 6, 6, 8, 6, 6, 7, 10 },
+		{ 10, 15, 10, 6, 4, 10, 15 },
+		{ 11, 16, 11, 7, 7, 10, 7, 7, 5, 12, 17 }
+	}};
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_DURATION_TICKS = []
+	{
+		std::array<int, 4> aDurations{};
+		for (int aSet = 0; aSet < 4; aSet++)
+			for (int aFrame = 0; aFrame < EPHRAIM_ATLAS_FRAME_COUNTS[aSet]; aFrame++)
+				aDurations[aSet] += EPHRAIM_ATTACK_FRAME_TICKS[aSet][aFrame];
+		return aDurations;
+	}();
+	// Stop on readable poses, leaving the charge/slash smears free to advance.
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_IMPACT_FRAMES = { 10, 10, 4, 8 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_ANTICIPATION_FRAMES = { 5, 1, 3, 3 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_ANTICIPATION_TICKS = { 22, 46, 12, 32 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_HITSTOP_TICKS = { 20, 36, 8, 16 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_MISS_STOP_TICKS = { 5, 9, 2, 4 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_RELEASE_FRAMES = { 10, 10, 5, 9 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_RELEASE_TICKS = { 0, 0, 6, 11 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_RECOIL_FRAMES = { 18, 18, 6, 10 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_RECOIL_TICKS = { 26, 42, 12, 30 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_INTERVAL_TICKS = { 55, 95, 28, 65 };
 	static constexpr int EPHRAIM_ATLAS_COUNT = static_cast<int>(EPHRAIM_ATLAS_FRAME_COUNTS.size());
 	static constexpr int EPHRAIM_ATTACK_VARIANT_COUNT = EPHRAIM_ATLAS_COUNT;
 	static constexpr int EphraimAttackAtlasFrame(int theAttackSet, int theElapsedTicks)
 	{
-		return std::min(theElapsedTicks * EPHRAIM_ATLAS_FRAME_COUNTS[theAttackSet] /
-			EPHRAIM_ATTACK_DURATION_TICKS[theAttackSet], EPHRAIM_ATLAS_FRAME_COUNTS[theAttackSet] - 1);
+		int aFrameEnd = 0;
+		for (int aFrame = 0; aFrame < EPHRAIM_ATLAS_FRAME_COUNTS[theAttackSet]; aFrame++)
+		{
+			aFrameEnd += EPHRAIM_ATTACK_FRAME_TICKS[theAttackSet][aFrame];
+			if (theElapsedTicks < aFrameEnd)
+				return aFrame;
+		}
+		return EPHRAIM_ATLAS_FRAME_COUNTS[theAttackSet] - 1;
 	}
 	static constexpr int EPHRAIM_ATTACK_RANGE_FRONT = 140;
 	static constexpr int EPHRAIM_ATTACK_RANGE_BEHIND = 140;
@@ -203,9 +229,22 @@ public:
 	static constexpr int EPHRAIM_ATTACK_ANIMATION_TICKS = 140;
 	static constexpr int EPHRAIM_LANCE_IMPACT_FRAME = 2;
 	static constexpr int EPHRAIM_CRITICAL_LANCE_IMPACT_FRAME = 2;
-	static constexpr int EPHRAIM_HIT_STOP_TICKS = 15;
-	static constexpr int EPHRAIM_ATTACK_DAMAGE = 40;
+	static constexpr int EPHRAIM_HIT_STOP_TICKS = 46;
+	static constexpr int EPHRAIM_ATTACK_DAMAGE = 80;
+	// Lance, critical lance, javelin, critical javelin: heavier attacks hit harder.
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_DAMAGE_PERCENT = { 250, 350, 100, 175 };
+	static constexpr int EPHRAIM_PROJECTILE_DAMAGE_PERCENT = 125;
+	static constexpr int EPHRAIM_JAVELIN_WIDTH = 136;
+	static constexpr int EPHRAIM_JAVELIN_HEIGHT = 18;
+	static constexpr float EPHRAIM_JAVELIN_SPEED = 5.0f;
+	static constexpr float EPHRAIM_WINDUP_JAVELIN_SPEED = 8.0f;
+	static constexpr int EPHRAIM_JAVELIN_KNOCKBACK_DISTANCE = 24;
+	static constexpr int EPHRAIM_JAVELIN_STAGGER_TICKS = 40;
 	static constexpr int EPHRAIM_AFTERIMAGE_CHANCE_PERCENT = 35;
+	static constexpr int EPHRAIM_AFTERIMAGE_CHANCE_INCREMENT_PERCENT = 15;
+	static constexpr int EPHRAIM_MAX_AFTERIMAGES = 5;
+	static constexpr int EPHRAIM_AFTERIMAGE_TRAIL_OFFSET = 12;
+	static constexpr int EPHRAIM_AFTERIMAGE_SPACING = 28;
 	static constexpr int EPHRAIM_ATTACK_FLAG_ANTICIPATION_PAUSE = 1 << 0;
 	static constexpr int EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT = 1 << 1;
 	static constexpr int EPHRAIM_ATTACK_FLAG_AFTERIMAGE = 1 << 2;
@@ -213,7 +252,11 @@ public:
 	static constexpr int EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_SHIFT = 4;
 	static constexpr int EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_MASK = 7 << EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_SHIFT;
 	static constexpr int EPHRAIM_ATTACK_FLAG_AFTERIMAGE_ANTICIPATION = 1 << 7;
-	static constexpr int EPHRAIM_ATTACK_FLAGS_MASK = (1 << 8) - 1;
+	static constexpr int EPHRAIM_ATTACK_FLAG_RANGED = 1 << 8;
+	static constexpr int EPHRAIM_ATTACK_FLAG_RECOIL = 1 << 9;
+	static constexpr int EPHRAIM_ATTACK_FLAG_RELEASE = 1 << 10;
+	static constexpr int EPHRAIM_ATTACK_FLAG_RECOVERY = 1 << 11;
+	static constexpr int EPHRAIM_ATTACK_FLAGS_MASK = (1 << 12) - 1;
 
 	SeedType                mSeedType;
 	int32_t                 mPlantCol;
@@ -242,6 +285,20 @@ public:
 	int32_t                 mEphraimHitStopCounter;
 	int32_t                 mEphraimAttackPauseFlags;
 	int32_t                 mEphraimAfterimageFrame;
+	int32_t                 mEphraimAfterimageChancePercent = EPHRAIM_AFTERIMAGE_CHANCE_PERCENT;
+	int32_t                 mEphraimAfterimageFailureCount = 0;
+	int32_t                 mEphraimAfterimagesRemaining = 0;
+	struct EphraimAfterimage
+	{
+		int32_t mAttackSet = 0;
+		int32_t mElapsedTicks = 0;
+		int32_t mDelayTicks = 0;
+		int32_t mHitStopTicks = 0;
+		int32_t mPauseFlags = 0;
+		int32_t mTargetX = 0;
+		int32_t mTrailOffset = EPHRAIM_AFTERIMAGE_TRAIL_OFFSET;
+	};
+	std::vector<EphraimAfterimage> mEphraimAfterimages;
 	ReanimationID           mBodyReanimID;
 	ReanimationID           mHeadReanimID;
 	ReanimationID           mHeadReanimID2;
@@ -290,7 +347,10 @@ public:
 		int theKernelPultVolleyIndex = -1, int theKernelPultVolleySize = 0, bool theMillionSunCatTailVolley = false,
 		bool theTwoMillionSunCatTailVolley = false);
 	Zombie*                 FindTargetZombie(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY,
-		const std::vector<Zombie*>* theExcludedZombies = nullptr);
+		const std::vector<Zombie*>* theExcludedZombies = nullptr, const int* theAttackTargetX = nullptr, bool theMeleeOnly = false);
+	void                    LaunchEphraimJavelin(int theTargetX, int theAttackSet, int theTrailOffset = 0);
+	void                    SpawnEphraimAfterimages();
+	void                    UpdateEphraimAfterimages();
 	void                    Die();
 	void                    UpdateProductionPlant();
 	void                    UpdatePlanternAttack();

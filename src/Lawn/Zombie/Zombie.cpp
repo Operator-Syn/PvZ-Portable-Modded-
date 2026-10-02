@@ -104,6 +104,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 	mMindControlled = false;
 	mBlowingAway = false;
 	mBloverKnockbackDistanceRemaining = 0;
+	mEphraimStaggerCounter = 0;
 	mHasHead = true;
 	mHasArm = true;
 	mHasObject = false;
@@ -974,7 +975,7 @@ void Zombie::Update()
 			{
 				UpdateZombieBungee();
 			}
-			if (mZombieType == ZombieType::ZOMBIE_POGO && mBloverKnockbackDistanceRemaining <= 0)
+			if (mZombieType == ZombieType::ZOMBIE_POGO && mBloverKnockbackDistanceRemaining <= 0 && mEphraimStaggerCounter <= 0)
 			{
 				UpdateZombiePogo();
 			}
@@ -1311,6 +1312,13 @@ void Zombie::UpdatePlaying()
 		{
 			RemoveButter();
 		}
+	}
+
+	if (mEphraimStaggerCounter > 0)
+	{
+		if (--mEphraimStaggerCounter > 0)
+			return;
+		UpdateAnimSpeed();
 	}
 
 	if (mZombiePhase == ZombiePhase::PHASE_RISING_FROM_GRAVE)

@@ -962,7 +962,8 @@ void Zombie::UpdateLadder()
 
 void Zombie::UpdateZombieWalking()
 {
-	if (ZombieNotWalking() || mBloverKnockbackDistanceRemaining > 0 || mBlowingAway)
+	if (ZombieNotWalking() || mBloverKnockbackDistanceRemaining > 0 || mBlowingAway ||
+		(mEphraimStaggerCounter > 0 && !IsDeadOrDying()))
 		return;
 
 	Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);

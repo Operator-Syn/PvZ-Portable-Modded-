@@ -589,7 +589,7 @@ void Plant::Draw(Graphics* g)
 	if (mSeedType == SeedType::SEED_EPHRAIM)
 	{
 		const int anAttackSet = std::clamp(mEphraimAttackSet, 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
-		if (mShootingCounter > 0)
+		if (mShootingCounter > 0 || (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RECOVERY) != 0)
 		{
 			const int anAtlasSet = anAttackSet;
 			aPlantImage = IMAGE_EPHRAIM_SEQUENCES[anAtlasSet];
@@ -635,7 +635,7 @@ void Plant::Draw(Graphics* g)
 
 		const int aCelWidth = aPlantImage->GetCelWidth();
 		const int aCelHeight = aPlantImage->GetCelHeight();
-		const bool anIdlePose = mShootingCounter == 0;
+		const bool anIdlePose = mShootingCounter == 0 && (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RECOVERY) == 0;
 		float aBreathingScale = 1.0f;
 		if (anIdlePose)
 		{
@@ -657,37 +657,34 @@ void Plant::Draw(Graphics* g)
 		aScaledGraphics.SetFastStretch(true);
 		// The PNG source faces left. Face right while idle and toward targets on
 		// the right; leave the original orientation only for attacks to the left.
-		const bool aMirrorAtlas = mShootingCounter == 0 || mTargetX >= mX + mWidth / 2;
-		const bool anAfterimageMirrorAtlas = mTargetX >= mX + mWidth / 2;
-		const bool anAfterimageActive = mEphraimAfterimageFrame >= 0 &&
-			(mEphraimAttackPauseFlags & (EPHRAIM_ATTACK_FLAG_AFTERIMAGE | EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT)) ==
-			(EPHRAIM_ATTACK_FLAG_AFTERIMAGE | EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT);
-		static constexpr int AFTERIMAGE_TRAIL_OFFSET = 12;
-		if (anAfterimageActive && !anAfterimageDrawn)
+		const bool aMirrorAtlas = anIdlePose || mTargetX >= mX + mWidth / 2;
+		if (!anAfterimageDrawn)
 		{
-			const int anAfterimageSet = (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_MASK) >> EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_SHIFT;
-			const int aSafeAfterimageSet = std::clamp(anAfterimageSet, 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
-			const int anAfterimageAtlasSet = aSafeAfterimageSet;
-			const int anAfterimageCol = EphraimAttackAtlasFrame(aSafeAfterimageSet, mEphraimAfterimageFrame);
-			const int anAfterimageRow = 0;
-			Image* anAfterimageImage = IMAGE_EPHRAIM_SEQUENCES[anAfterimageAtlasSet];
-			if (anAfterimageImage != nullptr && anAfterimageCol < anAfterimageImage->mNumCols && anAfterimageRow < anAfterimageImage->mNumRows)
+			for (const EphraimAfterimage& anEcho : mEphraimAfterimages)
 			{
-				const int anAfterimageCellWidth = anAfterimageImage->GetCelWidth();
-				const int anAfterimageCellHeight = anAfterimageImage->GetCelHeight();
-				const Rect anAfterimageSourceRect(anAfterimageCol * anAfterimageCellWidth, anAfterimageRow * anAfterimageCellHeight,
-					anAfterimageCellWidth, anAfterimageCellHeight);
-				Graphics anAfterimageGraphics(*theGraphics);
-				anAfterimageGraphics.SetFastStretch(true);
-				anAfterimageGraphics.SetColorizeImages(true);
-				anAfterimageGraphics.SetColor(Color(255, 255, 255, 104));
-				const int anAfterimageOffsetX = anAfterimageMirrorAtlas ? -AFTERIMAGE_TRAIL_OFFSET : AFTERIMAGE_TRAIL_OFFSET;
-				const int anAfterimageDrawX = static_cast<int>(std::round(aOffsetX + mWidth * 0.5f - anAfterimageCellWidth * 0.5f * EPHRAIM_DRAW_SCALE * aBreathingScale));
-				const int anAfterimageDrawY = static_cast<int>(std::round(aOffsetY + mHeight - anAfterimageCellHeight * EPHRAIM_DRAW_SCALE * aBreathingScale));
-				const Rect anAfterimageDestRect(anAfterimageDrawX + anAfterimageOffsetX, anAfterimageDrawY, aScaledWidth, aScaledHeight);
-				anAfterimageGraphics.DrawImageMirror(anAfterimageImage, anAfterimageDestRect, anAfterimageSourceRect, anAfterimageMirrorAtlas);
-				anAfterimageDrawn = true;
+				if (anEcho.mDelayTicks > 0)
+					continue;
+				const int anAfterimageCol = EphraimAttackAtlasFrame(anEcho.mAttackSet, anEcho.mElapsedTicks);
+				Image* anAfterimageImage = IMAGE_EPHRAIM_SEQUENCES[anEcho.mAttackSet];
+				if (anAfterimageImage == nullptr || anAfterimageCol >= anAfterimageImage->mNumCols)
+					continue;
+				const int aCellWidth = anAfterimageImage->GetCelWidth();
+				const int aCellHeight = anAfterimageImage->GetCelHeight();
+				const bool aMirror = anEcho.mTargetX >= mX + mWidth / 2;
+				const int anOffsetX = aMirror ? -anEcho.mTrailOffset : anEcho.mTrailOffset;
+				const Rect aSource(anAfterimageCol * aCellWidth, 0, aCellWidth, aCellHeight);
+				const Rect aDest(
+					static_cast<int>(std::round(aOffsetX + mWidth * 0.5f - aCellWidth * 0.5f * EPHRAIM_DRAW_SCALE)) + anOffsetX,
+					static_cast<int>(std::round(aOffsetY + mHeight - aCellHeight * EPHRAIM_DRAW_SCALE)),
+					static_cast<int>(std::round(aCellWidth * EPHRAIM_DRAW_SCALE)),
+					static_cast<int>(std::round(aCellHeight * EPHRAIM_DRAW_SCALE)));
+				Graphics anEchoG(*theGraphics);
+				anEchoG.SetFastStretch(true);
+				anEchoG.SetColorizeImages(true);
+				anEchoG.SetColor(Color(255, 255, 255, 104));
+				anEchoG.DrawImageMirror(anAfterimageImage, aDest, aSource, aMirror);
 			}
+			anAfterimageDrawn = true;
 		}
 		aScaledGraphics.DrawImageMirror(aPlantImage, aDestRect, aSourceRect, aMirrorAtlas);
 	};
@@ -988,19 +985,20 @@ void Plant::DrawSeedType(Graphics* g, SeedType theSeedType, SeedType theImitater
 			Image* aPlantImage = Plant::GetImage(aSeedType);
 			if (aSeedType == SeedType::SEED_EPHRAIM)
 			{
+				if (aPlantImage == nullptr)
+					return;
 				const int aCelWidth = aPlantImage->GetCelWidth();
 				const int aCelHeight = aPlantImage->GetCelHeight();
-				const float aScaleX = aSeedG.mScaleX * 140.0f / aCelWidth;
-				const float aScaleY = aSeedG.mScaleY * 90.0f / aCelHeight;
-				// This source pose faces left. Flip inside the seed cell and offset
-				// by its measured opaque bounds so the figure itself stays centered.
-				const float aCenterOffsetX = 16.5f * aScaleX;
+				const float aScaleX = aSeedG.mScaleX * EPHRAIM_DRAW_SCALE;
+				const float aScaleY = aSeedG.mScaleY * EPHRAIM_DRAW_SCALE;
+				// Use the planted sprite's cell center and 80-pixel tile baseline.
 				const Rect aSourceRect(0, 0, aCelWidth, aCelHeight);
 				const Rect aDestRect(
-					static_cast<int>(std::round(thePosX + aOffsetX + aCenterOffsetX)),
-					static_cast<int>(std::round(thePosY + aOffsetY)),
-					static_cast<int>(std::round(140.0f * aScaleX)),
-					static_cast<int>(std::round(90.0f * aScaleY)));
+					static_cast<int>(std::round(thePosX + aOffsetX + 40.0f * aSeedG.mScaleX - aCelWidth * 0.5f * aScaleX)),
+					static_cast<int>(std::round(thePosY + aOffsetY + 80.0f * aSeedG.mScaleY - aCelHeight * aScaleY)),
+					static_cast<int>(std::round(aCelWidth * aScaleX)),
+					static_cast<int>(std::round(aCelHeight * aScaleY)));
+				aSeedG.SetFastStretch(true);
 				aSeedG.DrawImageMirror(aPlantImage, aDestRect, aSourceRect, true);
 			}
 			else

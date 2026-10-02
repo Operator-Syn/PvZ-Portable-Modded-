@@ -78,6 +78,10 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	mAnimPing = true;
 	mFrame = 0;
 	mShootingCounter = 0;
+	mEphraimAttackSet = 0;
+	mEphraimHitStopCounter = 0;
+	mEphraimAttackPauseFlags = 0;
+	mContinuousHealthRemainder = 0.0f;
 	mShakeOffsetX = 0.0f;
 	mShakeOffsetY = 0.0f;
 	mFrameLength = RandRangeInt(12, 18);
@@ -85,10 +89,10 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	mTargetY = -1;
 	mStartRow = mRow;
 	mNumFrames = 5;
-	if (theSeedType == SeedType::SEED_ALFONSE)
+	if (theSeedType == SeedType::SEED_EPHRAIM)
 	{
-		mNumFrames = 24;  // the test plant's cel-strip holds all 24 poses
-		mFrameLength = RandRangeInt(4, 7);
+		mNumFrames = EPHRAIM_IDLE_FRAME_COUNT;
+		mFrameLength = 12;  // keep the longer lance idle cycle at the previous breathing pace
 	}
 	mState = PlantState::STATE_NOTREADY;
 	mDead = false;

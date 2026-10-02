@@ -262,7 +262,26 @@ void SeedPacketDrawSeed(Graphics* g, float x, float y, SeedType theSeedType, See
 		aImage = FilterEffectGetImage(aImage, aFilterEffect);
 	}
 
-	if (aSeedType == SeedType::SEED_POTATOMINE && g->mScaleX <= 1.0f)
+	if (aSeedType == SeedType::SEED_EPHRAIM)
+	{
+		Image* aPortrait = IMAGE_EPHRAIM_PLANT;
+		if (aPortrait == nullptr)
+			return;
+		if (theSeedType == SeedType::SEED_IMITATER)
+			aPortrait = FilterEffectGetImage(aPortrait, FilterEffect::FILTER_EFFECT_WASHED_OUT);
+		// Opaque bounds of the first 96x96 idle cel. Fit the upright pose in
+		// the packet artwork area, preserving its aspect ratio and cost space.
+		const Rect aSourceRect(25, 35, 45, 55);
+		const Rect aDestRect(
+			FloatRoundToInt(x + 7.0f * g->mScaleX),
+			FloatRoundToInt(y + 11.0f * g->mScaleY),
+			FloatRoundToInt(36.0f * g->mScaleX),
+			FloatRoundToInt(44.0f * g->mScaleY));
+		Graphics aPortraitG(*g);
+		aPortraitG.SetFastStretch(true);
+		aPortraitG.DrawImageMirror(aPortrait, aDestRect, aSourceRect, true);
+	}
+	else if (aSeedType == SeedType::SEED_POTATOMINE && g->mScaleX <= 1.0f)
 	{
 		PvzpDrawImageCelScaledF(g, aImage, x, y, 0, 0, g->mScaleX, g->mScaleY);
 	}
@@ -367,12 +386,6 @@ void DrawSeedPacket(Graphics* g, float x, float y, SeedType theSeedType, SeedTyp
 	float aOffsetY = 8.0f;
 	switch (aSeedType)
 	{
-	case SeedType::SEED_EPHRAIM:
-		// Center the mirrored pose's visible bounds within the 50px packet slot.
-		aOffsetX = SEED_PACKET_WIDTH * 0.5f - 70.5f * aScale;
-		aOffsetY = 2.0f;
-		break;
-
 	case SeedType::SEED_TALLNUT:
 		aScale = 0.3f;
 		aOffsetX = 12.0f;

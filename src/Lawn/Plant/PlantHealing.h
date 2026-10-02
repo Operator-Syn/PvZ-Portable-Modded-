@@ -27,5 +27,6 @@ class Plant;
 namespace PlantHealing
 {
 bool PlantCanRegenerate(Plant* thePlant);
-void HealPlant(Board* theBoard, Plant* thePlant, int theBaseAmount);
+void HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmount);
+void ApplyPlantHealthRate(Plant* thePlant, float theHealthPerSecond);
 }

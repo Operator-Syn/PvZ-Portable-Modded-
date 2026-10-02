@@ -261,6 +261,8 @@ public:
 	int32_t							mPrevMouseX;
 	int32_t							mPrevMouseY;
 	int32_t							mSunMoney;
+	float							mContinuousSunCostRemainder = 0.0f;
+	int32_t						mContinuousPaidGloomShroomCount = 0;
 	int32_t							mNumWaves;
 	uint32_t						mMainCounter;
 	uint32_t						mEffectCounter;
@@ -387,6 +389,7 @@ public:
 	void					AddSunMoney(int theAmount);
 	bool							TakeSunMoney(int theAmount);
 	bool					CanTakeSunMoney(int theAmount);
+	bool					TakeSunMoneyRate(float theSunPerSecond);
 	void					Pause(bool thePause);
 	inline bool						MakeEasyZombieType() { /* not found */return false; }
 	void							TryToSaveGame();

@@ -771,6 +771,48 @@ void Plant::Animate()
 	}
 
 	UpdateBlink();
+	if (mSeedType == SeedType::SEED_EPHRAIM && mShootingCounter > 0)
+	{
+		int aWindupCount = EPHRAIM_LANCE_INTRO_FRAME_COUNT + EPHRAIM_LANCE_WINDUP_FRAME_COUNT;
+		int aWindupTicks = EPHRAIM_ATTACK_WINDUP_TICKS;
+		int aAttackCount = EPHRAIM_LANCE_ATTACK_FRAME_COUNT;
+		int anAnimationTicks = EPHRAIM_ATTACK_ANIMATION_TICKS;
+		switch (mEphraimAttackSet)
+		{
+		case 1:
+			aWindupCount = EPHRAIM_CRITICAL_LANCE_WINDUP_FRAME_COUNT;
+			aWindupTicks = EPHRAIM_CRITICAL_ATTACK_WINDUP_TICKS;
+			aAttackCount = EPHRAIM_CRITICAL_LANCE_ATTACK_FRAME_COUNT;
+			break;
+		case 2:
+			anAnimationTicks = EPHRAIM_JAB_ATTACK_ANIMATION_TICKS;
+			aWindupCount = EPHRAIM_JAVELIN_WINDUP_FRAME_COUNT;
+			aWindupTicks = EPHRAIM_JAVELIN_ATTACK_WINDUP_TICKS;
+			aAttackCount = EPHRAIM_JAVELIN_ATTACK_FRAME_COUNT;
+			break;
+		case 3:
+			anAnimationTicks = EPHRAIM_JAB_ATTACK_ANIMATION_TICKS;
+			aWindupCount = EPHRAIM_CRITICAL_JAVELIN_WINDUP_FRAME_COUNT;
+			aWindupTicks = EPHRAIM_CRITICAL_JAVELIN_ATTACK_WINDUP_TICKS;
+			aAttackCount = EPHRAIM_CRITICAL_JAVELIN_ATTACK_FRAME_COUNT;
+			break;
+		default:
+			break;
+		}
+
+		const int aElapsedTicks = anAnimationTicks - mShootingCounter;
+		if (aElapsedTicks < aWindupTicks)
+		{
+			mFrame = std::min(aElapsedTicks * aWindupCount / aWindupTicks, aWindupCount - 1);
+		}
+		else
+		{
+			const int aAttackTicks = std::max(1, anAnimationTicks - aWindupTicks);
+			const int anAttackFrame = std::min((aElapsedTicks - aWindupTicks) * aAttackCount / aAttackTicks, aAttackCount - 1);
+			mFrame = aWindupCount + anAttackFrame;
+		}
+		return;
+	}
 
 	if (mAnimPing)
 	{

@@ -367,6 +367,12 @@ void DrawSeedPacket(Graphics* g, float x, float y, SeedType theSeedType, SeedTyp
 	float aOffsetY = 8.0f;
 	switch (aSeedType)
 	{
+	case SeedType::SEED_EPHRAIM:
+		// Center the mirrored pose's visible bounds within the 50px packet slot.
+		aOffsetX = SEED_PACKET_WIDTH * 0.5f - 70.5f * aScale;
+		aOffsetY = 2.0f;
+		break;
+
 	case SeedType::SEED_TALLNUT:
 		aScale = 0.3f;
 		aOffsetX = 12.0f;

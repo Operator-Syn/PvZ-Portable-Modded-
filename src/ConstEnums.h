@@ -1098,7 +1098,7 @@ enum SeedType : int32_t
 	SEED_LEFTPEATER,
 	SEED_SUN_MAGNET,
 	SEED_CHOMPERNUT,
-	SEED_ALFONSE,  // test plant backed by a plain cel-strip image instead of a reanimation
+	SEED_EPHRAIM,  // second test plant, same plain-image path, for comparing sprite sources
 	NUM_SEED_TYPES,
 	SEED_BEGHOULED_BUTTON_SHUFFLE,
 	SEED_BEGHOULED_BUTTON_CRATER,
@@ -1121,7 +1121,8 @@ enum SeedType : int32_t
 	SEED_ZOMBIE_DANCER,
 	SEED_ZOMBIE_GARGANTUAR,
 	SEED_ZOMBIE_IMP,
-	NUM_SEEDS_IN_CHOOSER = 50,
+	// The chooser contains the 50 stock entries plus Ephraim.
+	NUM_SEEDS_IN_CHOOSER = 51,
 	SEED_NONE = -1
 };
 enum ShieldType : int32_t

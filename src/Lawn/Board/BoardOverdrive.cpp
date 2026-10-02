@@ -293,39 +293,96 @@ bool Board::TryLaunchTwinSunflowerSunBomb()
 
 void Board::UpdatePlantOverdrive()
 {
+	float aContinuousSunCost = 0.0f;
+	int aPaidGloomShrooms = 0;
+	int aGloomShroomCount = 0;
+	for (Plant* aPlant : mPlants)
+		if (PlantHealing::PlantCanRegenerate(aPlant) && !aPlant->mSquished && aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM)
+			++aGloomShroomCount;
+	aPaidGloomShrooms = std::min(aGloomShroomCount, mContinuousPaidGloomShroomCount);
+	bool aGloomShroomUpkeepPaid = aPaidGloomShrooms == 0 || TakeSunMoneyRate(aPaidGloomShrooms * 150.0f);
+	int aHealedGloomShrooms = 0;
+	for (Plant* aPlant : mPlants)
+	{
+		if (aPlant->mDead || !aPlant->IsOnBoard() || aPlant->mSquished)
+			continue;
+		if (aGloomShroomUpkeepPaid && aHealedGloomShrooms < aPaidGloomShrooms && aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM)
+		{
+			PlantHealing::HealPlant(this, aPlant, 0.25f);
+			++aHealedGloomShrooms;
+		}
+		if (mGoldMagnetOverdriveActive && aPlant->mSeedType == SeedType::SEED_GOLD_MAGNET)
+		{
+			aContinuousSunCost += 250.0f;
+			if (aPlant->mPlantHealth > 1)
+				PlantHealing::ApplyPlantHealthRate(aPlant, -25.0f);
+			if (aPlant->mPlantHealth <= 1) { aPlant->mPlantHealth = 1; aPlant->mContinuousHealthRemainder = 0.0f; }
+		}
+		if (mPumpkinOverdriveActive && aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
+			PlantHealing::HealPlant(this, aPlant, 0.5f);
+		if (mTallNutOverdriveActive && aPlant->IsTallNut())
+		{
+			PlantHealing::HealPlant(this, aPlant, 0.5f);
+			aContinuousSunCost += 200.0f;
+		}
+		if (mChomperOverdriveActive && aPlant->IsChomper())
+			aContinuousSunCost += 100.0f;
+		if (mKernelPultOverdriveActive && aPlant->mSeedType == SeedType::SEED_KERNELPULT)
+			aContinuousSunCost += mSunMoney >= KERNEL_PULT_BUTTER_BARRAGE_SUN_THRESHOLD ? 175.0f : 150.0f;
+		if (mSunMoney >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD && aPlant->mSeedType == SeedType::SEED_WINTERMELON)
+		{
+			aContinuousSunCost += 500.0f;
+			if (aPlant->mPlantHealth > 1)
+				PlantHealing::ApplyPlantHealthRate(aPlant, -10.0f);
+			if (aPlant->mPlantHealth <= 1) { aPlant->mPlantHealth = 1; aPlant->mContinuousHealthRemainder = 0.0f; }
+		}
+		if (mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD && aPlant->mSeedType == SeedType::SEED_GATLINGPEA)
+			aContinuousSunCost += 300.0f;
+		if (mSunMoney >= TWO_MILLION_SUN_THRESHOLD && aPlant->mSeedType == SeedType::SEED_CATTAIL)
+		{
+			PlantHealing::ApplyPlantHealthRate(aPlant, -std::max(1.0f, aPlant->mPlantMaxHealth / 100.0f));
+			if (aPlant->mPlantHealth <= 0) { aPlant->Die(); continue; }
+		}
+		if (mSunMagnetOverdriveActive && aPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
+		{
+			if (aPlant->mPlantHealth > 1)
+				PlantHealing::ApplyPlantHealthRate(aPlant, -1.0f);
+			if (aPlant->mPlantHealth <= 1) { aPlant->mPlantHealth = 1; aPlant->mContinuousHealthRemainder = 0.0f; }
+		}
+	}
+	if (aContinuousSunCost > 0.0f)
+		TakeSunMoneyRate(aContinuousSunCost);
+	for (Zombie* aZombie : mZombies)
+	{
+		if (aZombie->mDead || aZombie->IsDeadOrDying() || aZombie->mBodyHealth <= 0 || aZombie->mBodyHealth >= aZombie->mBodyMaxHealth)
+			continue;
+		float aHealRate = 0.0f;
+		if (mZombieTierSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+			aHealRate += aZombie->mBodyMaxHealth * 0.02575f;
+		if (mZombieTierSunMoney >= TWO_MILLION_SUN_THRESHOLD && aZombie->mIsEating &&
+			(aZombie->mZombieType == ZombieType::ZOMBIE_TRAFFIC_CONE || aZombie->mZombieType == ZombieType::ZOMBIE_PAIL ||
+			 aZombie->mZombieType == ZombieType::ZOMBIE_BULWARK_BUCKET))
+			aHealRate += 25.0f;
+		float aChange = aZombie->mContinuousHealthRemainder + aHealRate / 100.0f;
+		int aWholeChange = static_cast<int>(aChange);
+		aZombie->mContinuousHealthRemainder = aChange - aWholeChange;
+		aZombie->mBodyHealth = std::min(aZombie->mBodyHealth + aWholeChange, aZombie->mBodyMaxHealth);
+		if (aZombie->mBodyHealth >= aZombie->mBodyMaxHealth)
+			aZombie->mContinuousHealthRemainder = 0.0f;
+	}
 	if (mMainCounter % 100 != 99)
 		return;
+	int64_t aGloomAvailableSunAtSecondStart = static_cast<int64_t>(mSunMoney) + CountSunBeingCollected();
+	int aGloomShroomCountAtSecondStart = 0;
+	for (Plant* aPlant : mPlants)
+		if (PlantHealing::PlantCanRegenerate(aPlant) && !aPlant->mSquished && aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM)
+			++aGloomShroomCountAtSecondStart;
+	mContinuousPaidGloomShroomCount = static_cast<int>(std::min<int64_t>(aGloomShroomCountAtSecondStart,
+		std::max<int64_t>(0, aGloomAvailableSunAtSecondStart / 150)));
 
 	int aSunAtSecondStart = mSunMoney;
 	mZombieTierSunMoney = std::max({mZombieTierSunMoney, aSunAtSecondStart, ZombieStrengthRules::ZombieStrengthSunForTier(mZombieStrengthTier)});
 	int aZombieSunTier = mZombieTierSunMoney;
-	if (aZombieSunTier >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
-	{
-		for (Zombie* aZombie : mZombies)
-		{
-			if (aZombie->mDead || aZombie->IsDeadOrDying() || aZombie->mBodyHealth <= 0 ||
-				aZombie->mBodyHealth >= aZombie->mBodyMaxHealth || aZombie->mBodyMaxHealth <= 0)
-				continue;
-
-			int aHealPercent = Rand(100) < 3 ? 50 : 25;
-			int64_t aHealAmount = (static_cast<int64_t>(aZombie->mBodyMaxHealth) * aHealPercent + 999) / 1000;
-			aZombie->mBodyHealth = std::min(aZombie->mBodyMaxHealth,
-				aZombie->mBodyHealth + static_cast<int>(aHealAmount));
-		}
-	}
-	if (aZombieSunTier >= TWO_MILLION_SUN_THRESHOLD)
-	{
-		for (Zombie* aZombie : mZombies)
-		{
-			if (aZombie->mDead || aZombie->IsDeadOrDying() || !aZombie->mIsEating ||
-				(aZombie->mZombieType != ZombieType::ZOMBIE_TRAFFIC_CONE && aZombie->mZombieType != ZombieType::ZOMBIE_PAIL &&
-					aZombie->mZombieType != ZombieType::ZOMBIE_BULWARK_BUCKET) ||
-				aZombie->mBodyHealth <= 0 || aZombie->mBodyHealth >= aZombie->mBodyMaxHealth)
-				continue;
-
-			aZombie->mBodyHealth = std::min(aZombie->mBodyMaxHealth, aZombie->mBodyHealth + 25);
-		}
-	}
 	bool aHasGoldMagnet = false;
 	for (Plant* aPlant : mPlants)
 	{
@@ -405,31 +462,10 @@ void Board::UpdatePlantOverdrive()
 		mZombieRainCountdown = RandRangeInt(1000, 3000);
 		mZombieRainPendingCount = 0;
 	}
-	int64_t aSunCost = 0;
-	int aGloomShroomCount = 0;
-	for (Plant* aPlant : mPlants)
-	{
-		if (PlantHealing::PlantCanRegenerate(aPlant) && !aPlant->mSquished &&
-			aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM)
-			++aGloomShroomCount;
-	}
-	int64_t aGloomAvailableSun = static_cast<int64_t>(mSunMoney) + CountSunBeingCollected();
-	int aPaidGloomShroomCount = static_cast<int>(std::min<int64_t>(aGloomShroomCount,
-		std::max<int64_t>(0, aGloomAvailableSun / 150)));
-	int aGloomShroomUpkeep = aPaidGloomShroomCount * 150;
-	if (aGloomShroomUpkeep > 0 && TakeSunMoney(aGloomShroomUpkeep))
-	{
-		int aHealedGloomShroomCount = 0;
+	if (aSunAtSecondStart >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
 		for (Plant* aPlant : mPlants)
-		{
-			if (PlantHealing::PlantCanRegenerate(aPlant) && !aPlant->mSquished &&
-				aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM &&
-				aHealedGloomShroomCount++ < aPaidGloomShroomCount)
-				PlantHealing::HealPlant(this, aPlant, 25);
-		}
-	}
-	if (mGoldMagnetOverdriveActive)
-		aSunCost += 250;
+			if (!aPlant->mDead && aPlant->IsOnBoard() && aPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
+				StartSunMagnetRegeneration(aPlant);
 	for (auto anItems = mSunMagnetExtraItems.begin(); anItems != mSunMagnetExtraItems.end();)
 	{
 		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(anItems->mPlantID));
@@ -438,50 +474,6 @@ void Board::UpdatePlantOverdrive()
 		else
 			++anItems;
 	}
-	for (Plant* aPlant : mPlants)
-	{
-		if (aPlant->mDead || !aPlant->IsOnBoard() || aPlant->mSquished)
-			continue;
-		if (aSunAtSecondStart >= TWO_MILLION_SUN_THRESHOLD && aPlant->mSeedType == SeedType::SEED_CATTAIL)
-		{
-			int aHealthDrain = std::max(1, (aPlant->mPlantMaxHealth + 99) / 100);
-			aPlant->mPlantHealth -= aHealthDrain;
-			if (aPlant->mPlantHealth <= 0)
-			{
-				aPlant->Die();
-				continue;
-			}
-		}
-		if (mSunMagnetOverdriveActive && aPlant->mSeedType == SeedType::SEED_SUN_MAGNET && aPlant->mPlantHealth > 1)
-			aPlant->mPlantHealth--;
-		if (aSunAtSecondStart >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&
-			aPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
-			StartSunMagnetRegeneration(aPlant);
-		if (mPumpkinOverdriveActive && aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
-			PlantHealing::HealPlant(this, aPlant, 50);
-		if (mTallNutOverdriveActive && aPlant->IsTallNut())
-		{
-			PlantHealing::HealPlant(this, aPlant, 50);
-			aSunCost += 200;
-		}
-		if (mGoldMagnetOverdriveActive && aPlant->mSeedType == SeedType::SEED_GOLD_MAGNET)
-			aPlant->mPlantHealth = std::max(1, aPlant->mPlantHealth - 25);
-		if (mChomperOverdriveActive && aPlant->IsChomper())
-			aSunCost += 100;
-		if (mKernelPultOverdriveActive && aPlant->mSeedType == SeedType::SEED_KERNELPULT)
-			aSunCost += aSunAtSecondStart >= KERNEL_PULT_BUTTER_BARRAGE_SUN_THRESHOLD ? 175 : 150;
-		if (aSunAtSecondStart >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD &&
-			aPlant->mSeedType == SeedType::SEED_WINTERMELON)
-		{
-			aSunCost += 500;
-			aPlant->mPlantHealth = std::max(1, aPlant->mPlantHealth - 10);
-		}
-		if (aSunAtSecondStart >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&
-			aPlant->mSeedType == SeedType::SEED_GATLINGPEA)
-			aSunCost += 300;
-	}
-	if (aSunCost > 0)
-		TakeSunMoney(static_cast<int>(std::min<int64_t>(aSunCost, std::numeric_limits<int>::max())));
 	if (aSunAtSecondStart >= TWO_MILLION_SUN_THRESHOLD && mMainCounter % 300 == 299 &&
 		mApp->mGameScene == GameScenes::SCENE_PLAYING && BoardPlanting::CoffeeBeanIsInChosenSeedBank(this))
 		BoardPlanting::AutomaticallyCoffeeBeanPlanterns(this);

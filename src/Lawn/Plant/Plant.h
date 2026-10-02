@@ -175,6 +175,42 @@ class PvzpParticleSystem;
 class Plant : public GameObject
 {
 public:
+	static constexpr int EPHRAIM_IDLE_ROW = 0;
+	static constexpr int EPHRAIM_LANCE_ROW = 1;
+	static constexpr int EPHRAIM_CRITICAL_LANCE_ROW = 2;
+	static constexpr int EPHRAIM_JAVELIN_ROW = 3;
+	static constexpr int EPHRAIM_CRITICAL_JAVELIN_ROW = 4;
+	static constexpr int EPHRAIM_IDLE_FRAME_COUNT = 1;
+	static constexpr int EPHRAIM_LANCE_INTRO_FRAME_COUNT = 6;
+	static constexpr int EPHRAIM_LANCE_WINDUP_FRAME_COUNT = 5;
+	static constexpr int EPHRAIM_CRITICAL_LANCE_WINDUP_FRAME_COUNT = 5;
+	static constexpr int EPHRAIM_JAVELIN_WINDUP_FRAME_COUNT = 3;
+	static constexpr int EPHRAIM_CRITICAL_JAVELIN_WINDUP_FRAME_COUNT = 4;
+	static constexpr int EPHRAIM_LANCE_ATTACK_FRAME_COUNT = 16;
+	static constexpr int EPHRAIM_CRITICAL_LANCE_ATTACK_FRAME_COUNT = 16;
+	static constexpr int EPHRAIM_JAVELIN_ATTACK_FRAME_COUNT = 3;
+	static constexpr int EPHRAIM_CRITICAL_JAVELIN_ATTACK_FRAME_COUNT = 3;
+	static constexpr int EPHRAIM_LANCE_TOTAL_FRAME_COUNT = EPHRAIM_LANCE_INTRO_FRAME_COUNT + EPHRAIM_LANCE_WINDUP_FRAME_COUNT + EPHRAIM_LANCE_ATTACK_FRAME_COUNT;
+	static constexpr int EPHRAIM_CRITICAL_LANCE_TOTAL_FRAME_COUNT = EPHRAIM_CRITICAL_LANCE_WINDUP_FRAME_COUNT + EPHRAIM_CRITICAL_LANCE_ATTACK_FRAME_COUNT;
+	static constexpr int EPHRAIM_JAVELIN_TOTAL_FRAME_COUNT = EPHRAIM_JAVELIN_WINDUP_FRAME_COUNT + EPHRAIM_JAVELIN_ATTACK_FRAME_COUNT;
+	static constexpr int EPHRAIM_CRITICAL_JAVELIN_TOTAL_FRAME_COUNT = EPHRAIM_CRITICAL_JAVELIN_WINDUP_FRAME_COUNT + EPHRAIM_CRITICAL_JAVELIN_ATTACK_FRAME_COUNT;
+	static constexpr int EPHRAIM_ATTACK_WINDUP_TICKS = 32;
+	static constexpr int EPHRAIM_CRITICAL_ATTACK_WINDUP_TICKS = 24;
+	static constexpr int EPHRAIM_JAVELIN_ATTACK_WINDUP_TICKS = 15;
+	static constexpr int EPHRAIM_CRITICAL_JAVELIN_ATTACK_WINDUP_TICKS = 20;
+	static constexpr int EPHRAIM_ATTACK_VARIANT_COUNT = 4;
+	static constexpr int EPHRAIM_ATTACK_RANGE_FRONT = 140;
+	static constexpr int EPHRAIM_ATTACK_RANGE_BEHIND = 140;
+	static constexpr float EPHRAIM_DRAW_SCALE = 2.1875f;
+	static constexpr int EPHRAIM_ATTACK_ANIMATION_TICKS = 84;
+	static constexpr int EPHRAIM_JAB_ATTACK_ANIMATION_TICKS = 60;
+	static constexpr int EPHRAIM_LANCE_IMPACT_FRAME = 3;
+	static constexpr int EPHRAIM_CRITICAL_LANCE_IMPACT_FRAME = 3;
+	static constexpr int EPHRAIM_JAVELIN_IMPACT_FRAME = 1;
+	static constexpr int EPHRAIM_CRITICAL_JAVELIN_IMPACT_FRAME = 1;
+	static constexpr int EPHRAIM_ATTACK_CLIMAX_PAUSE_TICKS = 9;
+	static constexpr int EPHRAIM_HIT_STOP_TICKS = 12;
+
 	SeedType                mSeedType;
 	int32_t                 mPlantCol;
 	int32_t                 mAnimCounter;
@@ -184,6 +220,7 @@ public:
 	PlantState              mState;
 	int32_t                 mPlantHealth;
 	int32_t                 mPlantMaxHealth;
+	float                   mContinuousHealthRemainder = 0.0f;
 	int32_t                 mSubclass;
 	int32_t                 mDisappearCountdown;
 	int32_t                 mDoSpecialCountdown;
@@ -197,6 +234,9 @@ public:
 	int32_t                 mStartRow;
 	ParticleSystemID        mParticleID;
 	int32_t                 mShootingCounter;
+	int32_t                 mEphraimAttackSet;
+	int32_t                 mEphraimHitStopCounter;
+	int32_t                 mEphraimAttackPauseFlags;
 	ReanimationID           mBodyReanimID;
 	ReanimationID           mHeadReanimID;
 	ReanimationID           mHeadReanimID2;
@@ -369,6 +409,6 @@ public:
 	const char*         mPlantName;
 };
 extern const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES];
-extern Image* gAlfonsePlantImages[1];  // test plant cel-strip; filled in during Init resource load
+extern Image* gEphraimPlantImages[1];  // test plant atlas; filled in during Init resource load
 
 const PlantDefinition& GetPlantDefinition(SeedType theSeedType);

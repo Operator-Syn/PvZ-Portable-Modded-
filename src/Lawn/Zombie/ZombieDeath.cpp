@@ -61,7 +61,8 @@
 
 bool Zombie::TrySpawnLevelAward()
 {
-	if (!IsOnBoard() || mBoard->HasLevelAwardDropped() || mBoard->mLevelComplete || mDroppedLoot)
+	if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE || !IsOnBoard() ||
+		mBoard->HasLevelAwardDropped() || mBoard->mLevelComplete || mDroppedLoot)
 	{
 		return false;
 	}

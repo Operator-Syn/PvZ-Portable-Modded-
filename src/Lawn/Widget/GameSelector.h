@@ -64,7 +64,8 @@ private:
 		GameSelector_ZenGarden,
 		GameSelector_Survival,
 		GameSelector_Zombatar,
-		GameSelector_Achievements
+		GameSelector_Achievements,
+		GameSelector_PlantPractice
 	};
 
 public:
@@ -83,6 +84,7 @@ public:
 	NewLawnButton*              mChangeUserButton;
 	NewLawnButton*              mZombatarButton;             //+0xC0
 	NewLawnButton*              mAchievementsButton;        //+0xC4
+	NewLawnButton*              mPlantPracticeButton;
 	Widget*                     mOverlayWidget;
 	bool                        mStartingGame;
 	int                         mStartingGameCounter;

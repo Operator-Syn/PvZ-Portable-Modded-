@@ -339,6 +339,7 @@ public:
 	uint32_t						mDiamondsCollected;										//+0x57CC
 	uint32_t						mPottedPlantsCollected;
 	uint32_t						mChocolateCollected;
+	bool							mPracticeZombiePickerOpen = false;
 
 public:
 	Board(LawnApp* theApp);

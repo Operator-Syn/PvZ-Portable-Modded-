@@ -1173,6 +1173,8 @@ void Board::NextWaveComing()
 
 void Board::UpdateZombieSpawning()
 {
+	if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+		return;
 	if (mApp->mGameMode == GameMode::GAMEMODE_UPSELL || mApp->mGameMode == GameMode::GAMEMODE_INTRO)
 		return;
 

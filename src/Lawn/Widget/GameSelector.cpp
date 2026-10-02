@@ -179,6 +179,19 @@ GameSelector::GameSelector(LawnApp* theApp)
 	mAchievementsButton->mBtnNoDraw = mHasTrophy;
 	mAchievementsButton->mMouseVisible = false;
 
+	mPlantPracticeButton = MakeNewButton(
+		GameSelector::GameSelector_PlantPractice,
+		this,
+		"Plant Practice",
+		nullptr,
+		Sexy::IMAGE_SEEDCHOOSER_BUTTON2,
+		Sexy::IMAGE_SEEDCHOOSER_BUTTON2_GLOW,
+		Sexy::IMAGE_SEEDCHOOSER_BUTTON2_GLOW
+	).release();
+	mPlantPracticeButton->Resize(mApp->mWidth - 190, mApp->mHeight - 48, 176, 30);
+	mPlantPracticeButton->SetLabelColor(Color(42, 42, 90));
+	mPlantPracticeButton->SetLabelHiliteColor(Color(42, 42, 90));
+
 	mZenGardenButton = MakeNewButton(
 		GameSelector::GameSelector_ZenGarden,
 		this,
@@ -350,6 +363,7 @@ GameSelector::GameSelector(LawnApp* theApp)
 
 	// Add as children in z-order (bottom to top).
 	AddWidget(mAchievementsButton);
+	AddWidget(mPlantPracticeButton);
 	AddWidget(mZombatarButton);
 	AddWidget(mChangeUserButton);
 	AddWidget(mSurvivalButton);
@@ -1198,6 +1212,10 @@ void GameSelector::ButtonDepress(int theId)
 	{
 	case GameSelector::GameSelector_Adventure:
 		ClickedAdventure();
+		break;
+	case GameSelector::GameSelector_PlantPractice:
+		mApp->KillGameSelector();
+		mApp->ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_PRACTICE);
 		break;
 	case GameSelector::GameSelector_Minigame:
 		mApp->KillGameSelector();

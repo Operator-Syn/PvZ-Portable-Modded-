@@ -122,7 +122,7 @@ void Board::AddSunMoney(int theAmount)
 	int64_t aNewSunMoney = static_cast<int64_t>(mSunMoney) + theAmount;
 	mSunMoney = static_cast<int32_t>(std::clamp<int64_t>(aNewSunMoney, 0, std::numeric_limits<int32_t>::max()));
 	mZombieTierSunMoney = std::max(mZombieTierSunMoney, mSunMoney);
-	if (mSunMoney >= 8000)
+	if (mSunMoney >= 8000 && mApp->mGameMode != GameMode::GAMEMODE_PLANT_PRACTICE)
 		ReportAchievement::GiveAchievement(mApp, SunnyDays, true);
 }
 
@@ -158,6 +158,8 @@ int Board::CountCoinsBeingCollected()
 
 bool Board::TakeSunMoney(int theAmount)
 {
+	if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+		return theAmount >= 0;
 	if (CanTakeSunMoney(theAmount))
 	{
 		mSunMoney -= theAmount;
@@ -171,6 +173,8 @@ bool Board::TakeSunMoney(int theAmount)
 
 bool Board::CanTakeSunMoney(int theAmount)
 {
+	if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+		return theAmount >= 0;
 	return theAmount >= 0 && static_cast<int64_t>(theAmount) <=
 		static_cast<int64_t>(mSunMoney) + CountSunBeingCollected();
 }

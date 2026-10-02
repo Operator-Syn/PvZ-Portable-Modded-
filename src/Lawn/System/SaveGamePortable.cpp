@@ -1275,6 +1275,7 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 			AppendFieldWithSync(aOut, 106U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAttackSet); });
 			AppendFieldWithSync(aOut, 107U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimHitStopCounter); });
 			AppendFieldWithSync(aOut, 109U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAttackPauseFlags); });
+			AppendFieldWithSync(aOut, 110U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAfterimageFrame); });
 			AppendFieldWithSync(aOut, 108U, [&](PortableSaveContext& c){ c.SyncFloat(aPlant.mContinuousHealthRemainder); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Plant& aPlant)
@@ -1299,6 +1300,8 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimHitStopCounter); });
 			else if (aFieldId == 109U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAttackPauseFlags); });
+			else if (aFieldId == 110U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAfterimageFrame); });
 			else if (aFieldId == 108U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncFloat(aPlant.mContinuousHealthRemainder); });
 			if (!(aPlant.mContinuousHealthRemainder > -1.0f && aPlant.mContinuousHealthRemainder < 1.0f))
@@ -1307,8 +1310,13 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 				aPlant.mEphraimAttackSet = 0;
 			if (aPlant.mEphraimHitStopCounter < 0 || aPlant.mEphraimHitStopCounter > Plant::EPHRAIM_HIT_STOP_TICKS)
 				aPlant.mEphraimHitStopCounter = 0;
-			if (aPlant.mEphraimAttackPauseFlags < 0 || aPlant.mEphraimAttackPauseFlags > 3)
+			if (aPlant.mEphraimAttackPauseFlags < 0 || aPlant.mEphraimAttackPauseFlags > Plant::EPHRAIM_ATTACK_FLAGS_MASK)
 				aPlant.mEphraimAttackPauseFlags = 0;
+			const int anAfterimageSet = (aPlant.mEphraimAttackPauseFlags & Plant::EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_MASK) >> Plant::EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_SHIFT;
+			if (anAfterimageSet >= Plant::EPHRAIM_ATTACK_VARIANT_COUNT)
+				aPlant.mEphraimAttackPauseFlags &= ~Plant::EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_MASK;
+			if (aPlant.mEphraimAfterimageFrame < -1 || aPlant.mEphraimAfterimageFrame >= Plant::EPHRAIM_ATTACK_ANIMATION_TICKS)
+				aPlant.mEphraimAfterimageFrame = -1;
 			if (aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_PEA &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_BUTTER &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_CHERRYBOMB &&

@@ -61,6 +61,13 @@
 
 int Plant::CalcRenderOrder()
 {
+	if (mSeedType == SeedType::SEED_EPHRAIM && (mShootingCounter > 0 || mEphraimAfterimageFrame >= 0))
+	{
+		// Keep the attack pose in front of zombies so the spear and slash frames
+		// remain visible while they pass through the targets they hit.
+		return Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_ZOMBIE, mRow, 999);
+	}
+
 	PLANT_ORDER anOrder = PLANT_ORDER::PLANT_ORDER_NORMAL;
 	RenderLayer aLayer = RenderLayer::RENDER_LAYER_PLANT;
 
@@ -732,6 +739,9 @@ void Plant::AnimatePumpkin()
 
 void Plant::Animate()
 {
+	if (mSeedType == SeedType::SEED_EPHRAIM)
+		mRenderOrder = CalcRenderOrder();
+
 	if ((mSeedType == SeedType::SEED_CHERRYBOMB || mSeedType == SeedType::SEED_JALAPENO) && mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
 	{
 		mShakeOffsetX = RandRangeFloat(-1.0f, 1.0f);
@@ -773,44 +783,10 @@ void Plant::Animate()
 	UpdateBlink();
 	if (mSeedType == SeedType::SEED_EPHRAIM && mShootingCounter > 0)
 	{
-		int aWindupCount = EPHRAIM_LANCE_INTRO_FRAME_COUNT + EPHRAIM_LANCE_WINDUP_FRAME_COUNT;
-		int aWindupTicks = EPHRAIM_ATTACK_WINDUP_TICKS;
-		int aAttackCount = EPHRAIM_LANCE_ATTACK_FRAME_COUNT;
-		int anAnimationTicks = EPHRAIM_ATTACK_ANIMATION_TICKS;
-		switch (mEphraimAttackSet)
-		{
-		case 1:
-			aWindupCount = EPHRAIM_CRITICAL_LANCE_WINDUP_FRAME_COUNT;
-			aWindupTicks = EPHRAIM_CRITICAL_ATTACK_WINDUP_TICKS;
-			aAttackCount = EPHRAIM_CRITICAL_LANCE_ATTACK_FRAME_COUNT;
-			break;
-		case 2:
-			anAnimationTicks = EPHRAIM_JAB_ATTACK_ANIMATION_TICKS;
-			aWindupCount = EPHRAIM_JAVELIN_WINDUP_FRAME_COUNT;
-			aWindupTicks = EPHRAIM_JAVELIN_ATTACK_WINDUP_TICKS;
-			aAttackCount = EPHRAIM_JAVELIN_ATTACK_FRAME_COUNT;
-			break;
-		case 3:
-			anAnimationTicks = EPHRAIM_JAB_ATTACK_ANIMATION_TICKS;
-			aWindupCount = EPHRAIM_CRITICAL_JAVELIN_WINDUP_FRAME_COUNT;
-			aWindupTicks = EPHRAIM_CRITICAL_JAVELIN_ATTACK_WINDUP_TICKS;
-			aAttackCount = EPHRAIM_CRITICAL_JAVELIN_ATTACK_FRAME_COUNT;
-			break;
-		default:
-			break;
-		}
-
+		const int anAttackSet = std::clamp(mEphraimAttackSet, 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
+		const int anAnimationTicks = EPHRAIM_ATTACK_DURATION_TICKS[anAttackSet];
 		const int aElapsedTicks = anAnimationTicks - mShootingCounter;
-		if (aElapsedTicks < aWindupTicks)
-		{
-			mFrame = std::min(aElapsedTicks * aWindupCount / aWindupTicks, aWindupCount - 1);
-		}
-		else
-		{
-			const int aAttackTicks = std::max(1, anAnimationTicks - aWindupTicks);
-			const int anAttackFrame = std::min((aElapsedTicks - aWindupTicks) * aAttackCount / aAttackTicks, aAttackCount - 1);
-			mFrame = aWindupCount + anAttackFrame;
-		}
+		mFrame = EphraimAttackAtlasFrame(anAttackSet, aElapsedTicks);
 		return;
 	}
 

@@ -1328,6 +1328,9 @@ void LawnApp::HandleCmdLineParam(std::string_view theParamName, std::string_view
 
 bool LawnApp::UpdatePlayerProfileForFinishingLevel()
 {
+	if (mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+		return false;
+
 	bool aUnlockedNewChallenge = false;
 
 	if (IsAdventureMode())
@@ -2068,6 +2071,7 @@ bool LawnApp::IsContinuousChallenge()
 		mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED ||
 		mGameMode == GameMode::GAMEMODE_UPSELL ||
 		mGameMode == GameMode::GAMEMODE_INTRO ||
+		mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE ||
 		mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST;
 }
 
@@ -2290,6 +2294,9 @@ SeedType LawnApp::GetAwardSeedForLevel(int theLevel)
 
 int LawnApp::GetSeedsAvailable()
 {
+	if (mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+		return NUM_SEEDS_IN_CHOOSER;
+
 	int aLevel = mPlayerInfo->GetLevel();
 	if (HasFinishedAdventure() || aLevel > 50)
 	{
@@ -2302,6 +2309,10 @@ int LawnApp::GetSeedsAvailable()
 
 bool LawnApp::HasSeedType(SeedType theSeedType)
 {
+	if (mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+		return theSeedType >= SeedType::SEED_PEASHOOTER && theSeedType < SeedType::NUM_SEED_TYPES &&
+			(theSeedType != SeedType::SEED_EPHRAIM || Sexy::IMAGE_EPHRAIM_PLANT != nullptr);
+
 	if (IsTrialStageLocked() && theSeedType >= SeedType::SEED_JALAPENO)
 		return false;
 
@@ -2462,6 +2473,8 @@ bool LawnApp::CanSpawnYetis()
 
 bool LawnApp::HasBeatenChallenge(GameMode theGameMode)
 {
+	if (theGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+		return false;
 	if (mPlayerInfo == nullptr)
 		return false;
 

@@ -33,6 +33,8 @@ Zombie Rain drops zombies directly into playable cells, past the normal right-ed
 
 Seed selection and planting cross `SeedPacket` and board placement logic. Challenge-specific constraints are applied in gameplay/UI code, so new placement exceptions should be checked against both ordinary placement and challenge rules. Wave state and zombie selection are board-owned; see `Board::Update` and its wave helpers.
 
+Plant Practice is an always-available challenge mode with a single middle lawn lane, a ten-packet chooser containing all available plant types, and free planting. It has no automatic zombie waves; the board's spawn picker adds a selected land zombie to that lane. Breaches do not end the session, and the mode does not award campaign or challenge completion progress.
+
 For the source-by-source implementation checklist for a new plant, see [Adding a plant](adding-plants.md).
 
 ## Breach and mower diagnostics

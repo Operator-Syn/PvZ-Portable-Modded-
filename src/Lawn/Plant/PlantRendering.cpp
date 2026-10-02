@@ -591,48 +591,22 @@ void Plant::Draw(Graphics* g)
 		const int anAttackSet = std::clamp(mEphraimAttackSet, 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
 		if (mShootingCounter > 0)
 		{
-			const int aWindupCount = anAttackSet == 0 ? EPHRAIM_LANCE_INTRO_FRAME_COUNT + EPHRAIM_LANCE_WINDUP_FRAME_COUNT
-				: anAttackSet == 1 ? EPHRAIM_CRITICAL_LANCE_WINDUP_FRAME_COUNT
-				: anAttackSet == 2 ? EPHRAIM_JAVELIN_WINDUP_FRAME_COUNT : EPHRAIM_CRITICAL_JAVELIN_WINDUP_FRAME_COUNT;
-			if (mFrame < aWindupCount && IMAGE_EPHRAIM_SEQUENCES != nullptr)
-			{
-				aPlantImage = IMAGE_EPHRAIM_SEQUENCES;
-				aImageCol = mFrame;
-				aImageRow = anAttackSet;
-			}
-			else
-			{
-				const int aAttackFrame = std::max(0, mFrame - aWindupCount);
-				aImageRow = anAttackSet + 1;
-				aImageCol = aAttackFrame;
-				if (aAttackFrame >= 14 && anAttackSet < 2)
-				{
-					if (IMAGE_EPHRAIM_ATTACK_TAIL != nullptr)
-					{
-						aPlantImage = IMAGE_EPHRAIM_ATTACK_TAIL;
-						aImageCol = aAttackFrame - 14;
-						aImageRow = anAttackSet;
-					}
-					else
-					{
-						// Keep the last in-range lance pose if the optional tail atlas
-						// is absent; never ask the texture code for an invalid source rect.
-						aImageCol = 13;
-					}
-				}
-			}
+			const int anAtlasSet = anAttackSet;
+			aPlantImage = IMAGE_EPHRAIM_SEQUENCES[anAtlasSet];
+			aImageCol = std::clamp(mFrame, 0, EPHRAIM_ATLAS_FRAME_COUNTS[anAtlasSet] - 1);
+			aImageRow = 0;
 		}
 		else
 		{
 			aImageCol = 0;
 			aImageRow = 0;
 			anIdleAnimationCounter = IsOnBoard() ? mBoard->mMainCounter : mApp->mAppCounter;
-			if (IMAGE_EPHRAIM_SEQUENCES != nullptr && IMAGE_EPHRAIM_SEQUENCES->mNumCols >= 6)
+			if (IMAGE_EPHRAIM_PLANT != nullptr && IMAGE_EPHRAIM_PLANT->mNumCols >= 6)
 			{
 				// Ease through the attack intro and reverse back to its start. At the
 				// game's 100 Hz update rate this makes one breathing loop take 3.6s.
 				static constexpr int IDLE_INTRO_FRAMES[] = { 0, 1, 2, 3, 4, 5, 4, 3, 2, 1 };
-				aPlantImage = IMAGE_EPHRAIM_SEQUENCES;
+				aPlantImage = IMAGE_EPHRAIM_PLANT;
 				aImageCol = IDLE_INTRO_FRAMES[(anIdleAnimationCounter % 360) / 36];
 			}
 		}
@@ -650,6 +624,7 @@ void Plant::Draw(Graphics* g)
 				return;
 		}
 	}
+	bool anAfterimageDrawn = false;
 	auto DrawPlantImageCel = [&](Graphics* theGraphics)
 	{
 		if (mSeedType != SeedType::SEED_EPHRAIM)
@@ -672,23 +647,8 @@ void Plant::Draw(Graphics* g)
 		// the visible pixels on the plant tile instead of centering the full atlas
 		// cell. Attack poses keep the cell centered because their action spans the
 		// full tile area while moving through the animation.
-		float aVisibleCenterX = aCelWidth * 0.5f;
-		if (anIdlePose)
-		{
-			static constexpr float IDLE_INTRO_VISIBLE_CENTER_X[] = { 53.0f, 51.0f, 45.5f, 45.0f, 38.5f, 37.0f };
-			if (aPlantImage == IMAGE_EPHRAIM_SEQUENCES && aImageRow == 0 && aImageCol >= 0 && aImageCol < 6)
-			{
-				// Keep most of the centering, but preserve 30% of the intro's
-				// original horizontal sway so the idle feels alive without drifting.
-				constexpr float IDLE_CENTER_ANCHOR_X = 45.0f;
-				constexpr float IDLE_SWAY_PRESERVATION = 0.30f;
-				const float aPoseCenterX = IDLE_INTRO_VISIBLE_CENTER_X[aImageCol];
-				aVisibleCenterX = IDLE_CENTER_ANCHOR_X + (aPoseCenterX - IDLE_CENTER_ANCHOR_X) * (1.0f - IDLE_SWAY_PRESERVATION);
-			}
-			else
-				aVisibleCenterX = 54.0f;
-		}
-		const float aFootAnchorOffset = anIdlePose ? 83.0f * EPHRAIM_DRAW_SCALE * aBreathingScale : aCelHeight * EPHRAIM_DRAW_SCALE;
+		const float aVisibleCenterX = aCelWidth * 0.5f;
+		const float aFootAnchorOffset = aCelHeight * EPHRAIM_DRAW_SCALE * aBreathingScale;
 		const int aDrawX = static_cast<int>(std::round(aOffsetX + mWidth * 0.5f - aVisibleCenterX * EPHRAIM_DRAW_SCALE * aBreathingScale));
 		const int aDrawY = static_cast<int>(std::round(aOffsetY + mHeight - aFootAnchorOffset));
 		const Rect aSourceRect(aImageCol * aCelWidth, aImageRow * aCelHeight, aCelWidth, aCelHeight);
@@ -698,6 +658,37 @@ void Plant::Draw(Graphics* g)
 		// The PNG source faces left. Face right while idle and toward targets on
 		// the right; leave the original orientation only for attacks to the left.
 		const bool aMirrorAtlas = mShootingCounter == 0 || mTargetX >= mX + mWidth / 2;
+		const bool anAfterimageMirrorAtlas = mTargetX >= mX + mWidth / 2;
+		const bool anAfterimageActive = mEphraimAfterimageFrame >= 0 &&
+			(mEphraimAttackPauseFlags & (EPHRAIM_ATTACK_FLAG_AFTERIMAGE | EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT)) ==
+			(EPHRAIM_ATTACK_FLAG_AFTERIMAGE | EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT);
+		static constexpr int AFTERIMAGE_TRAIL_OFFSET = 12;
+		if (anAfterimageActive && !anAfterimageDrawn)
+		{
+			const int anAfterimageSet = (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_MASK) >> EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_SHIFT;
+			const int aSafeAfterimageSet = std::clamp(anAfterimageSet, 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
+			const int anAfterimageAtlasSet = aSafeAfterimageSet;
+			const int anAfterimageCol = EphraimAttackAtlasFrame(aSafeAfterimageSet, mEphraimAfterimageFrame);
+			const int anAfterimageRow = 0;
+			Image* anAfterimageImage = IMAGE_EPHRAIM_SEQUENCES[anAfterimageAtlasSet];
+			if (anAfterimageImage != nullptr && anAfterimageCol < anAfterimageImage->mNumCols && anAfterimageRow < anAfterimageImage->mNumRows)
+			{
+				const int anAfterimageCellWidth = anAfterimageImage->GetCelWidth();
+				const int anAfterimageCellHeight = anAfterimageImage->GetCelHeight();
+				const Rect anAfterimageSourceRect(anAfterimageCol * anAfterimageCellWidth, anAfterimageRow * anAfterimageCellHeight,
+					anAfterimageCellWidth, anAfterimageCellHeight);
+				Graphics anAfterimageGraphics(*theGraphics);
+				anAfterimageGraphics.SetFastStretch(true);
+				anAfterimageGraphics.SetColorizeImages(true);
+				anAfterimageGraphics.SetColor(Color(255, 255, 255, 104));
+				const int anAfterimageOffsetX = anAfterimageMirrorAtlas ? -AFTERIMAGE_TRAIL_OFFSET : AFTERIMAGE_TRAIL_OFFSET;
+				const int anAfterimageDrawX = static_cast<int>(std::round(aOffsetX + mWidth * 0.5f - anAfterimageCellWidth * 0.5f * EPHRAIM_DRAW_SCALE * aBreathingScale));
+				const int anAfterimageDrawY = static_cast<int>(std::round(aOffsetY + mHeight - anAfterimageCellHeight * EPHRAIM_DRAW_SCALE * aBreathingScale));
+				const Rect anAfterimageDestRect(anAfterimageDrawX + anAfterimageOffsetX, anAfterimageDrawY, aScaledWidth, aScaledHeight);
+				anAfterimageGraphics.DrawImageMirror(anAfterimageImage, anAfterimageDestRect, anAfterimageSourceRect, anAfterimageMirrorAtlas);
+				anAfterimageDrawn = true;
+			}
+		}
 		aScaledGraphics.DrawImageMirror(aPlantImage, aDestRect, aSourceRect, aMirrorAtlas);
 	};
 

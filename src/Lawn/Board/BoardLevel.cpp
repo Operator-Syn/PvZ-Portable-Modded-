@@ -167,6 +167,9 @@ void Board::PickBackground()
 			mBackground = BackgroundType::BACKGROUND_1_DAY;
 		}
 		break;
+	case GameMode::GAMEMODE_PLANT_PRACTICE:
+		mBackground = BackgroundType::BACKGROUND_1_DAY;
+		break;
 
 	case GameMode::GAMEMODE_SURVIVAL_NORMAL_STAGE_1:
 	case GameMode::GAMEMODE_SURVIVAL_HARD_STAGE_1:
@@ -281,9 +284,9 @@ void Board::PickBackground()
 
 	if (mBackground == BackgroundType::BACKGROUND_1_DAY || mBackground == BackgroundType::BACKGROUND_GREENHOUSE || mBackground == BackgroundType::BACKGROUND_TREEOFWISDOM)
 	{
-		if (mApp->IsAdventureMode() && mApp->IsFirstTimeAdventureMode())
+		if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE || (mApp->IsAdventureMode() && mApp->IsFirstTimeAdventureMode()))
 		{
-			if (mLevel == 1)
+			if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE || mLevel == 1)
 			{
 				mPlantRow[0] = PlantRowType::PLANTROW_DIRT;
 				mPlantRow[1] = PlantRowType::PLANTROW_DIRT;
@@ -453,6 +456,15 @@ bool Board::IsZombieWaveDistributionOk()
 void Board::InitZombieWaves()
 {
 	memset(mZombieAllowed, false, sizeof(mZombieAllowed));
+	if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+	{
+		mNumWaves = 0;
+		mCurrentWave = 0;
+		mTotalSpawnedWaves = 0;
+		mZombieCountDown = 0;
+		mApp->mSawYeti = false;
+		return;
+	}
 	if (mApp->IsAdventureMode())
 	{
 		InitZombieWavesForLevel(mLevel);
@@ -634,6 +646,8 @@ void Board::InitLevel()
 	{
 		mSunMoney = 50;
 	}
+	if (aGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+		mSunMoney = 99999999;
 	mZombieTierSunMoney = mSunMoney;
 
 	memset(mRowPickingArray, 0, sizeof(mRowPickingArray));
@@ -896,6 +910,8 @@ void Board::InitLawnMowers()
 
 bool Board::ChooseSeedsOnCurrentLevel()
 {
+	if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+		return true;
 	if (mApp->IsChallengeWithoutSeedBank() || HasConveyorBeltSeedBank())
 		return false;
 
@@ -1280,6 +1296,8 @@ void Board::PuzzleSaveStreak()
 
 void Board::ZombiesWon(Zombie* theZombie)
 {
+	if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+		return;
 	if (mApp->mGameScene == GameScenes::SCENE_ZOMBIES_WON)
 		return;
 
@@ -1454,6 +1472,9 @@ bool Board::HasConveyorBeltSeedBank()
 
 int Board::GetNumSeedsInBank()
 {
+	if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+		return 10;
+
 	if (mApp->IsScaryPotterLevel())
 	{
 		return 1;

@@ -21,7 +21,9 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
+#include <array>
 #include <string>
 #include <vector>
 #include "../Entities/GameObject.h"
@@ -178,38 +180,40 @@ public:
 	static constexpr int EPHRAIM_IDLE_ROW = 0;
 	static constexpr int EPHRAIM_LANCE_ROW = 1;
 	static constexpr int EPHRAIM_CRITICAL_LANCE_ROW = 2;
-	static constexpr int EPHRAIM_JAVELIN_ROW = 3;
-	static constexpr int EPHRAIM_CRITICAL_JAVELIN_ROW = 4;
-	static constexpr int EPHRAIM_IDLE_FRAME_COUNT = 1;
-	static constexpr int EPHRAIM_LANCE_INTRO_FRAME_COUNT = 6;
-	static constexpr int EPHRAIM_LANCE_WINDUP_FRAME_COUNT = 5;
-	static constexpr int EPHRAIM_CRITICAL_LANCE_WINDUP_FRAME_COUNT = 5;
-	static constexpr int EPHRAIM_JAVELIN_WINDUP_FRAME_COUNT = 3;
-	static constexpr int EPHRAIM_CRITICAL_JAVELIN_WINDUP_FRAME_COUNT = 4;
-	static constexpr int EPHRAIM_LANCE_ATTACK_FRAME_COUNT = 16;
-	static constexpr int EPHRAIM_CRITICAL_LANCE_ATTACK_FRAME_COUNT = 16;
-	static constexpr int EPHRAIM_JAVELIN_ATTACK_FRAME_COUNT = 3;
-	static constexpr int EPHRAIM_CRITICAL_JAVELIN_ATTACK_FRAME_COUNT = 3;
-	static constexpr int EPHRAIM_LANCE_TOTAL_FRAME_COUNT = EPHRAIM_LANCE_INTRO_FRAME_COUNT + EPHRAIM_LANCE_WINDUP_FRAME_COUNT + EPHRAIM_LANCE_ATTACK_FRAME_COUNT;
-	static constexpr int EPHRAIM_CRITICAL_LANCE_TOTAL_FRAME_COUNT = EPHRAIM_CRITICAL_LANCE_WINDUP_FRAME_COUNT + EPHRAIM_CRITICAL_LANCE_ATTACK_FRAME_COUNT;
-	static constexpr int EPHRAIM_JAVELIN_TOTAL_FRAME_COUNT = EPHRAIM_JAVELIN_WINDUP_FRAME_COUNT + EPHRAIM_JAVELIN_ATTACK_FRAME_COUNT;
-	static constexpr int EPHRAIM_CRITICAL_JAVELIN_TOTAL_FRAME_COUNT = EPHRAIM_CRITICAL_JAVELIN_WINDUP_FRAME_COUNT + EPHRAIM_CRITICAL_JAVELIN_ATTACK_FRAME_COUNT;
-	static constexpr int EPHRAIM_ATTACK_WINDUP_TICKS = 32;
-	static constexpr int EPHRAIM_CRITICAL_ATTACK_WINDUP_TICKS = 24;
-	static constexpr int EPHRAIM_JAVELIN_ATTACK_WINDUP_TICKS = 15;
-	static constexpr int EPHRAIM_CRITICAL_JAVELIN_ATTACK_WINDUP_TICKS = 20;
-	static constexpr int EPHRAIM_ATTACK_VARIANT_COUNT = 4;
+	static constexpr int EPHRAIM_IDLE_FRAME_COUNT = 6;
+
+	// Each variant owns one complete windup, strike and recovery atlas.
+	static constexpr std::array<int, 4> EPHRAIM_ATLAS_FRAME_COUNTS = { 21, 21, 7, 11 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_DURATION_TICKS = { 126, 140, 70, 110 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_IMPACT_FRAMES = { 11, 11, 4, 8 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_IMPACT_TICKS = { 66, 74, 40, 80 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_ANTICIPATION_TICKS = { 8, 10, 6, 12 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_HITSTOP_TICKS = { 12, 12, 10, 15 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_MISS_STOP_TICKS = { 6, 6, 5, 8 };
+	static constexpr int EPHRAIM_ATLAS_COUNT = static_cast<int>(EPHRAIM_ATLAS_FRAME_COUNTS.size());
+	static constexpr int EPHRAIM_ATTACK_VARIANT_COUNT = EPHRAIM_ATLAS_COUNT;
+	static constexpr int EphraimAttackAtlasFrame(int theAttackSet, int theElapsedTicks)
+	{
+		return std::min(theElapsedTicks * EPHRAIM_ATLAS_FRAME_COUNTS[theAttackSet] /
+			EPHRAIM_ATTACK_DURATION_TICKS[theAttackSet], EPHRAIM_ATLAS_FRAME_COUNTS[theAttackSet] - 1);
+	}
 	static constexpr int EPHRAIM_ATTACK_RANGE_FRONT = 140;
 	static constexpr int EPHRAIM_ATTACK_RANGE_BEHIND = 140;
 	static constexpr float EPHRAIM_DRAW_SCALE = 2.1875f;
-	static constexpr int EPHRAIM_ATTACK_ANIMATION_TICKS = 84;
-	static constexpr int EPHRAIM_JAB_ATTACK_ANIMATION_TICKS = 60;
-	static constexpr int EPHRAIM_LANCE_IMPACT_FRAME = 3;
-	static constexpr int EPHRAIM_CRITICAL_LANCE_IMPACT_FRAME = 3;
-	static constexpr int EPHRAIM_JAVELIN_IMPACT_FRAME = 1;
-	static constexpr int EPHRAIM_CRITICAL_JAVELIN_IMPACT_FRAME = 1;
-	static constexpr int EPHRAIM_ATTACK_CLIMAX_PAUSE_TICKS = 9;
-	static constexpr int EPHRAIM_HIT_STOP_TICKS = 12;
+	static constexpr int EPHRAIM_ATTACK_ANIMATION_TICKS = 140;
+	static constexpr int EPHRAIM_LANCE_IMPACT_FRAME = 2;
+	static constexpr int EPHRAIM_CRITICAL_LANCE_IMPACT_FRAME = 2;
+	static constexpr int EPHRAIM_HIT_STOP_TICKS = 15;
+	static constexpr int EPHRAIM_ATTACK_DAMAGE = 40;
+	static constexpr int EPHRAIM_AFTERIMAGE_CHANCE_PERCENT = 35;
+	static constexpr int EPHRAIM_ATTACK_FLAG_ANTICIPATION_PAUSE = 1 << 0;
+	static constexpr int EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT = 1 << 1;
+	static constexpr int EPHRAIM_ATTACK_FLAG_AFTERIMAGE = 1 << 2;
+	static constexpr int EPHRAIM_ATTACK_FLAG_AFTERIMAGE_IMPACT = 1 << 3;
+	static constexpr int EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_SHIFT = 4;
+	static constexpr int EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_MASK = 7 << EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_SHIFT;
+	static constexpr int EPHRAIM_ATTACK_FLAG_AFTERIMAGE_ANTICIPATION = 1 << 7;
+	static constexpr int EPHRAIM_ATTACK_FLAGS_MASK = (1 << 8) - 1;
 
 	SeedType                mSeedType;
 	int32_t                 mPlantCol;
@@ -237,6 +241,7 @@ public:
 	int32_t                 mEphraimAttackSet;
 	int32_t                 mEphraimHitStopCounter;
 	int32_t                 mEphraimAttackPauseFlags;
+	int32_t                 mEphraimAfterimageFrame;
 	ReanimationID           mBodyReanimID;
 	ReanimationID           mHeadReanimID;
 	ReanimationID           mHeadReanimID2;

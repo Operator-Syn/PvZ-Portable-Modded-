@@ -59,9 +59,59 @@
 #include "PlantRules.h"
 #include "../Rules/TargetingRules.h"
 
+namespace
+{
+	struct EphraimAttackTiming
+	{
+		int mAttackSet;
+		int mTotalTicks;
+		int mImpactFrame;
+	};
+
+	EphraimAttackTiming GetEphraimAttackTiming(int theAttackSet)
+	{
+		const int anIndex = std::clamp(theAttackSet, 0, Plant::EPHRAIM_ATTACK_VARIANT_COUNT - 1);
+		return { anIndex, Plant::EPHRAIM_ATTACK_DURATION_TICKS[anIndex],
+			Plant::EPHRAIM_ATTACK_IMPACT_FRAMES[anIndex] };
+	}
+
+	int EphraimFrameAtElapsedTicks(const EphraimAttackTiming& theTiming, int theElapsedTicks)
+	{
+		return Plant::EphraimAttackAtlasFrame(theTiming.mAttackSet, theElapsedTicks);
+	}
+
+	int EphraimImpactElapsedTicks(const EphraimAttackTiming& theTiming)
+	{
+		return Plant::EPHRAIM_ATTACK_IMPACT_TICKS[theTiming.mAttackSet];
+	}
+
+	int EphraimMinimumLaunchDelay(int theAttackSet, int theAfterimageSet, bool theHasAfterimage)
+	{
+		const int anAttackSet = std::clamp(theAttackSet, 0, Plant::EPHRAIM_ATTACK_VARIANT_COUNT - 1);
+		const int aPrimaryDuration = Plant::EPHRAIM_ATTACK_DURATION_TICKS[anAttackSet];
+		const int aPrimaryImpactTick = EphraimImpactElapsedTicks(GetEphraimAttackTiming(anAttackSet));
+		int aDelay = aPrimaryDuration + Plant::EPHRAIM_ATTACK_ANTICIPATION_TICKS[anAttackSet] +
+			Plant::EPHRAIM_ATTACK_HITSTOP_TICKS[anAttackSet];
+		if (theHasAfterimage)
+		{
+			const int anAfterimageSet = std::clamp(theAfterimageSet, 0, Plant::EPHRAIM_ATTACK_VARIANT_COUNT - 1);
+			const int aPrimaryTailTicks = std::max(0, aPrimaryDuration - aPrimaryImpactTick);
+			const int anAfterimageTailTicks = std::max(aPrimaryTailTicks, Plant::EPHRAIM_ATTACK_DURATION_TICKS[anAfterimageSet]);
+			aDelay = aPrimaryImpactTick + Plant::EPHRAIM_ATTACK_ANTICIPATION_TICKS[anAttackSet] +
+				Plant::EPHRAIM_ATTACK_HITSTOP_TICKS[anAttackSet] + anAfterimageTailTicks +
+				Plant::EPHRAIM_ATTACK_ANTICIPATION_TICKS[anAfterimageSet] + Plant::EPHRAIM_ATTACK_HITSTOP_TICKS[anAfterimageSet];
+		}
+		// UpdateShooter checks the counter before UpdateShooting advances the
+		// final attack tick, so leave one tick for the plant to return to ready.
+		return aDelay + 1;
+	}
+}
+
 bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 {
 	if (mSeedType == SeedType::SEED_EPHRAIM && mShootingCounter > 0)
+		return false;
+	if (mSeedType == SeedType::SEED_EPHRAIM && mEphraimAfterimageFrame >= 0)
 		return false;
 
 	Zombie* aZombie = FindTargetZombie(theRow, thePlantWeapon);
@@ -74,9 +124,14 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 		Rect aTargetRect = aZombie->GetZombieRect();
 		mTargetX = aTargetRect.mX + aTargetRect.mWidth / 2;
 		mEphraimAttackSet = RandRangeInt(0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
-		mEphraimAttackPauseFlags = 0;
-		mShootingCounter = mEphraimAttackSet >= 2
-			? EPHRAIM_JAB_ATTACK_ANIMATION_TICKS : EPHRAIM_ATTACK_ANIMATION_TICKS;
+		const bool anAfterimage = RandRangeInt(0, 99) < EPHRAIM_AFTERIMAGE_CHANCE_PERCENT;
+		const int anAfterimageSet = anAfterimage ? mEphraimAttackSet : 0;
+		mEphraimAttackPauseFlags = anAfterimage
+			? EPHRAIM_ATTACK_FLAG_AFTERIMAGE | (anAfterimageSet << EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_SHIFT) : 0;
+		mEphraimAfterimageFrame = anAfterimage ? 0 : -1;
+		mShootingCounter = GetEphraimAttackTiming(mEphraimAttackSet).mTotalTicks;
+		mFrame = 0;
+		mLaunchCounter = std::max(mLaunchCounter, EphraimMinimumLaunchDelay(mEphraimAttackSet, anAfterimageSet, anAfterimage));
 		return true;
 	}
 
@@ -351,7 +406,7 @@ void Plant::UpdateShooter()
 
 void Plant::UpdateShooting()
 {
-	if (NotOnGround() || mShootingCounter == 0)
+	if (NotOnGround() || (mShootingCounter == 0 && mSeedType != SeedType::SEED_EPHRAIM))
 		return;
 
 	if (mSeedType == SeedType::SEED_EPHRAIM)
@@ -361,49 +416,70 @@ void Plant::UpdateShooting()
 			mEphraimHitStopCounter--;
 			return;
 		}
+		if (mShootingCounter == 0 && mEphraimAfterimageFrame < 0)
+			return;
 
-		int aWindupFrameCount = EPHRAIM_LANCE_INTRO_FRAME_COUNT + EPHRAIM_LANCE_WINDUP_FRAME_COUNT;
-		int aImpactFrame = aWindupFrameCount + EPHRAIM_LANCE_IMPACT_FRAME;
-		switch (mEphraimAttackSet)
-		{
-		case 1:
-			aWindupFrameCount = EPHRAIM_CRITICAL_LANCE_WINDUP_FRAME_COUNT;
-			aImpactFrame = aWindupFrameCount + EPHRAIM_CRITICAL_LANCE_IMPACT_FRAME;
-			break;
-		case 2:
-			aWindupFrameCount = EPHRAIM_JAVELIN_WINDUP_FRAME_COUNT;
-			aImpactFrame = aWindupFrameCount + EPHRAIM_JAVELIN_IMPACT_FRAME;
-			break;
-		case 3:
-			aWindupFrameCount = EPHRAIM_CRITICAL_JAVELIN_WINDUP_FRAME_COUNT;
-			aImpactFrame = aWindupFrameCount + EPHRAIM_CRITICAL_JAVELIN_IMPACT_FRAME;
-			break;
-		default:
-			break;
-		}
+		const EphraimAttackTiming aPrimaryTiming = GetEphraimAttackTiming(mEphraimAttackSet);
+		const int aImpactFrame = aPrimaryTiming.mImpactFrame;
+		const int aPrimarySet = std::clamp(mEphraimAttackSet, 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
+		const int anAfterimageSet = std::clamp((mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_MASK) >> EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_SHIFT,
+			0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
+		const EphraimAttackTiming anAfterimageTiming = GetEphraimAttackTiming(anAfterimageSet);
+		const int anAfterimageImpactTick = EphraimImpactElapsedTicks(anAfterimageTiming);
 
 		// Drive charge and damage from the pose currently on screen. This keeps
 		// impact on the weapon contact frame, rather than a separate timer guess.
-		if (mFrame == aWindupFrameCount - 1 && (mEphraimAttackPauseFlags & 1) == 0)
+		if (mShootingCounter > 0 && mFrame == aImpactFrame - 1 && (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_ANTICIPATION_PAUSE) == 0)
 		{
-			mEphraimAttackPauseFlags |= 1;
-			mEphraimHitStopCounter = EPHRAIM_ATTACK_CLIMAX_PAUSE_TICKS;
+			mEphraimAttackPauseFlags |= EPHRAIM_ATTACK_FLAG_ANTICIPATION_PAUSE;
+			mEphraimHitStopCounter = EPHRAIM_ATTACK_ANTICIPATION_TICKS[aPrimarySet];
 			return;
 		}
-		if (mFrame == aImpactFrame && (mEphraimAttackPauseFlags & 2) == 0)
+		if (mShootingCounter > 0 && mFrame == aImpactFrame && (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT) == 0)
 		{
-			mEphraimAttackPauseFlags |= 2;
+			mEphraimAttackPauseFlags |= EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT;
 			std::vector<Zombie*> aHitZombies;
 			while (Zombie* aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY, &aHitZombies))
 			{
-				aZombie->TakeDamage(40, 0U);
+				aZombie->TakeDamage(EPHRAIM_ATTACK_DAMAGE, 0U);
 				aHitZombies.push_back(aZombie);
 			}
 			mEphraimHitStopCounter = aHitZombies.empty()
-				? EPHRAIM_ATTACK_CLIMAX_PAUSE_TICKS : EPHRAIM_HIT_STOP_TICKS;
+				? EPHRAIM_ATTACK_MISS_STOP_TICKS[aPrimarySet] : EPHRAIM_ATTACK_HITSTOP_TICKS[aPrimarySet];
 			return;
 		}
-		mShootingCounter--;
+		if ((mEphraimAttackPauseFlags & (EPHRAIM_ATTACK_FLAG_AFTERIMAGE | EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT)) ==
+			(EPHRAIM_ATTACK_FLAG_AFTERIMAGE | EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT) && mEphraimAfterimageFrame >= 0 &&
+			(mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_AFTERIMAGE_ANTICIPATION) == 0 &&
+			EphraimFrameAtElapsedTicks(anAfterimageTiming, mEphraimAfterimageFrame) == anAfterimageTiming.mImpactFrame - 1)
+		{
+			mEphraimAttackPauseFlags |= EPHRAIM_ATTACK_FLAG_AFTERIMAGE_ANTICIPATION;
+			mEphraimHitStopCounter = EPHRAIM_ATTACK_ANTICIPATION_TICKS[anAfterimageSet];
+			return;
+		}
+		if ((mEphraimAttackPauseFlags & (EPHRAIM_ATTACK_FLAG_AFTERIMAGE | EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT)) ==
+			(EPHRAIM_ATTACK_FLAG_AFTERIMAGE | EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT) &&
+			(mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_AFTERIMAGE_IMPACT) == 0 && mEphraimAfterimageFrame == anAfterimageImpactTick)
+		{
+			mEphraimAttackPauseFlags |= EPHRAIM_ATTACK_FLAG_AFTERIMAGE_IMPACT;
+			std::vector<Zombie*> aHitZombies;
+			while (Zombie* aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY, &aHitZombies))
+			{
+				aZombie->TakeDamage(EPHRAIM_ATTACK_DAMAGE, 0U);
+				aHitZombies.push_back(aZombie);
+			}
+			mEphraimHitStopCounter = aHitZombies.empty()
+				? EPHRAIM_ATTACK_MISS_STOP_TICKS[anAfterimageSet] : EPHRAIM_ATTACK_HITSTOP_TICKS[anAfterimageSet];
+			return;
+		}
+		if ((mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT) != 0 && mEphraimAfterimageFrame >= 0)
+		{
+			mEphraimAfterimageFrame++;
+			if (mEphraimAfterimageFrame >= anAfterimageTiming.mTotalTicks)
+				mEphraimAfterimageFrame = -1;
+		}
+		if (mShootingCounter > 0)
+			mShootingCounter--;
 		return;
 	}
 

@@ -21,6 +21,7 @@
 
 #include <map>
 #include <cstring>
+#include <format>
 #include "Resources.h"
 #include "misc/ResourceManager.h"
 #include "imagelib/ImageLib.h"
@@ -1137,36 +1138,33 @@ bool Sexy::ExtractInitResources(ResourceManager* theManager)
 	// Test-only plant art, loaded from the resource folder instead of main.pak.
 	// properties/ is gitignored, so this stays out of commits; a missing file just
 	// leaves the seed unavailable rather than aborting startup.
-	IMAGE_EPHRAIM_PLANT = gSexyAppBase->GetImage("properties/ephraim/ephraim_animation.png");
+	static constexpr const char* EPHRAIM_ATLAS_NAMES[] = {
+		"lance", "critical_lance_complete", "javelin_complete", "critical_javelin_complete"
+	};
+	for (int i = 0; i < Plant::EPHRAIM_ATLAS_COUNT; i++)
+	{
+		const std::string aPath = std::format("properties/ephraim/atlases/{}.png", EPHRAIM_ATLAS_NAMES[i]);
+		IMAGE_EPHRAIM_SEQUENCES[i] = gSexyAppBase->GetImage(aPath.c_str());
+		if (IMAGE_EPHRAIM_SEQUENCES[i] != nullptr)
+		{
+			IMAGE_EPHRAIM_SEQUENCES[i]->mNumCols = Plant::EPHRAIM_ATLAS_FRAME_COUNTS[i];
+			IMAGE_EPHRAIM_SEQUENCES[i]->mNumRows = 1;
+			PvzpMarkImageForSanding(IMAGE_EPHRAIM_SEQUENCES[i]);
+		}
+		else
+			PvzpLogLn("Ephraim animation atlas missing; run scripts/create_ephraim_atlases.py");
+	}
+	IMAGE_EPHRAIM_PLANT = gSexyAppBase->GetImage("properties/ephraim/atlases/idle.png");
 	if (IMAGE_EPHRAIM_PLANT != nullptr)
 	{
-		IMAGE_EPHRAIM_PLANT->mNumCols = 14; // PNG action rows remain below the renderer's texture width limit
-		IMAGE_EPHRAIM_PLANT->mNumRows = 5;
+		IMAGE_EPHRAIM_PLANT->mNumCols = 6;
+		IMAGE_EPHRAIM_PLANT->mNumRows = 1;
 		PvzpMarkImageForSanding(IMAGE_EPHRAIM_PLANT);
+	}
+	if (IMAGE_EPHRAIM_PLANT != nullptr)
 		gEphraimPlantImages[0] = IMAGE_EPHRAIM_PLANT;
-	}
 	else
-	{
-		PvzpLogLn("properties/ephraim/ephraim_animation.png not found; test seed will not render");
-	}
-	IMAGE_EPHRAIM_SEQUENCES = gSexyAppBase->GetImage("properties/ephraim/ephraim_sequences.png");
-	if (IMAGE_EPHRAIM_SEQUENCES != nullptr)
-	{
-		IMAGE_EPHRAIM_SEQUENCES->mNumCols = 11; // Intro plus normal windup is the longest grouped sequence
-		IMAGE_EPHRAIM_SEQUENCES->mNumRows = 4;  // Lance, critical lance, javelin, critical javelin
-		PvzpMarkImageForSanding(IMAGE_EPHRAIM_SEQUENCES);
-	}
-	else
-	{
-		PvzpLogLn("properties/ephraim/ephraim_sequences.png not found; Ephraim windup poses are unavailable");
-	}
-	IMAGE_EPHRAIM_ATTACK_TAIL = gSexyAppBase->GetImage("properties/ephraim/ephraim_attack_tail.png");
-	if (IMAGE_EPHRAIM_ATTACK_TAIL != nullptr)
-	{
-		IMAGE_EPHRAIM_ATTACK_TAIL->mNumCols = 2;
-		IMAGE_EPHRAIM_ATTACK_TAIL->mNumRows = 2;
-		PvzpMarkImageForSanding(IMAGE_EPHRAIM_ATTACK_TAIL);
-	}
+		PvzpLogLn("properties/ephraim/atlases/idle.png not found; test seed will not render");
 	return true;
 }
 
@@ -1353,8 +1351,7 @@ Image* Sexy::IMAGE_PEA_PARTICLES;
 Image* Sexy::IMAGE_PEA_SHADOWS;
 Image* Sexy::IMAGE_PEA_SPLATS;
 Image* Sexy::IMAGE_EPHRAIM_PLANT;
-Image* Sexy::IMAGE_EPHRAIM_SEQUENCES;
-Image* Sexy::IMAGE_EPHRAIM_ATTACK_TAIL;
+Image* Sexy::IMAGE_EPHRAIM_SEQUENCES[4] = {};
 Image* Sexy::IMAGE_PHONOGRAPH;
 Image* Sexy::IMAGE_PINATA;
 Image* Sexy::IMAGE_PLANTSHADOW;

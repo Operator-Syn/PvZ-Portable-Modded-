@@ -81,6 +81,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	mEphraimAttackSet = 0;
 	mEphraimHitStopCounter = 0;
 	mEphraimAttackPauseFlags = 0;
+	mEphraimAfterimageFrame = -1;
 	mContinuousHealthRemainder = 0.0f;
 	mShakeOffsetX = 0.0f;
 	mShakeOffsetY = 0.0f;

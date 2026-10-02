@@ -108,7 +108,8 @@ constinit const ChallengeDefinition gChallengeDefs[NUM_CHALLENGE_MODES] = {
 	{ .mChallengeMode = GameMode::GAMEMODE_PUZZLE_I_ZOMBIE_9, .mChallengeIconIndex = 11, .mPage = ChallengePage::CHALLENGE_PAGE_PUZZLE, .mRow = 3, .mCol = 3, .mChallengeName = "[I_ZOMBIE_9]" },
 	{ .mChallengeMode = GameMode::GAMEMODE_PUZZLE_I_ZOMBIE_ENDLESS, .mChallengeIconIndex = 11, .mPage = ChallengePage::CHALLENGE_PAGE_PUZZLE, .mRow = 3, .mCol = 4, .mChallengeName = "[I_ZOMBIE_ENDLESS]" },
 	{ .mChallengeMode = GameMode::GAMEMODE_UPSELL, .mChallengeIconIndex = 10, .mPage = ChallengePage::CHALLENGE_PAGE_LIMBO, .mRow = 3, .mCol = 4, .mChallengeName = "Upsell" },
-	{ .mChallengeMode = GameMode::GAMEMODE_INTRO, .mChallengeIconIndex = 10, .mPage = ChallengePage::CHALLENGE_PAGE_LIMBO, .mRow = 2, .mCol = 3, .mChallengeName = "Intro" }
+	{ .mChallengeMode = GameMode::GAMEMODE_INTRO, .mChallengeIconIndex = 10, .mPage = ChallengePage::CHALLENGE_PAGE_LIMBO, .mRow = 2, .mCol = 3, .mChallengeName = "Intro" },
+	{ .mChallengeMode = GameMode::GAMEMODE_PLANT_PRACTICE, .mChallengeIconIndex = 0, .mPage = ChallengePage::CHALLENGE_PAGE_PRACTICE, .mRow = 0, .mCol = 0, .mChallengeName = "Plant Practice" }
 };
 
 ChallengeScreen::ChallengeScreen(LawnApp* theApp, ChallengePage thePage)
@@ -145,6 +146,8 @@ ChallengeScreen::ChallengeScreen(LawnApp* theApp, ChallengePage thePage)
 		aPageButton->mDoFinger = true;
 		if (aPageIdx == CHALLENGE_PAGE_LIMBO)
 			aPageButton->mLabel = mApp->GetString("LIMBO_PAGE_BUTTON", "Limbo Page");
+		else if (aPageIdx == CHALLENGE_PAGE_PRACTICE)
+			aPageButton->mLabel = "Practice";
 		else
 			aPageButton->mLabel = PvzpReplaceNumberString("[PAGE_X]", "{PAGE}", aPageIdx);
 		aPageButton->mButtonImage = Sexy::IMAGE_BLANK;
@@ -256,6 +259,8 @@ void ChallengeScreen::SetUnlockChallengeIndex(ChallengePage thePage, bool theIsI
 int ChallengeScreen::MoreTrophiesNeeded(int theChallengeIndex)
 {
 	const ChallengeDefinition& aDef = GetChallengeDefinition(theChallengeIndex);
+	if (aDef.mChallengeMode == GameMode::GAMEMODE_PLANT_PRACTICE)
+		return 0;
 	if (mApp->mGameMode == GAMEMODE_UPSELL && mApp->mGameScene == SCENE_LEVEL_INTRO)
 	{
 		return aDef.mChallengeMode == GAMEMODE_CHALLENGE_FINAL_BOSS ? 1 : 0;
@@ -356,7 +361,8 @@ int ChallengeScreen::MoreTrophiesNeeded(int theChallengeIndex)
 
 bool ChallengeScreen::ShowPageButtons()
 {
-	return mApp->mCheatKeys && mPageIndex != CHALLENGE_PAGE_SURVIVAL && mPageIndex != CHALLENGE_PAGE_PUZZLE;
+	return (mApp->mCheatKeys && mPageIndex != CHALLENGE_PAGE_SURVIVAL && mPageIndex != CHALLENGE_PAGE_PUZZLE) ||
+		mPageIndex == CHALLENGE_PAGE_PRACTICE;
 }
 
 void ChallengeScreen::UpdateButtons()
@@ -368,6 +374,8 @@ void ChallengeScreen::UpdateButtons()
 		ButtonWidget* aPageButton = mPageButton[aPage].get();
 
 		if (mLimboPageUnlocked && aPage == CHALLENGE_PAGE_LIMBO)
+			aPageButton->mVisible = true;
+		if (aPage == CHALLENGE_PAGE_PRACTICE)
 			aPageButton->mVisible = true;
 
 		if (aPage == mPageIndex)
@@ -574,7 +582,8 @@ void ChallengeScreen::Draw(Graphics* g)
 
 	std::string aTitleString =
 		mPageIndex == CHALLENGE_PAGE_SURVIVAL ? "[PICK_AREA]" :
-		mPageIndex == CHALLENGE_PAGE_PUZZLE ? "[SCARY_POTTER]" : "[PICK_CHALLENGE]";
+		mPageIndex == CHALLENGE_PAGE_PUZZLE ? "[SCARY_POTTER]" :
+		mPageIndex == CHALLENGE_PAGE_PRACTICE ? "Plant Practice" : "[PICK_CHALLENGE]";
 	PvzpDrawString(g, aTitleString, 400, 58, Sexy::FONT_HOUSEOFTERROR28, Color(220, 220, 220), DS_ALIGN_CENTER);
 
 	int aTrophiesGot = mApp->GetNumTrophies(mPageIndex);
@@ -584,7 +593,8 @@ void ChallengeScreen::Draw(Graphics* g)
 		std::string aTrophyString = std::format("{}/{}", aTrophiesGot, aTrophiesTotal);
 		PvzpDrawString(g, aTrophyString, 739, 73, Sexy::FONT_DWARVENTODCRAFT15, Color(255, 240, 0), DS_ALIGN_CENTER);
 	}
-	PvzpDrawImageScaledF(g, Sexy::IMAGE_TROPHY, 718, 26, 0.5f, 0.5f);
+	if (mPageIndex != CHALLENGE_PAGE_PRACTICE)
+		PvzpDrawImageScaledF(g, Sexy::IMAGE_TROPHY, 718, 26, 0.5f, 0.5f);
 
 	for (int aChallengeMode = 0; aChallengeMode < NUM_CHALLENGE_MODES; aChallengeMode++)
 		DrawButton(g, aChallengeMode);
@@ -661,7 +671,7 @@ void ChallengeScreen::ButtonDepress(int theId)
 	}
 
 	int aPageIndex = theId - ChallengeScreen::ChallengeScreen_Page;
-	if (aPageIndex >= 0 && aPageIndex < 4)
+	if (aPageIndex >= 0 && aPageIndex < MAX_CHALLANGE_PAGES)
 	{
 		mPageIndex = (ChallengePage)aPageIndex;
 		UpdateButtons();

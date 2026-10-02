@@ -1261,6 +1261,36 @@ bool Board::IsScaryPotterDaveTalking()
 
 void Board::DrawUITop(Graphics* g)
 {
+	if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE && mApp->mGameScene == GameScenes::SCENE_PLAYING)
+	{
+		g->SetColor(Color(80, 110, 48, 230));
+		g->FillRect(mApp->mWidth - 119, 40, 117, 30);
+		PvzpDrawString(g, "Spawn Zombie", mApp->mWidth - 60, 60, Sexy::FONT_DWARVENTODCRAFT12, Color::White, DrawStringJustification::DS_ALIGN_CENTER);
+		if (mPracticeZombiePickerOpen)
+		{
+			g->SetColor(Color(24, 35, 28, 235));
+			g->FillRect(35, 70, 730, 390);
+			PvzpDrawString(g, "Choose a zombie to spawn in the middle lane", 400, 94, Sexy::FONT_HOUSEOFTERROR16, Color::White, DrawStringJustification::DS_ALIGN_CENTER);
+			int aVisibleIndex = 0;
+			for (ZombieType aType = ZombieType::ZOMBIE_NORMAL; aType < ZombieType::NUM_ZOMBIE_TYPES;
+				aType = static_cast<ZombieType>(static_cast<int>(aType) + 1))
+			{
+				if (aType == ZombieType::ZOMBIE_BOSS || (aType >= ZombieType::ZOMBIE_PEA_HEAD && aType <= ZombieType::ZOMBIE_TALLNUT_HEAD) ||
+					IsZombieTypePoolOnly(aType) || GetZombieDefinition(aType).mPickWeight <= 0)
+					continue;
+				int aColumn = aVisibleIndex % 5;
+				int aRow = aVisibleIndex / 5;
+				int aX = 50 + aColumn * 140;
+				int aY = 105 + aRow * 36;
+				g->SetColor(Color(66, 80, 54, 255));
+				g->FillRect(aX, aY, 132, 30);
+				PvzpDrawString(g, GetZombieDefinition(aType).mZombieName, aX + 66, aY + 20, Sexy::FONT_DWARVENTODCRAFT12, Color::White, DrawStringJustification::DS_ALIGN_CENTER);
+				aVisibleIndex++;
+			}
+			PvzpDrawString(g, "Click outside to close", 400, 450, Sexy::FONT_DWARVENTODCRAFT12, Color(220, 220, 180), DrawStringJustification::DS_ALIGN_CENTER);
+		}
+	}
+
 	if (StageHasFog())
 	{
 		DrawTopRightUI(g);

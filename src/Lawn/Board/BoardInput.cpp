@@ -559,6 +559,38 @@ void Board::MouseDown(int x, int y, int theClickCount)
 	mIgnoreMouseUp = !CanInteractWithBoardButtons();
 	if (mTimeStopCounter > 0)
 		return;
+	if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE && mApp->mGameScene == GameScenes::SCENE_PLAYING && theClickCount > 0)
+	{
+		if (mPracticeZombiePickerOpen)
+		{
+			if (x >= 50 && x < 750 && y >= 105 && y < 430)
+			{
+				int aOption = ((y - 105) / 36) * 5 + (x - 50) / 140;
+				int aVisibleIndex = 0;
+				for (ZombieType aType = ZombieType::ZOMBIE_NORMAL; aType < ZombieType::NUM_ZOMBIE_TYPES;
+					aType = static_cast<ZombieType>(static_cast<int>(aType) + 1))
+				{
+					if (aType == ZombieType::ZOMBIE_BOSS || (aType >= ZombieType::ZOMBIE_PEA_HEAD && aType <= ZombieType::ZOMBIE_TALLNUT_HEAD) ||
+						IsZombieTypePoolOnly(aType) || GetZombieDefinition(aType).mPickWeight <= 0)
+						continue;
+					if (aVisibleIndex++ == aOption)
+					{
+						AddZombieInRow(aType, 2, Zombie::ZOMBIE_WAVE_DEBUG);
+						break;
+					}
+				}
+				mPracticeZombiePickerOpen = false;
+				return;
+			}
+			mPracticeZombiePickerOpen = false;
+			return;
+		}
+		if (x >= mApp->mWidth - 119 && x < mApp->mWidth - 2 && y >= 40 && y < 70)
+		{
+			mPracticeZombiePickerOpen = true;
+			return;
+		}
+	}
 
 	HitResult aHitResult;
 	MouseHitTest(x, y, &aHitResult);

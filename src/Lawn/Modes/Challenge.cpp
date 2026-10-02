@@ -2002,7 +2002,7 @@ SeedType Challenge::GetArtChallengeSeed(int theGridX, int theGridY)
 
 void Challenge::SpawnLevelAward(int theGridX, int theGridY)
 {
-	if (mBoard->HasLevelAwardDropped())
+	if (mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE || mBoard->HasLevelAwardDropped())
 		return;
 
 	float aPosX = mBoard->GridToPixelX(theGridX, theGridY) + 40;

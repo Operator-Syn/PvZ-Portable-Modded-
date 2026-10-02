@@ -53,8 +53,8 @@ void SeedChooserScreen::GetSeedPositionInChooser(int theIndex, int& x, int& y)
 {
 	if (theIndex == SEED_SUN_MAGNET)
 	{
-		int aRow = (NUM_SEEDS_IN_CHOOSER - 1) / 8;
-		int aCol = (NUM_SEEDS_IN_CHOOSER - 1) % 8;
+		int aRow = 49 / 8;
+		int aCol = 49 % 8;
 		x = aCol * 53 + 22;
 		y = aRow * 70 + 123;
 	}
@@ -65,8 +65,9 @@ void SeedChooserScreen::GetSeedPositionInChooser(int theIndex, int& x, int& y)
 	}
 	else
 	{
-		int aRow = theIndex / 8;
-		int aCol = theIndex % 8;
+		int aChooserIndex = SeedChooserOrder::SeedChooserIndexOf(static_cast<SeedType>(theIndex));
+		int aRow = aChooserIndex / 8;
+		int aCol = aChooserIndex % 8;
 
 		x = aCol * 53 + 22;
 		if (Has7Rows())

@@ -1413,7 +1413,9 @@ namespace Sexy
 	extern Image* IMAGE_PEA_PARTICLES;
 	extern Image* IMAGE_PEA_SHADOWS;
 	extern Image* IMAGE_PEA_SPLATS;
-	extern Image* IMAGE_ALFONSE_PLANT;  // test plant cel-strip loaded from properties/alfonse.png
+	extern Image* IMAGE_EPHRAIM_PLANT;  // Ephraim cel atlas loaded from properties/ephraim/
+	extern Image* IMAGE_EPHRAIM_SEQUENCES;  // PNG windup sequences loaded from properties/ephraim/
+	extern Image* IMAGE_EPHRAIM_ATTACK_TAIL;  // Final lance poses beyond the main atlas width
 	extern Image* IMAGE_PHONOGRAPH;
 	extern Image* IMAGE_PINATA;
 	extern Image* IMAGE_PLANTSHADOW2;

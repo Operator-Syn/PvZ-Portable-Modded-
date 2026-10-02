@@ -175,6 +175,25 @@ bool Board::CanTakeSunMoney(int theAmount)
 		static_cast<int64_t>(mSunMoney) + CountSunBeingCollected();
 }
 
+bool Board::TakeSunMoneyRate(float theSunPerSecond)
+{
+	if (theSunPerSecond <= 0.0f)
+		return false;
+	mContinuousSunCostRemainder += theSunPerSecond / 100.0f;
+	int aWholeSunCost = static_cast<int>(mContinuousSunCostRemainder);
+	if (aWholeSunCost == 0)
+		return true;
+	if (!CanTakeSunMoney(aWholeSunCost))
+	{
+		mContinuousSunCostRemainder = 0.0f;
+		return false;
+	}
+	if (!TakeSunMoney(aWholeSunCost))
+		return false;
+	mContinuousSunCostRemainder -= aWholeSunCost;
+	return true;
+}
+
 void Board::DropLootPiece(int thePosX, int thePosY, int theDropFactor)
 {
 	if (mApp->IsFirstTimeAdventureMode())

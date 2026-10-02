@@ -1221,6 +1221,7 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 			AppendFieldWithSync(aOut, 104U, [&](PortableSaveContext& c){ c.SyncInt32(aZombie.mBloverKnockbackDistanceRemaining); });
 			AppendFieldWithSync(aOut, 105U, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mThreeMillionSunDurabilityApplied); });
 			AppendFieldWithSync(aOut, 106U, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mSpawnedByZombieRain); });
+			AppendFieldWithSync(aOut, 107U, [&](PortableSaveContext& c){ c.SyncFloat(aZombie.mContinuousHealthRemainder); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Zombie& aZombie)
 		{
@@ -1244,6 +1245,10 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mThreeMillionSunDurabilityApplied); });
 			else if (aFieldId == 106U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mSpawnedByZombieRain); });
+			else if (aFieldId == 107U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncFloat(aZombie.mContinuousHealthRemainder); });
+			if (!(aZombie.mContinuousHealthRemainder > -1.0f && aZombie.mContinuousHealthRemainder < 1.0f))
+				aZombie.mContinuousHealthRemainder = 0.0f;
 			if (aZombie.mTierBucketArmorHealth < 0 || aZombie.mTierBucketArmorMaxHealth < 0 ||
 				aZombie.mTierBucketArmorMaxHealth > 1100 * 124 ||
 				aZombie.mTierBucketArmorHealth > aZombie.mTierBucketArmorMaxHealth ||
@@ -1267,6 +1272,10 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 			AppendFieldWithSync(aOut, 103U, [&](PortableSaveContext& c){ SyncEnumU32(c, aPlant.mCattailTargetZombieID); });
 			AppendFieldWithSync(aOut, 104U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mTwinSunflowerBombCountdown); });
 			AppendFieldWithSync(aOut, 105U, [&](PortableSaveContext& c){ c.SyncBool(aPlant.mGatlingPeaMillionSunVolley); });
+			AppendFieldWithSync(aOut, 106U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAttackSet); });
+			AppendFieldWithSync(aOut, 107U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimHitStopCounter); });
+			AppendFieldWithSync(aOut, 109U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAttackPauseFlags); });
+			AppendFieldWithSync(aOut, 108U, [&](PortableSaveContext& c){ c.SyncFloat(aPlant.mContinuousHealthRemainder); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Plant& aPlant)
 		{
@@ -1284,6 +1293,22 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mTwinSunflowerBombCountdown); });
 			else if (aFieldId == 105U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aPlant.mGatlingPeaMillionSunVolley); });
+			else if (aFieldId == 106U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAttackSet); });
+			else if (aFieldId == 107U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimHitStopCounter); });
+			else if (aFieldId == 109U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mEphraimAttackPauseFlags); });
+			else if (aFieldId == 108U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncFloat(aPlant.mContinuousHealthRemainder); });
+			if (!(aPlant.mContinuousHealthRemainder > -1.0f && aPlant.mContinuousHealthRemainder < 1.0f))
+				aPlant.mContinuousHealthRemainder = 0.0f;
+			if (aPlant.mEphraimAttackSet < 0 || aPlant.mEphraimAttackSet >= Plant::EPHRAIM_ATTACK_VARIANT_COUNT)
+				aPlant.mEphraimAttackSet = 0;
+			if (aPlant.mEphraimHitStopCounter < 0 || aPlant.mEphraimHitStopCounter > Plant::EPHRAIM_HIT_STOP_TICKS)
+				aPlant.mEphraimHitStopCounter = 0;
+			if (aPlant.mEphraimAttackPauseFlags < 0 || aPlant.mEphraimAttackPauseFlags > 3)
+				aPlant.mEphraimAttackPauseFlags = 0;
 			if (aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_PEA &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_BUTTER &&
 				aPlant.mGatlingPeaVolleyProjectileType != ProjectileType::PROJECTILE_CHERRYBOMB &&

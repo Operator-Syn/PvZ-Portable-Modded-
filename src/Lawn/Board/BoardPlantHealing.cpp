@@ -102,13 +102,12 @@ static int CountChomperHealTargets(Board* theBoard, PlantID theChomperID)
 	return aTargetCount;
 }
 
-static int ScaleAreaHealingQuadratically(int theBaseAmount, int theAffectedPlantCount)
+static float ScaleAreaHealingQuadratically(float theBaseAmount, int theAffectedPlantCount)
 {
-	int64_t aScaledAmount = static_cast<int64_t>(theBaseAmount) * std::max(1, theAffectedPlantCount);
-	return static_cast<int>(std::clamp<int64_t>(aScaledAmount, 0, std::numeric_limits<int>::max()));
+	return theBaseAmount * std::max(1, theAffectedPlantCount);
 }
 
-static int GetPlantHealingAmount(Board* theBoard, Plant* thePlant, int theBaseAmount)
+static float GetPlantHealingAmount(Board* theBoard, Plant* thePlant, float theBaseAmount)
 {
 	if (!theBoard->mPumpkinOverdriveActive || thePlant == nullptr)
 		return theBaseAmount;
@@ -125,16 +124,19 @@ static int GetPlantHealingAmount(Board* theBoard, Plant* thePlant, int theBaseAm
 			++aNearbyPumpkins;
 	}
 	int64_t aNearbyPumpkinsSquared = static_cast<int64_t>(aNearbyPumpkins) * aNearbyPumpkins;
-	return static_cast<int>((static_cast<int64_t>(theBaseAmount) * (2 + aNearbyPumpkinsSquared) + 1) / 2);
+	return theBaseAmount * (2.0f + static_cast<float>(aNearbyPumpkinsSquared)) / 2.0f;
 }
 
-void PlantHealing::HealPlant(Board* theBoard, Plant* thePlant, int theBaseAmount)
+void PlantHealing::HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmount)
 {
 	if (!PlantHealing::PlantCanRegenerate(thePlant))
 		return;
-	int aHealingAmount = GetPlantHealingAmount(theBoard, thePlant, theBaseAmount);
-	thePlant->mPlantHealth = static_cast<int32_t>(std::min<int64_t>(
-		static_cast<int64_t>(thePlant->mPlantHealth) + aHealingAmount, thePlant->mPlantMaxHealth));
+	float aHealingAmount = GetPlantHealingAmount(theBoard, thePlant, theBaseAmount) + thePlant->mContinuousHealthRemainder;
+	int aWholeHealing = static_cast<int>(aHealingAmount);
+	thePlant->mContinuousHealthRemainder = aHealingAmount - aWholeHealing;
+	thePlant->mPlantHealth = std::min(thePlant->mPlantHealth + aWholeHealing, thePlant->mPlantMaxHealth);
+	if (thePlant->mPlantHealth >= thePlant->mPlantMaxHealth && thePlant->mContinuousHealthRemainder > 0.0f)
+		thePlant->mContinuousHealthRemainder = 0.0f;
 	if (thePlant->mSeedType == SeedType::SEED_SPIKEROCK)
 	{
 		Reanimation* aBodyReanim = theBoard->mApp->ReanimationTryToGet(thePlant->mBodyReanimID);
@@ -148,25 +150,29 @@ void PlantHealing::HealPlant(Board* theBoard, Plant* thePlant, int theBaseAmount
 	}
 }
 
-static int ApplySunMagnetRegenerationPulse(Board* theBoard, Plant* thePlant, int theStackCount, int theAffectedPlantCount = 1)
+void PlantHealing::ApplyPlantHealthRate(Plant* thePlant, float theHealthPerSecond)
+{
+	if (!PlantHealing::PlantCanRegenerate(thePlant) || theHealthPerSecond == 0.0f)
+		return;
+	float aChange = thePlant->mContinuousHealthRemainder + theHealthPerSecond / 100.0f;
+	int aWholeChange = static_cast<int>(aChange);
+	thePlant->mContinuousHealthRemainder = aChange - aWholeChange;
+	thePlant->mPlantHealth = std::clamp(thePlant->mPlantHealth + aWholeChange, 0, thePlant->mPlantMaxHealth);
+	if (thePlant->mPlantHealth == 0 || (thePlant->mPlantHealth == thePlant->mPlantMaxHealth && theHealthPerSecond > 0.0f))
+		thePlant->mContinuousHealthRemainder = 0.0f;
+}
+
+static bool ApplySunMagnetRegenerationRate(Board* theBoard, Plant* thePlant, int theStackCount, int theAffectedPlantCount = 1)
 {
 	constexpr int aSunReserve = 5000;
-	int aSunCost = theBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? 50 : 25;
-	constexpr int aHealthRestored = 25;
 	if (!PlantHealing::PlantCanRegenerate(thePlant))
-		return 0;
-
-	int aAppliedStacks = 0;
-	for (int i = 0; i < theStackCount; i++)
-	{
-		if (thePlant->mPlantHealth >= thePlant->mPlantMaxHealth || theBoard->mSunMoney < aSunReserve + aSunCost ||
-			!theBoard->TakeSunMoney(aSunCost))
-			break;
-		PlantHealing::HealPlant(theBoard, thePlant, ScaleAreaHealingQuadratically(aHealthRestored, theAffectedPlantCount));
-		++aAppliedStacks;
-	}
-	if (aAppliedStacks == 0)
-		return 0;
+		return false;
+	int aSunCost = theBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? 50 : 25;
+	if (thePlant->mPlantHealth >= thePlant->mPlantMaxHealth || theBoard->mSunMoney <= aSunReserve ||
+		!theBoard->TakeSunMoneyRate(static_cast<float>(aSunCost * theStackCount)))
+		return false;
+	PlantHealing::HealPlant(theBoard, thePlant,
+		0.25f * theStackCount * std::max(1, theAffectedPlantCount));
 
 	PlantID aPlantID = static_cast<PlantID>(theBoard->mPlants.DataArrayGetID(thePlant));
 	auto aVisual = std::find_if(theBoard->mPlantHealVisuals.begin(), theBoard->mPlantHealVisuals.end(),
@@ -190,11 +196,12 @@ static int ApplySunMagnetRegenerationPulse(Board* theBoard, Plant* thePlant, int
 			aVisual->mElapsedTicks = 0;
 		theBoard->ShowPlantHealGlow(thePlant);
 	}
-	return aAppliedStacks;
+	return true;
 }
 
 void Board::StartSunMagnetRegeneration(Plant* theMagnet)
 {
+	constexpr int aLegacyTicksUntilPulse = 100;
 	constexpr int aSunReserve = 5000;
 	int aSunCost = mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? 50 : 25;
 	if (theMagnet == nullptr || theMagnet->mDead || !theMagnet->IsOnBoard() ||
@@ -238,24 +245,6 @@ void Board::StartSunMagnetRegeneration(Plant* theMagnet)
 			++anAssignment->mStackCount;
 	}
 
-	std::vector<PlantID> anAffectedPlantIDs;
-	for (const SunMagnetHealStack& aStack : mSunMagnetHealStacks)
-	{
-		if (aStack.mMagnetID != aMagnetID)
-			continue;
-		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aStack.mPlantID));
-		if (PlantHealing::PlantCanRegenerate(aPlant) && aPlant->mPlantHealth < aPlant->mPlantMaxHealth &&
-			std::find(anAffectedPlantIDs.begin(), anAffectedPlantIDs.end(), aStack.mPlantID) == anAffectedPlantIDs.end())
-			anAffectedPlantIDs.push_back(aStack.mPlantID);
-	}
-	for (const HealAssignment& anAssignment : anAssignments)
-	{
-		PlantID aPlantID = static_cast<PlantID>(mPlants.DataArrayGetID(anAssignment.mPlant));
-		if (std::find(anAffectedPlantIDs.begin(), anAffectedPlantIDs.end(), aPlantID) == anAffectedPlantIDs.end())
-			anAffectedPlantIDs.push_back(aPlantID);
-	}
-	int aAffectedPlantCount = std::max(1, static_cast<int>(anAffectedPlantIDs.size()));
-
 	for (const HealAssignment& anAssignment : anAssignments)
 	{
 		Plant* aPlant = anAssignment.mPlant;
@@ -265,22 +254,18 @@ void Board::StartSunMagnetRegeneration(Plant* theMagnet)
 			{ return theStack.mPlantID == aPlantID && theStack.mMagnetID == aMagnetID; });
 		if (aStack == mSunMagnetHealStacks.end())
 		{
-			mSunMagnetHealStacks.push_back({ aPlantID, aMagnetID, anAssignment.mStackCount, 0, 100 });
+			mSunMagnetHealStacks.push_back({ aPlantID, aMagnetID, anAssignment.mStackCount, 0, aLegacyTicksUntilPulse });
 		}
 		else
 		{
 			aStack->mStackCount = std::min(aStack->mStackCount + anAssignment.mStackCount, 1000);
 			aStack->mElapsedTicks = 0;
 			if (aStack->mTicksUntilPulse < 1 || aStack->mTicksUntilPulse > 100)
-				aStack->mTicksUntilPulse = 100;
+				aStack->mTicksUntilPulse = aLegacyTicksUntilPulse;
 		}
 
 		if (aPlant->mPlantHealth < aPlant->mPlantMaxHealth)
-		{
-			if (ApplySunMagnetRegenerationPulse(this, aPlant, anAssignment.mStackCount, aAffectedPlantCount) == 0)
-				break;
-		}
-		ShowPlantHealGlow(aPlant);
+			ShowPlantHealGlow(aPlant);
 	}
 }
 
@@ -360,18 +345,6 @@ void Board::RestorePlantHealGlowsAfterLoad()
 		{
 			anAura = mChomperHealAuras.erase(anAura);
 			continue;
-		}
-		--anAura->mTicksUntilPulse;
-		if (anAura->mTicksUntilPulse <= 0)
-		{
-			anAura->mTicksUntilPulse = 100;
-			int aHealAmount = mChomperOverdriveActive ? 50 : 25;
-			int aTargetCount = CountChomperHealTargets(this, anAura->mChomperID);
-			if (aTargetCount > 0)
-				PlantHealing::HealPlant(this, aPlant, ScaleAreaHealingQuadratically(aHealAmount, aTargetCount));
-			PlantID aPlantID = anAura->mPlantID;
-			for (PlantHealVisual& aVisual : mPlantHealVisuals)
-				if (aVisual.mPlantID == aPlantID) aVisual.mElapsedTicks = 0;
 		}
 		++anAura;
 	}
@@ -477,15 +450,13 @@ void Board::ShowPlantHealGlow(Plant* thePlant)
 void Board::UpdatePlantHealGlows()
 {
 	constexpr int aRegenerationDuration = 300;
-	constexpr int aTicksPerPulse = 100;
-	if (mMainCounter % aTicksPerPulse == aTicksPerPulse - 1)
+	if (mMainCounter % 100 == 99)
 	{
 		for (Plant* aPlant : mPlants)
 			if (!aPlant->mDead && aPlant->IsOnBoard() && aPlant->IsChomper())
 				StartChomperRegeneration(aPlant);
 	}
 
-	std::vector<Plant*> aDueForPulse;
 	for (auto aGlowIt = mPlantHealGlows.begin(); aGlowIt != mPlantHealGlows.end();)
 	{
 		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aGlowIt->mPlantID));
@@ -518,21 +489,12 @@ void Board::UpdatePlantHealGlows()
 		else
 			ShowPlantHealGlow(aPlant);
 
-		--aGlowIt->mTicksUntilPulse;
-		if (aGlowIt->mTicksUntilPulse <= 0)
-		{
-			aGlowIt->mTicksUntilPulse = aTicksPerPulse;
-			aDueForPulse.push_back(aPlant);
-		}
+		if (aPlant->mPlantHealth < aPlant->mPlantMaxHealth)
+			ApplySunMagnetRegenerationRate(this, aPlant, 1);
 		++aGlowIt;
 	}
 
-	std::sort(aDueForPulse.begin(), aDueForPulse.end(), [this](Plant* thePlantA, Plant* thePlantB)
-		{ return PlantHealthRatioLess(this, thePlantA, thePlantB); });
-	for (Plant* aPlant : aDueForPulse)
-		ApplySunMagnetRegenerationPulse(this, aPlant, 1, static_cast<int>(aDueForPulse.size()));
-
-	std::vector<SunMagnetHealStack*> aDueMagnetStacks;
+	std::vector<SunMagnetHealStack*> anActiveMagnetStacks;
 	for (auto aStack = mSunMagnetHealStacks.begin(); aStack != mSunMagnetHealStacks.end();)
 	{
 		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aStack->mPlantID));
@@ -548,24 +510,11 @@ void Board::UpdatePlantHealGlows()
 			aStack = mSunMagnetHealStacks.erase(aStack);
 			continue;
 		}
-		--aStack->mTicksUntilPulse;
-		if (aStack->mTicksUntilPulse <= 0)
-		{
-			aStack->mTicksUntilPulse = aTicksPerPulse;
-			aDueMagnetStacks.push_back(&*aStack);
-		}
+		anActiveMagnetStacks.push_back(&*aStack);
 		++aStack;
 	}
-	std::sort(aDueMagnetStacks.begin(), aDueMagnetStacks.end(), [this](const SunMagnetHealStack* theStackA, const SunMagnetHealStack* theStackB)
-	{
-		Plant* aPlantA = mPlants.DataArrayTryToGet(static_cast<unsigned int>(theStackA->mPlantID));
-		Plant* aPlantB = mPlants.DataArrayTryToGet(static_cast<unsigned int>(theStackB->mPlantID));
-		if (aPlantA != aPlantB)
-			return PlantHealthRatioLess(this, aPlantA, aPlantB);
-		return theStackA->mMagnetID < theStackB->mMagnetID;
-	});
 	std::unordered_map<PlantID, int> aSunMagnetTargetCounts;
-	if (!aDueMagnetStacks.empty())
+	if (!anActiveMagnetStacks.empty())
 	{
 		for (const SunMagnetHealStack& aStack : mSunMagnetHealStacks)
 		{
@@ -574,11 +523,11 @@ void Board::UpdatePlantHealGlows()
 				++aSunMagnetTargetCounts[aStack.mMagnetID];
 		}
 	}
-	for (SunMagnetHealStack* aStack : aDueMagnetStacks)
+	for (SunMagnetHealStack* aStack : anActiveMagnetStacks)
 	{
 		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aStack->mPlantID));
 		int aTargetCount = aSunMagnetTargetCounts[aStack->mMagnetID];
-		ApplySunMagnetRegenerationPulse(this, aPlant, aStack->mStackCount, aTargetCount);
+		ApplySunMagnetRegenerationRate(this, aPlant, aStack->mStackCount, aTargetCount);
 	}
 
 	for (auto anAura = mChomperHealAuras.begin(); anAura != mChomperHealAuras.end();)
@@ -591,19 +540,11 @@ void Board::UpdatePlantHealGlows()
 			anAura = mChomperHealAuras.erase(anAura);
 			continue;
 		}
-		--anAura->mTicksUntilPulse;
-		if (anAura->mTicksUntilPulse <= 0)
+		int aHealAmount = mChomperOverdriveActive ? 50 : 25;
+		int aTargetCount = CountChomperHealTargets(this, anAura->mChomperID);
+		if (aTargetCount > 0)
 		{
-			anAura->mTicksUntilPulse = 100;
-			int aTargetCount = CountChomperHealTargets(this, anAura->mChomperID);
-			if (aTargetCount > 0)
-			{
-				int aHealAmount = mChomperOverdriveActive ? 50 : 25;
-				PlantHealing::HealPlant(this, aPlant, ScaleAreaHealingQuadratically(aHealAmount, aTargetCount));
-				PlantID aPlantID = anAura->mPlantID;
-				for (PlantHealVisual& aVisual : mPlantHealVisuals)
-					if (aVisual.mPlantID == aPlantID) aVisual.mElapsedTicks = 0;
-			}
+			PlantHealing::HealPlant(this, aPlant, ScaleAreaHealingQuadratically(aHealAmount / 100.0f, aTargetCount));
 		}
 		++anAura;
 	}

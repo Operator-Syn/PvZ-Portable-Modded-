@@ -2332,6 +2332,8 @@ bool LawnApp::HasSeedType(SeedType theSeedType)
 		return mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_PLANT_IMITATER] > 0;
 	case SeedType::SEED_SUN_MAGNET:
 		return true;
+	case SeedType::SEED_EPHRAIM:
+		return Sexy::IMAGE_EPHRAIM_PLANT != nullptr;
 	default:
 		return theSeedType < GetSeedsAvailable();
 	}

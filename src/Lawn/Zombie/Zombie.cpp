@@ -82,6 +82,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 	}
 
 	mFromWave = theFromWave;
+	mContinuousHealthRemainder = 0.0f;
 	mRow = theRow;
 	mPosX = mApp->mWidth - 20 + Rand(ZOMBIE_START_RANDOM_OFFSET);
 	mPosY = GetPosYBasedOnRow(theRow);

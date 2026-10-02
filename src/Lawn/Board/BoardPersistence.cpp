@@ -108,6 +108,8 @@ void Board::SaveGame(const std::string& theFileName)
 
 bool Board::LoadGame(const std::string& theFileName)
 {
+	mContinuousSunCostRemainder = 0.0f;
+	mContinuousPaidGloomShroomCount = 0;
 	mPlantHealGlows.clear();
 	mPlantHealVisuals.clear();
 	mChomperHealAuras.clear();

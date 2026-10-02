@@ -25,13 +25,20 @@
 
 namespace SeedChooserOrder
 {
+// Stock slot 49 is SUN_MAGNET. Ephraim occupies the added slot 50.
+constexpr int EPHRAIM_INDEX = NUM_SEEDS_IN_CHOOSER - 1;
+
 inline SeedType SeedChooserTypeAtIndex(int theIndex)
 {
-	return theIndex == NUM_SEEDS_IN_CHOOSER - 1 ? SeedType::SEED_SUN_MAGNET : static_cast<SeedType>(theIndex);
+	if (theIndex == EPHRAIM_INDEX) return SeedType::SEED_EPHRAIM;
+	if (theIndex == 49) return SeedType::SEED_SUN_MAGNET;
+	return static_cast<SeedType>(theIndex);
 }
 
 inline int SeedChooserIndexOf(SeedType theSeedType)
 {
-	return theSeedType == SeedType::SEED_SUN_MAGNET ? NUM_SEEDS_IN_CHOOSER - 1 : static_cast<int>(theSeedType);
+	if (theSeedType == SeedType::SEED_EPHRAIM) return EPHRAIM_INDEX;
+	if (theSeedType == SeedType::SEED_SUN_MAGNET) return 49;
+	return static_cast<int>(theSeedType);
 }
 }

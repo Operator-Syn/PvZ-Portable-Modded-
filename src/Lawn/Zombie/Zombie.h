@@ -131,6 +131,7 @@ public:
 	HelmType                        mHelmType;
 	int32_t                         mBodyHealth;
 	int32_t                         mBodyMaxHealth;
+	float                           mContinuousHealthRemainder = 0.0f;
 	int32_t                         mHelmHealth;
 	int32_t                         mHelmMaxHealth;
 	int32_t                         mTierBucketArmorHealth;

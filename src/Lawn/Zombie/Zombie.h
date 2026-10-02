@@ -119,6 +119,7 @@ public:
 	bool                            mBlowingAway;
 	int32_t                         mBloverKnockbackDistanceRemaining = 0;
 	int32_t                         mEphraimStaggerCounter = 0;
+	int32_t                         mEphraimKnockbackDistanceRemaining = 0;
 	bool                            mHasHead;
 	bool                            mHasArm;
 	bool                            mHasObject;

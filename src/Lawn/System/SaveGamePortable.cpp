@@ -1223,6 +1223,7 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 			AppendFieldWithSync(aOut, 106U, [&](PortableSaveContext& c){ c.SyncBool(aZombie.mSpawnedByZombieRain); });
 			AppendFieldWithSync(aOut, 107U, [&](PortableSaveContext& c){ c.SyncFloat(aZombie.mContinuousHealthRemainder); });
 			AppendFieldWithSync(aOut, 108U, [&](PortableSaveContext& c){ c.SyncInt32(aZombie.mEphraimStaggerCounter); });
+			AppendFieldWithSync(aOut, 109U, [&](PortableSaveContext& c){ c.SyncInt32(aZombie.mEphraimKnockbackDistanceRemaining); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Zombie& aZombie)
 		{
@@ -1250,6 +1251,10 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncFloat(aZombie.mContinuousHealthRemainder); });
 			else if (aFieldId == 108U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aZombie.mEphraimStaggerCounter); });
+			else if (aFieldId == 109U)
+				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aZombie.mEphraimKnockbackDistanceRemaining); });
+			if (aZombie.mEphraimKnockbackDistanceRemaining < -BOARD_WIDTH || aZombie.mEphraimKnockbackDistanceRemaining > BOARD_WIDTH)
+				aZombie.mEphraimKnockbackDistanceRemaining = 0;
 			if (aZombie.mEphraimStaggerCounter < 0 || aZombie.mEphraimStaggerCounter > Plant::EPHRAIM_JAVELIN_STAGGER_TICKS)
 				aZombie.mEphraimStaggerCounter = 0;
 			if (!(aZombie.mContinuousHealthRemainder > -1.0f && aZombie.mContinuousHealthRemainder < 1.0f))
@@ -1301,6 +1306,24 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 				c.SyncUInt32(aCount);
 				for (Plant::EphraimAfterimage& anEcho : aPlant.mEphraimAfterimages)
 					SyncEphraimAfterimagePortable(c, anEcho);
+			});
+			// Preserve the original echo payload; store nesting in a separate field.
+			AppendFieldWithSync(aOut, 115U, [&](PortableSaveContext& c)
+			{
+				uint32_t aCount = static_cast<uint32_t>(aPlant.mEphraimAfterimages.size());
+				c.SyncUInt32(aCount);
+				for (Plant::EphraimAfterimage& anEcho : aPlant.mEphraimAfterimages)
+					c.SyncInt32(anEcho.mNestingDepth);
+			});
+			AppendFieldWithSync(aOut, 116U, [&](PortableSaveContext& c)
+			{
+				uint32_t aCount = static_cast<uint32_t>(aPlant.mEphraimAfterimages.size());
+				c.SyncUInt32(aCount);
+				for (Plant::EphraimAfterimage& anEcho : aPlant.mEphraimAfterimages)
+				{
+					int32_t anOriginX = aPlant.GetEphraimAfterimageOriginX(anEcho);
+					c.SyncInt32(anOriginX);
+				}
 			});
 			AppendFieldWithSync(aOut, 108U, [&](PortableSaveContext& c){ c.SyncFloat(aPlant.mContinuousHealthRemainder); });
 		},
@@ -1365,8 +1388,7 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 							anEcho.mDelayTicks < 0 || anEcho.mDelayTicks > (Plant::EPHRAIM_MAX_AFTERIMAGES - 1) * 12 ||
 							anEcho.mHitStopTicks < 0 || anEcho.mHitStopTicks > Plant::EPHRAIM_HIT_STOP_TICKS ||
 							(anEcho.mPauseFlags & ~aPauseMask) != 0 || anEcho.mTrailOffset < Plant::EPHRAIM_AFTERIMAGE_TRAIL_OFFSET ||
-							anEcho.mTrailOffset > Plant::EPHRAIM_AFTERIMAGE_TRAIL_OFFSET +
-								(Plant::EPHRAIM_MAX_AFTERIMAGES - 1) * Plant::EPHRAIM_AFTERIMAGE_SPACING)
+							anEcho.mTrailOffset > Plant::EPHRAIM_MAX_AFTERIMAGE_TRAIL_OFFSET)
 						{
 							c.mFailed = true;
 							return;
@@ -1374,6 +1396,46 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 					}
 					aPlant.mEphraimAfterimages = std::move(anEchoes);
 					aPlant.mEphraimAfterimageFrame = -1;
+				}))
+					theContext.mFailed = true;
+			}
+			else if (aFieldId == 115U)
+			{
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
+				{
+					uint32_t aCount = 0;
+					c.SyncUInt32(aCount);
+					if (c.mFailed || aSize < 4 || aCount != aPlant.mEphraimAfterimages.size() || aCount > (aSize - 4) / 4)
+					{
+						c.mFailed = true;
+						return;
+					}
+					for (Plant::EphraimAfterimage& anEcho : aPlant.mEphraimAfterimages)
+					{
+						c.SyncInt32(anEcho.mNestingDepth);
+						if (anEcho.mNestingDepth < 0 || anEcho.mNestingDepth > Plant::EPHRAIM_MAX_AFTERIMAGE_NESTING)
+							c.mFailed = true;
+					}
+				}))
+					theContext.mFailed = true;
+			}
+			else if (aFieldId == 116U)
+			{
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
+				{
+					uint32_t aCount = 0;
+					c.SyncUInt32(aCount);
+					if (c.mFailed || aSize < 4 || aCount != aPlant.mEphraimAfterimages.size() || aCount > (aSize - 4) / 4)
+					{
+						c.mFailed = true;
+						return;
+					}
+					for (Plant::EphraimAfterimage& anEcho : aPlant.mEphraimAfterimages)
+					{
+						c.SyncInt32(anEcho.mOriginX);
+						if (std::abs(static_cast<int64_t>(anEcho.mOriginX)) > 2 * BOARD_WIDTH + Plant::EPHRAIM_MAX_AFTERIMAGE_TRAIL_OFFSET)
+							c.mFailed = true;
+					}
 				}))
 					theContext.mFailed = true;
 			}

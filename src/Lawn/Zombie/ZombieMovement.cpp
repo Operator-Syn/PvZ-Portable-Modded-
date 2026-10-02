@@ -1130,6 +1130,17 @@ void Zombie::UpdateZombiePosition()
 		return;
 	}
 
+	if (mEphraimKnockbackDistanceRemaining != 0)
+	{
+		const int aDistance = std::abs(mEphraimKnockbackDistanceRemaining);
+		// Like Blover, advance every tick; ease the last eight pixels to a stop.
+		const int aStep = (mEphraimKnockbackDistanceRemaining < 0 ? -1 : 1) *
+			std::min(aDistance, aDistance > 8 ? 2 : 1);
+		mPosX += static_cast<float>(aStep);
+		mEphraimKnockbackDistanceRemaining -= aStep;
+		return;
+	}
+
 	if (mZombieType == ZombieType::ZOMBIE_BUNGEE || mZombieType == ZombieType::ZOMBIE_BOSS ||
 		mZombiePhase == ZombiePhase::PHASE_RISING_FROM_GRAVE || mZombieHeight == ZombieHeight::HEIGHT_ZOMBIQUARIUM)
 		return;

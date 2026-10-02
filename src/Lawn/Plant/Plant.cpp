@@ -276,6 +276,9 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 
 		break;
 	}
+	case SeedType::SEED_EPHRAIM:
+		mPlantHealth = 3500;
+		break;
 	case SeedType::SEED_WALLNUT:
 		mPlantHealth = 4000;
 		mBlinkCountdown = 1000 + Sexy::Rand(1000);

@@ -170,9 +170,10 @@ void Projectile::DoImpact(Zombie* theZombie)
 			!theZombie->IsDeadOrDying() && theZombie->mZombieType != ZombieType::ZOMBIE_BOSS &&
 			theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE)
 		{
-			// A small impact displacement follows the throw direction, including leftward throws.
-			theZombie->mPosX += mVelX < 0.0f ? -Plant::EPHRAIM_JAVELIN_KNOCKBACK_DISTANCE : Plant::EPHRAIM_JAVELIN_KNOCKBACK_DISTANCE;
-			theZombie->mX = static_cast<int>(theZombie->mPosX);
+			// Queue displacement for the movement loop instead of teleporting on impact.
+			const int aDistance = mVelX < 0.0f ? -Plant::EPHRAIM_JAVELIN_KNOCKBACK_DISTANCE : Plant::EPHRAIM_JAVELIN_KNOCKBACK_DISTANCE;
+			theZombie->mEphraimKnockbackDistanceRemaining = std::clamp(
+				theZombie->mEphraimKnockbackDistanceRemaining + aDistance, -BOARD_WIDTH, BOARD_WIDTH);
 			theZombie->mEphraimStaggerCounter = Plant::EPHRAIM_JAVELIN_STAGGER_TICKS;
 			theZombie->UpdateAnimSpeed();
 		}

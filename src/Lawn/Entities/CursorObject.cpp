@@ -96,8 +96,8 @@ void CursorObject::Draw(Graphics* g)
 		{
 			const int aPlantX = mBoard->GridToPixelX(aGridX, aGridY);
 			const int aPlantY = mBoard->GridToPixelY(aGridX, aGridY);
-			const int aAttackStartX = aPlantX - Plant::EPHRAIM_ATTACK_RANGE_BEHIND;
-			const int aAttackEndX = aPlantX + 80 + Plant::EPHRAIM_ATTACK_RANGE_FRONT;
+			const int aAttackStartX = aPlantX + 40 - Plant::EPHRAIM_ATTACK_RANGE_BEHIND;
+			const int aAttackEndX = aPlantX + 40 + Plant::EPHRAIM_ATTACK_RANGE_FRONT;
 			GraphicsStateGuard aStateGuard(*g);
 			g->SetColorizeImages(true);
 			g->SetColor(Color(90, 190, 255, 155));

@@ -93,13 +93,8 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 		mTargetX = aTargetRect.mX + aTargetRect.mWidth / 2;
 		const bool aRanged = std::abs(mTargetX - (mX + mWidth / 2)) > EPHRAIM_ATTACK_RANGE_FRONT;
 		mEphraimAttackSet = RandRangeInt(aRanged ? 2 : 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
-		const bool anAfterimage = RandRangeInt(0, 99) < mEphraimAfterimageChancePercent;
-		mEphraimAfterimagesRemaining = anAfterimage
-			? std::clamp(mEphraimAfterimageFailureCount, 1, EPHRAIM_MAX_AFTERIMAGES) : 0;
-		mEphraimAfterimageFailureCount = anAfterimage ? 0 :
-			std::min(EPHRAIM_MAX_AFTERIMAGES, mEphraimAfterimageFailureCount + 1);
-		mEphraimAfterimageChancePercent = anAfterimage ? EPHRAIM_AFTERIMAGE_CHANCE_PERCENT :
-			std::min(100, mEphraimAfterimageChancePercent + EPHRAIM_AFTERIMAGE_CHANCE_INCREMENT_PERCENT);
+		mEphraimAfterimagesRemaining = RollEphraimAfterimageCount();
+		const bool anAfterimage = mEphraimAfterimagesRemaining > 0;
 		// Pick a different complete animation, with its own pose timing and contact frame.
 		const int anAfterimageSet = anAfterimage
 			? (aRanged ? 5 - mEphraimAttackSet :
@@ -111,7 +106,7 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 		mEphraimAfterimageFrame = -1;
 		mShootingCounter = GetEphraimAttackTiming(mEphraimAttackSet).mTotalTicks;
 		mFrame = 0;
-		mLaunchCounter = EPHRAIM_ATTACK_INTERVAL_TICKS[mEphraimAttackSet];
+		mLaunchCounter = aRanged ? EPHRAIM_RANGED_REST_TICKS[mEphraimAttackSet] : EPHRAIM_ATTACK_INTERVAL_TICKS[mEphraimAttackSet];
 		return true;
 	}
 
@@ -398,10 +393,11 @@ void Plant::UpdateShooter()
 	}
 }
 
-void Plant::LaunchEphraimJavelin(int theTargetX, int theAttackSet, int theTrailOffset)
+void Plant::LaunchEphraimJavelin(int theTargetX, int theAttackSet, int theTrailOffset, const int* theAttackOriginX)
 {
-	const bool aLeft = theTargetX < mX + mWidth / 2;
-	const int anOriginX = mX + mWidth / 2 + (aLeft ? theTrailOffset : -theTrailOffset);
+	const bool aTrailLeft = theTargetX < mX + mWidth / 2;
+	const int anOriginX = theAttackOriginX ? *theAttackOriginX : mX + mWidth / 2 + (aTrailLeft ? theTrailOffset : -theTrailOffset);
+	const bool aLeft = theTargetX < anOriginX;
 	Projectile* aProjectile = mBoard->AddProjectile(anOriginX - EPHRAIM_JAVELIN_WIDTH / 2,
 		mY - 45, mRenderOrder + 1, mRow, ProjectileType::PROJECTILE_EPHRAIM_JAVELIN);
 	if (aProjectile != nullptr)
@@ -414,34 +410,75 @@ void Plant::LaunchEphraimJavelin(int theTargetX, int theAttackSet, int theTrailO
 	}
 }
 
+void Plant::HealEphraimOnAttack()
+{
+	if (mDead || mSquished || mPlantHealth <= 0 || mPlantMaxHealth <= 0)
+		return;
+	const float aHealing = static_cast<float>(mPlantMaxHealth) * EPHRAIM_ATTACK_HEAL_PER_MILLE / 1000.0f + mContinuousHealthRemainder;
+	const int aWholeHealing = static_cast<int>(aHealing);
+	mContinuousHealthRemainder = aHealing - aWholeHealing;
+	mPlantHealth = std::min(mPlantHealth + aWholeHealing, mPlantMaxHealth);
+	if (mPlantHealth >= mPlantMaxHealth)
+		mContinuousHealthRemainder = 0.0f;
+}
+
+int Plant::RollEphraimAfterimageCount()
+{
+	if (RandRangeInt(0, 99) < mEphraimAfterimageChancePercent)
+	{
+		const int aCount = std::clamp(mEphraimAfterimageFailureCount, 1, EPHRAIM_MAX_AFTERIMAGES);
+		mEphraimAfterimageFailureCount = 0;
+		mEphraimAfterimageChancePercent = EPHRAIM_AFTERIMAGE_CHANCE_PERCENT;
+		return aCount;
+	}
+	mEphraimAfterimageFailureCount = std::min(EPHRAIM_MAX_AFTERIMAGES, mEphraimAfterimageFailureCount + 1);
+	mEphraimAfterimageChancePercent = std::min(100, mEphraimAfterimageChancePercent + EPHRAIM_AFTERIMAGE_CHANCE_INCREMENT_PERCENT);
+	return 0;
+}
+
+int Plant::GetEphraimAfterimageOriginX(const EphraimAfterimage& theEcho) const
+{
+	if (theEcho.mOriginX != -10000)
+		return theEcho.mOriginX;
+	return mX + mWidth / 2 + (theEcho.mTargetX < mX + mWidth / 2 ? theEcho.mTrailOffset : -theEcho.mTrailOffset);
+}
+
+void Plant::ConfigureEphraimAfterimage(EphraimAfterimage& theEcho, int theParentSet, int thePreviousSet)
+{
+	// Choose once before windup, so a moving target cannot splice attack rows.
+	if (Zombie* aTarget = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY, nullptr, nullptr, false, &theEcho.mOriginX))
+	{
+		const Rect aRect = aTarget->GetZombieRect();
+		theEcho.mTargetX = aRect.mX + aRect.mWidth / 2;
+	}
+	const bool aRanged = std::abs(theEcho.mTargetX - theEcho.mOriginX) > EPHRAIM_ATTACK_RANGE_FRONT;
+	theEcho.mPauseFlags = aRanged ? EPHRAIM_ATTACK_FLAG_RANGED : 0;
+	std::array<int, EPHRAIM_ATTACK_VARIANT_COUNT> aChoices{};
+	int aCount = 0;
+	for (int aSet = aRanged ? 2 : 0; aSet < EPHRAIM_ATTACK_VARIANT_COUNT; aSet++)
+		if (aSet != theParentSet && aSet != thePreviousSet)
+			aChoices[aCount++] = aSet;
+	// With only two ranged styles, keep sibling variety when both are excluded.
+	if (aCount == 0)
+		for (int aSet = aRanged ? 2 : 0; aSet < EPHRAIM_ATTACK_VARIANT_COUNT; aSet++)
+			if (aSet != thePreviousSet)
+				aChoices[aCount++] = aSet;
+	theEcho.mAttackSet = aChoices[RandRangeInt(0, aCount - 1)];
+}
+
 void Plant::SpawnEphraimAfterimages()
 {
-	const bool aRanged = (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RANGED) != 0;
 	const int aCount = std::clamp(mEphraimAfterimagesRemaining, 1, EPHRAIM_MAX_AFTERIMAGES);
-	int anAttackSet = std::clamp((mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_MASK) >>
-		EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_SHIFT, aRanged ? 2 : 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
+	int aPreviousSet = mEphraimAttackSet;
 	for (int i = 0; i < aCount; i++)
 	{
-		if (i > 0)
-		{
-			if (aRanged)
-				anAttackSet = 5 - anAttackSet;
-			else
-			{
-				std::array<int, EPHRAIM_ATTACK_VARIANT_COUNT - 1> aChoices{};
-				int aChoiceCount = 0;
-				for (int aSet = 0; aSet < EPHRAIM_ATTACK_VARIANT_COUNT; aSet++)
-					if (aSet != mEphraimAttackSet && aSet != anAttackSet)
-						aChoices[aChoiceCount++] = aSet;
-				anAttackSet = aChoices[RandRangeInt(0, aChoiceCount - 1)];
-			}
-		}
 		EphraimAfterimage anEcho;
-		anEcho.mAttackSet = anAttackSet;
-		anEcho.mPauseFlags = aRanged ? EPHRAIM_ATTACK_FLAG_RANGED : 0;
 		// All clones in this trigger appear together; each owns one attack.
 		anEcho.mTargetX = mTargetX;
 		anEcho.mTrailOffset = EPHRAIM_AFTERIMAGE_TRAIL_OFFSET + i * EPHRAIM_AFTERIMAGE_SPACING;
+		anEcho.mOriginX = GetEphraimAfterimageOriginX(anEcho);
+		ConfigureEphraimAfterimage(anEcho, mEphraimAttackSet, aPreviousSet);
+		aPreviousSet = anEcho.mAttackSet;
 		mEphraimAfterimages.push_back(anEcho);
 	}
 	mEphraimAfterimagesRemaining = 0;
@@ -450,6 +487,8 @@ void Plant::SpawnEphraimAfterimages()
 
 void Plant::UpdateEphraimAfterimages()
 {
+	// Queue children so spawning cannot invalidate a live echo reference.
+	std::vector<EphraimAfterimage> aChildren;
 	for (EphraimAfterimage& anEcho : mEphraimAfterimages)
 	{
 		if (anEcho.mDelayTicks > 0)
@@ -462,8 +501,10 @@ void Plant::UpdateEphraimAfterimages()
 			anEcho.mHitStopTicks--;
 			continue;
 		}
+		const int anOriginX = GetEphraimAfterimageOriginX(anEcho);
 		const int aSet = anEcho.mAttackSet;
 		const int aFrame = EphraimAttackAtlasFrame(aSet, anEcho.mElapsedTicks);
+		const bool aRanged = (anEcho.mPauseFlags & EPHRAIM_ATTACK_FLAG_RANGED) != 0;
 		if ((anEcho.mPauseFlags & EPHRAIM_ATTACK_FLAG_RANGED) != 0 &&
 			aFrame == EPHRAIM_ATTACK_RELEASE_FRAMES[aSet] && (anEcho.mPauseFlags & EPHRAIM_ATTACK_FLAG_RELEASE) == 0)
 		{
@@ -474,31 +515,48 @@ void Plant::UpdateEphraimAfterimages()
 		if (aFrame == EPHRAIM_ATTACK_RECOIL_FRAMES[aSet] && (anEcho.mPauseFlags & EPHRAIM_ATTACK_FLAG_RECOIL) == 0)
 		{
 			anEcho.mPauseFlags |= EPHRAIM_ATTACK_FLAG_RECOIL;
-			anEcho.mHitStopTicks = EPHRAIM_ATTACK_RECOIL_TICKS[aSet];
+			anEcho.mHitStopTicks = aRanged ? EPHRAIM_RANGED_RECOIL_TICKS[aSet] : EPHRAIM_ATTACK_RECOIL_TICKS[aSet];
 			continue;
 		}
 		if (aFrame == EPHRAIM_ATTACK_ANTICIPATION_FRAMES[aSet] &&
 			(anEcho.mPauseFlags & EPHRAIM_ATTACK_FLAG_AFTERIMAGE_ANTICIPATION) == 0)
 		{
 			anEcho.mPauseFlags |= EPHRAIM_ATTACK_FLAG_AFTERIMAGE_ANTICIPATION;
-			anEcho.mHitStopTicks = EPHRAIM_ATTACK_ANTICIPATION_TICKS[aSet];
+			anEcho.mHitStopTicks = aRanged ? EPHRAIM_RANGED_WINDUP_TICKS[aSet] : EPHRAIM_ATTACK_ANTICIPATION_TICKS[aSet];
 			continue;
 		}
 		if (aFrame == EPHRAIM_ATTACK_IMPACT_FRAMES[aSet] &&
 			(anEcho.mPauseFlags & EPHRAIM_ATTACK_FLAG_AFTERIMAGE_IMPACT) == 0)
 		{
 			anEcho.mPauseFlags |= EPHRAIM_ATTACK_FLAG_AFTERIMAGE_IMPACT;
+			HealEphraimOnAttack();
 			if ((anEcho.mPauseFlags & EPHRAIM_ATTACK_FLAG_RANGED) != 0)
 			{
-				LaunchEphraimJavelin(anEcho.mTargetX, aSet, anEcho.mTrailOffset);
+				LaunchEphraimJavelin(anEcho.mTargetX, aSet, anEcho.mTrailOffset, &anOriginX);
 			}
 			else
 			{
 				std::vector<Zombie*> aHitZombies;
-				while (Zombie* aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY, &aHitZombies, &anEcho.mTargetX, true))
+				while (Zombie* aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY, &aHitZombies, &anEcho.mTargetX, true, &anOriginX))
 				{
 					aZombie->TakeDamage(EPHRAIM_ATTACK_DAMAGE * EPHRAIM_ATTACK_DAMAGE_PERCENT[aSet] / 100, 0U);
 					aHitZombies.push_back(aZombie);
+				}
+				if (!aHitZombies.empty() && anEcho.mNestingDepth < EPHRAIM_MAX_AFTERIMAGE_NESTING)
+				{
+					const int aCount = RollEphraimAfterimageCount();
+					int aPreviousSet = aSet;
+					for (int i = 0; i < aCount; i++)
+					{
+						EphraimAfterimage aChild;
+						aChild.mTargetX = anEcho.mTargetX;
+						aChild.mTrailOffset = anEcho.mTrailOffset + (i + 1) * EPHRAIM_AFTERIMAGE_SPACING;
+						aChild.mOriginX = anOriginX + (anEcho.mTargetX < anOriginX ? 1 : -1) * (i + 1) * EPHRAIM_AFTERIMAGE_SPACING;
+						aChild.mNestingDepth = anEcho.mNestingDepth + 1;
+						ConfigureEphraimAfterimage(aChild, aSet, aPreviousSet);
+						aPreviousSet = aChild.mAttackSet;
+						aChildren.push_back(aChild);
+					}
 				}
 				anEcho.mHitStopTicks = aHitZombies.empty()
 					? EPHRAIM_ATTACK_MISS_STOP_TICKS[aSet] : EPHRAIM_ATTACK_HITSTOP_TICKS[aSet];
@@ -508,6 +566,7 @@ void Plant::UpdateEphraimAfterimages()
 		}
 		anEcho.mElapsedTicks++;
 	}
+	mEphraimAfterimages.insert(mEphraimAfterimages.end(), aChildren.begin(), aChildren.end());
 	std::erase_if(mEphraimAfterimages, [](const EphraimAfterimage& theEcho)
 	{
 		return theEcho.mElapsedTicks >= EPHRAIM_ATTACK_DURATION_TICKS[theEcho.mAttackSet];
@@ -530,7 +589,12 @@ void Plant::UpdateShooting()
 			{
 				const size_t aFirstEcho = mEphraimAfterimages.size();
 				SpawnEphraimAfterimages();
-				mEphraimAfterimages[aFirstEcho].mElapsedTicks = aLegacyFrame;
+				// Keep the row already underway in a legacy save.
+				mEphraimAfterimages[aFirstEcho].mAttackSet = std::clamp(
+					(mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_MASK) >> EPHRAIM_ATTACK_FLAG_AFTERIMAGE_SET_SHIFT,
+					(mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RANGED) != 0 ? 2 : 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
+				mEphraimAfterimages[aFirstEcho].mElapsedTicks = std::min(aLegacyFrame,
+					EPHRAIM_ATTACK_DURATION_TICKS[mEphraimAfterimages[aFirstEcho].mAttackSet] - 1);
 				mEphraimAfterimages[aFirstEcho].mPauseFlags = mEphraimAttackPauseFlags &
 					(EPHRAIM_ATTACK_FLAG_AFTERIMAGE_IMPACT | EPHRAIM_ATTACK_FLAG_AFTERIMAGE_ANTICIPATION | EPHRAIM_ATTACK_FLAG_RANGED);
 			}
@@ -548,6 +612,7 @@ void Plant::UpdateShooting()
 		const EphraimAttackTiming aPrimaryTiming = GetEphraimAttackTiming(mEphraimAttackSet);
 		const int aImpactFrame = aPrimaryTiming.mImpactFrame;
 		const int aPrimarySet = std::clamp(mEphraimAttackSet, 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
+		const bool aRanged = (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RANGED) != 0;
 		if ((mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RANGED) != 0 &&
 			mFrame == EPHRAIM_ATTACK_RELEASE_FRAMES[aPrimarySet] && (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RELEASE) == 0)
 		{
@@ -558,7 +623,7 @@ void Plant::UpdateShooting()
 		if (mFrame == EPHRAIM_ATTACK_RECOIL_FRAMES[aPrimarySet] && (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RECOIL) == 0)
 		{
 			mEphraimAttackPauseFlags |= EPHRAIM_ATTACK_FLAG_RECOIL;
-			mEphraimHitStopCounter = EPHRAIM_ATTACK_RECOIL_TICKS[aPrimarySet];
+			mEphraimHitStopCounter = aRanged ? EPHRAIM_RANGED_RECOIL_TICKS[aPrimarySet] : EPHRAIM_ATTACK_RECOIL_TICKS[aPrimarySet];
 			return;
 		}
 
@@ -568,12 +633,13 @@ void Plant::UpdateShooting()
 			(mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_ANTICIPATION_PAUSE) == 0)
 		{
 			mEphraimAttackPauseFlags |= EPHRAIM_ATTACK_FLAG_ANTICIPATION_PAUSE;
-			mEphraimHitStopCounter = EPHRAIM_ATTACK_ANTICIPATION_TICKS[aPrimarySet];
+			mEphraimHitStopCounter = aRanged ? EPHRAIM_RANGED_WINDUP_TICKS[aPrimarySet] : EPHRAIM_ATTACK_ANTICIPATION_TICKS[aPrimarySet];
 			return;
 		}
 		if (mShootingCounter > 0 && mFrame == aImpactFrame && (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT) == 0)
 		{
 			mEphraimAttackPauseFlags |= EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT;
+			HealEphraimOnAttack();
 			if ((mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_AFTERIMAGE) != 0)
 				SpawnEphraimAfterimages();
 			if ((mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RANGED) != 0)
@@ -598,7 +664,7 @@ void Plant::UpdateShooting()
 		if (mShootingCounter > 0 && --mShootingCounter == 0)
 		{
 			mEphraimAttackPauseFlags |= EPHRAIM_ATTACK_FLAG_RECOVERY;
-			mLaunchCounter = EPHRAIM_ATTACK_INTERVAL_TICKS[aPrimarySet] + 1;
+			mLaunchCounter = (aRanged ? EPHRAIM_RANGED_REST_TICKS[aPrimarySet] : EPHRAIM_ATTACK_INTERVAL_TICKS[aPrimarySet]) + 1;
 		}
 		return;
 	}

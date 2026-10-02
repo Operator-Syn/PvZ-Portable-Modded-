@@ -206,7 +206,10 @@ public:
 	static constexpr std::array<int, 4> EPHRAIM_ATTACK_HITSTOP_TICKS = { 20, 36, 8, 16 };
 	static constexpr std::array<int, 4> EPHRAIM_ATTACK_MISS_STOP_TICKS = { 5, 9, 2, 4 };
 	static constexpr std::array<int, 4> EPHRAIM_ATTACK_RELEASE_FRAMES = { 10, 10, 5, 9 };
-	static constexpr std::array<int, 4> EPHRAIM_ATTACK_RELEASE_TICKS = { 0, 0, 6, 11 };
+	static constexpr std::array<int, 4> EPHRAIM_ATTACK_RELEASE_TICKS = { 0, 0, 10, 18 };
+	static constexpr std::array<int, 4> EPHRAIM_RANGED_WINDUP_TICKS = { 0, 0, 18, 38 };
+	static constexpr std::array<int, 4> EPHRAIM_RANGED_RECOIL_TICKS = { 0, 0, 18, 34 };
+	static constexpr std::array<int, 4> EPHRAIM_RANGED_REST_TICKS = { 0, 0, 40, 80 };
 	static constexpr std::array<int, 4> EPHRAIM_ATTACK_RECOIL_FRAMES = { 18, 18, 6, 10 };
 	static constexpr std::array<int, 4> EPHRAIM_ATTACK_RECOIL_TICKS = { 26, 42, 12, 30 };
 	static constexpr std::array<int, 4> EPHRAIM_ATTACK_INTERVAL_TICKS = { 55, 95, 28, 65 };
@@ -223,14 +226,15 @@ public:
 		}
 		return EPHRAIM_ATLAS_FRAME_COUNTS[theAttackSet] - 1;
 	}
-	static constexpr int EPHRAIM_ATTACK_RANGE_FRONT = 140;
-	static constexpr int EPHRAIM_ATTACK_RANGE_BEHIND = 140;
+	static constexpr int EPHRAIM_ATTACK_RANGE_FRONT = 200;
+	static constexpr int EPHRAIM_ATTACK_RANGE_BEHIND = 200;
 	static constexpr float EPHRAIM_DRAW_SCALE = 2.1875f;
 	static constexpr int EPHRAIM_ATTACK_ANIMATION_TICKS = 140;
 	static constexpr int EPHRAIM_LANCE_IMPACT_FRAME = 2;
 	static constexpr int EPHRAIM_CRITICAL_LANCE_IMPACT_FRAME = 2;
 	static constexpr int EPHRAIM_HIT_STOP_TICKS = 46;
 	static constexpr int EPHRAIM_ATTACK_DAMAGE = 80;
+	static constexpr int EPHRAIM_ATTACK_HEAL_PER_MILLE = 15;
 	// Lance, critical lance, javelin, critical javelin: heavier attacks hit harder.
 	static constexpr std::array<int, 4> EPHRAIM_ATTACK_DAMAGE_PERCENT = { 250, 350, 100, 175 };
 	static constexpr int EPHRAIM_PROJECTILE_DAMAGE_PERCENT = 125;
@@ -243,8 +247,11 @@ public:
 	static constexpr int EPHRAIM_AFTERIMAGE_CHANCE_PERCENT = 35;
 	static constexpr int EPHRAIM_AFTERIMAGE_CHANCE_INCREMENT_PERCENT = 15;
 	static constexpr int EPHRAIM_MAX_AFTERIMAGES = 5;
+	static constexpr int EPHRAIM_MAX_AFTERIMAGE_NESTING = 3;
 	static constexpr int EPHRAIM_AFTERIMAGE_TRAIL_OFFSET = 12;
 	static constexpr int EPHRAIM_AFTERIMAGE_SPACING = 28;
+	static constexpr int EPHRAIM_MAX_AFTERIMAGE_TRAIL_OFFSET = EPHRAIM_AFTERIMAGE_TRAIL_OFFSET +
+		(EPHRAIM_MAX_AFTERIMAGES - 1 + EPHRAIM_MAX_AFTERIMAGE_NESTING * EPHRAIM_MAX_AFTERIMAGES) * EPHRAIM_AFTERIMAGE_SPACING;
 	static constexpr int EPHRAIM_ATTACK_FLAG_ANTICIPATION_PAUSE = 1 << 0;
 	static constexpr int EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT = 1 << 1;
 	static constexpr int EPHRAIM_ATTACK_FLAG_AFTERIMAGE = 1 << 2;
@@ -297,6 +304,8 @@ public:
 		int32_t mPauseFlags = 0;
 		int32_t mTargetX = 0;
 		int32_t mTrailOffset = EPHRAIM_AFTERIMAGE_TRAIL_OFFSET;
+		int32_t mNestingDepth = 0;
+		int32_t mOriginX = -10000; // Older saves derive the origin from their stored trail.
 	};
 	std::vector<EphraimAfterimage> mEphraimAfterimages;
 	ReanimationID           mBodyReanimID;
@@ -347,9 +356,13 @@ public:
 		int theKernelPultVolleyIndex = -1, int theKernelPultVolleySize = 0, bool theMillionSunCatTailVolley = false,
 		bool theTwoMillionSunCatTailVolley = false);
 	Zombie*                 FindTargetZombie(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY,
-		const std::vector<Zombie*>* theExcludedZombies = nullptr, const int* theAttackTargetX = nullptr, bool theMeleeOnly = false);
-	void                    LaunchEphraimJavelin(int theTargetX, int theAttackSet, int theTrailOffset = 0);
+		const std::vector<Zombie*>* theExcludedZombies = nullptr, const int* theAttackTargetX = nullptr, bool theMeleeOnly = false, const int* theAttackOriginX = nullptr);
+	void                    LaunchEphraimJavelin(int theTargetX, int theAttackSet, int theTrailOffset = 0, const int* theAttackOriginX = nullptr);
+	int                     GetEphraimAfterimageOriginX(const EphraimAfterimage& theEcho) const;
+	void                    ConfigureEphraimAfterimage(EphraimAfterimage& theEcho, int theParentSet, int thePreviousSet);
 	void                    SpawnEphraimAfterimages();
+	void                    HealEphraimOnAttack();
+	int                     RollEphraimAfterimageCount();
 	void                    UpdateEphraimAfterimages();
 	void                    Die();
 	void                    UpdateProductionPlant();

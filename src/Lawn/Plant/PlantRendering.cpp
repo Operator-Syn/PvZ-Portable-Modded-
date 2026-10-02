@@ -589,7 +589,16 @@ void Plant::Draw(Graphics* g)
 	if (mSeedType == SeedType::SEED_EPHRAIM)
 	{
 		const int anAttackSet = std::clamp(mEphraimAttackSet, 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
-		if (mShootingCounter > 0 || (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RECOVERY) != 0)
+		if (mShootingCounter == 0 &&
+			(mEphraimAttackPauseFlags & (EPHRAIM_ATTACK_FLAG_RECOVERY | EPHRAIM_ATTACK_FLAG_RANGED)) ==
+			(EPHRAIM_ATTACK_FLAG_RECOVERY | EPHRAIM_ATTACK_FLAG_RANGED))
+		{
+			// A still resting pose after the throwing sequence finishes its recoil.
+			aPlantImage = IMAGE_EPHRAIM_PLANT;
+			aImageCol = 0;
+			aImageRow = 0;
+		}
+		else if (mShootingCounter > 0 || (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RECOVERY) != 0)
 		{
 			const int anAtlasSet = anAttackSet;
 			aPlantImage = IMAGE_EPHRAIM_SEQUENCES[anAtlasSet];
@@ -670,8 +679,9 @@ void Plant::Draw(Graphics* g)
 					continue;
 				const int aCellWidth = anAfterimageImage->GetCelWidth();
 				const int aCellHeight = anAfterimageImage->GetCelHeight();
-				const bool aMirror = anEcho.mTargetX >= mX + mWidth / 2;
-				const int anOffsetX = aMirror ? -anEcho.mTrailOffset : anEcho.mTrailOffset;
+				const int anOriginX = GetEphraimAfterimageOriginX(anEcho);
+				const bool aMirror = anEcho.mTargetX >= anOriginX;
+				const int anOffsetX = anOriginX - (mX + mWidth / 2);
 				const Rect aSource(anAfterimageCol * aCellWidth, 0, aCellWidth, aCellHeight);
 				const Rect aDest(
 					static_cast<int>(std::round(aOffsetX + mWidth * 0.5f - aCellWidth * 0.5f * EPHRAIM_DRAW_SCALE)) + anOffsetX,

@@ -59,7 +59,7 @@
 #include "PlantRules.h"
 #include "../Rules/TargetingRules.h"
 
-Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, const std::vector<Zombie*>* theExcludedZombies, const int* theAttackTargetX, bool theMeleeOnly)
+Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, const std::vector<Zombie*>* theExcludedZombies, const int* theAttackTargetX, bool theMeleeOnly, const int* theAttackOriginX)
 {
 	Sexy::FrameProfileScope aProfileScope(Sexy::FrameProfileMetric::PLANT_TARGETING, true);
 	int aDamageRangeFlags = GetDamageRangeFlags(thePlantWeapon);
@@ -194,11 +194,11 @@ Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, const st
 
 			Rect aZombieRect = aZombie->GetZombieRect();
 			if (mSeedType == SeedType::SEED_EPHRAIM && theMeleeOnly &&
-				std::abs(aZombieRect.mX + aZombieRect.mWidth / 2 - (mX + mWidth / 2)) > EPHRAIM_ATTACK_RANGE_FRONT)
+				std::abs(aZombieRect.mX + aZombieRect.mWidth / 2 - (theAttackOriginX ? *theAttackOriginX : mX + mWidth / 2)) > EPHRAIM_ATTACK_RANGE_FRONT)
 				continue;
-			if (mSeedType == SeedType::SEED_EPHRAIM && (mShootingCounter > 0 || theAttackTargetX != nullptr))
+			if (mSeedType == SeedType::SEED_EPHRAIM && ((mShootingCounter > 0 && theAttackOriginX == nullptr) || theAttackTargetX != nullptr))
 			{
-				const int aPlantCenterX = mX + mWidth / 2;
+				const int aPlantCenterX = theAttackOriginX ? *theAttackOriginX : mX + mWidth / 2;
 				const int aZombieCenterX = aZombieRect.mX + aZombieRect.mWidth / 2;
 				const bool aAttackingLeft = (theAttackTargetX ? *theAttackTargetX : mTargetX) < aPlantCenterX;
 				if ((aZombieCenterX < aPlantCenterX) != aAttackingLeft)
@@ -212,7 +212,7 @@ Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, const st
 			int aWeight = -aZombieRect.mX;
 			if (mSeedType == SeedType::SEED_EPHRAIM)
 			{
-				const int aPlantCenterX = mX + mWidth / 2;
+				const int aPlantCenterX = theAttackOriginX ? *theAttackOriginX : mX + mWidth / 2;
 				const int aZombieCenterX = aZombieRect.mX + aZombieRect.mWidth / 2;
 				aWeight = -std::abs(aZombieCenterX - aPlantCenterX);
 			}

@@ -105,6 +105,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 	mBlowingAway = false;
 	mBloverKnockbackDistanceRemaining = 0;
 	mEphraimStaggerCounter = 0;
+	mEphraimKnockbackDistanceRemaining = 0;
 	mHasHead = true;
 	mHasArm = true;
 	mHasObject = false;
@@ -1314,6 +1315,12 @@ void Zombie::UpdatePlaying()
 		}
 	}
 
+	if (mEphraimKnockbackDistanceRemaining != 0)
+	{
+		// Finish the push before counting down the stop at its destination.
+		UpdateZombiePosition();
+		return;
+	}
 	if (mEphraimStaggerCounter > 0)
 	{
 		if (--mEphraimStaggerCounter > 0)

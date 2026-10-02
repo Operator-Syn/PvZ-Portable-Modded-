@@ -611,6 +611,8 @@ void Board::InitLevel()
 	mLevel = mApp->IsAdventureMode() ? mApp->mPlayerInfo->mLevel : 0;
 	PickBackground();
 	InitZombieWaves();
+	mContinuousSunCostRemainder = 0.0f;
+	mContinuousPaidGloomShroomCount = 0;
 	if (aGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED || aGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST ||
 		mApp->IsScaryPotterLevel() || mApp->IsWhackAZombieLevel())
 	{
@@ -787,12 +789,6 @@ void Board::InitLevel()
 		for (int i = 0; i < mSeedBank->mNumPackets; i++)
 		{
 			mSeedBank->mSeedPackets[i].SetPacketType((SeedType)i);
-		}
-		// Test plant: swap it into the last bank slot so it is plantable without
-		// touching the seed chooser or the level tables.
-		if (mSeedBank->mNumPackets > 0 && Sexy::IMAGE_ALFONSE_PLANT != nullptr)
-		{
-			mSeedBank->mSeedPackets[mSeedBank->mNumPackets - 1].SetPacketType(SeedType::SEED_ALFONSE);
 		}
 	}
 	MarkAllDirty();

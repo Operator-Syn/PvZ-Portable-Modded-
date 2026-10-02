@@ -59,11 +59,9 @@
 #include "PlantRules.h"
 #include "../Rules/TargetingRules.h"
 
-// Test plant: a single cel-strip image instead of a reanimation. Plant::GetImage
-// reads mPlantImage[0], so the definition points at this one-element array. The
-// entry is filled in by ExtractInitResources once properties/alfonse.png is loaded,
-// which is why it cannot be initialised from IMAGE_ALFONSE_PLANT here.
-Image* gAlfonsePlantImages[1] = { nullptr };
+// Ephraim uses a cel atlas instead of a reanimation. Plant::GetImage
+// reads mPlantImage[0], so the entry is filled during resource loading.
+Image* gEphraimPlantImages[1] = { nullptr };
 
 constinit const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {
 	{ .mSeedType = SeedType::SEED_PEASHOOTER,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_PEASHOOTER,    .mPacketIndex = 0,  .mSeedCost = 100, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 150,  .mPlantName = "PEASHOOTER" },
@@ -121,7 +119,7 @@ constinit const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {
 	{ .mSeedType = SeedType::SEED_LEFTPEATER,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_REPEATER,      .mPacketIndex = 5,  .mSeedCost = 200, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 150,  .mPlantName = "REPEATER" },
 	{ .mSeedType = SeedType::SEED_SUN_MAGNET,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_GOLD_MAGNET,  .mPacketIndex = 27, .mSeedCost = 25,  .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "SUN_MAGNET" },
 	{ .mSeedType = SeedType::SEED_CHOMPERNUT,         .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_TALLNUT,        .mPacketIndex = -1, .mSeedCost = 0,   .mRefreshTime = 0,      .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "CHOMPER_NUT" },
-	{ .mSeedType = SeedType::SEED_ALFONSE,            .mPlantImage = gAlfonsePlantImages, .mReanimationType = ReanimationType::REANIM_NONE,           .mPacketIndex = -1, .mSeedCost = 50,  .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "ALFONSE" }
+	{ .mSeedType = SeedType::SEED_EPHRAIM,            .mPlantImage = gEphraimPlantImages, .mReanimationType = ReanimationType::REANIM_NONE,           .mPacketIndex = -1, .mSeedCost = 50,  .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 100,  .mPlantName = "EPHRAIM" }
 };
 
 const PlantDefinition& GetPlantDefinition(SeedType theSeedType)

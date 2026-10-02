@@ -33,6 +33,8 @@ Zombie Rain drops zombies directly into playable cells, past the normal right-ed
 
 Seed selection and planting cross `SeedPacket` and board placement logic. Challenge-specific constraints are applied in gameplay/UI code, so new placement exceptions should be checked against both ordinary placement and challenge rules. Wave state and zombie selection are board-owned; see `Board::Update` and its wave helpers.
 
+For the source-by-source implementation checklist for a new plant, see [Adding a plant](adding-plants.md).
+
 ## Breach and mower diagnostics
 
 `Board::ZombiesWon` snapshots the breaching zombie's type and row before the loss sequence, then includes its name and lane in the defeat dialog. `LawnMower::StartMower` records the zombie and collision overlap that caused a mower to activate; mower initialization, deployment, recovery, and state transitions are also logged. Ready mowers retain the existing same-row overlap and Bungee/headless eligibility rules. A hidden ready mower encountered during play is made visible at its normal ready position before collision checks.

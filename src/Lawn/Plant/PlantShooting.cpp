@@ -61,11 +61,25 @@
 
 bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 {
+	if (mSeedType == SeedType::SEED_EPHRAIM && mShootingCounter > 0)
+		return false;
+
 	Zombie* aZombie = FindTargetZombie(theRow, thePlantWeapon);
 	if (aZombie == nullptr)
 		return false;
 
 	EndBlink();
+	if (mSeedType == SeedType::SEED_EPHRAIM)
+	{
+		Rect aTargetRect = aZombie->GetZombieRect();
+		mTargetX = aTargetRect.mX + aTargetRect.mWidth / 2;
+		mEphraimAttackSet = RandRangeInt(0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
+		mEphraimAttackPauseFlags = 0;
+		mShootingCounter = mEphraimAttackSet >= 2
+			? EPHRAIM_JAB_ATTACK_ANIMATION_TICKS : EPHRAIM_ATTACK_ANIMATION_TICKS;
+		return true;
+	}
+
 	Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
 	Reanimation* aHeadReanim = mApp->ReanimationTryToGet(mHeadReanimID);
 
@@ -339,6 +353,59 @@ void Plant::UpdateShooting()
 {
 	if (NotOnGround() || mShootingCounter == 0)
 		return;
+
+	if (mSeedType == SeedType::SEED_EPHRAIM)
+	{
+		if (mEphraimHitStopCounter > 0)
+		{
+			mEphraimHitStopCounter--;
+			return;
+		}
+
+		int aWindupFrameCount = EPHRAIM_LANCE_INTRO_FRAME_COUNT + EPHRAIM_LANCE_WINDUP_FRAME_COUNT;
+		int aImpactFrame = aWindupFrameCount + EPHRAIM_LANCE_IMPACT_FRAME;
+		switch (mEphraimAttackSet)
+		{
+		case 1:
+			aWindupFrameCount = EPHRAIM_CRITICAL_LANCE_WINDUP_FRAME_COUNT;
+			aImpactFrame = aWindupFrameCount + EPHRAIM_CRITICAL_LANCE_IMPACT_FRAME;
+			break;
+		case 2:
+			aWindupFrameCount = EPHRAIM_JAVELIN_WINDUP_FRAME_COUNT;
+			aImpactFrame = aWindupFrameCount + EPHRAIM_JAVELIN_IMPACT_FRAME;
+			break;
+		case 3:
+			aWindupFrameCount = EPHRAIM_CRITICAL_JAVELIN_WINDUP_FRAME_COUNT;
+			aImpactFrame = aWindupFrameCount + EPHRAIM_CRITICAL_JAVELIN_IMPACT_FRAME;
+			break;
+		default:
+			break;
+		}
+
+		// Drive charge and damage from the pose currently on screen. This keeps
+		// impact on the weapon contact frame, rather than a separate timer guess.
+		if (mFrame == aWindupFrameCount - 1 && (mEphraimAttackPauseFlags & 1) == 0)
+		{
+			mEphraimAttackPauseFlags |= 1;
+			mEphraimHitStopCounter = EPHRAIM_ATTACK_CLIMAX_PAUSE_TICKS;
+			return;
+		}
+		if (mFrame == aImpactFrame && (mEphraimAttackPauseFlags & 2) == 0)
+		{
+			mEphraimAttackPauseFlags |= 2;
+			std::vector<Zombie*> aHitZombies;
+			while (Zombie* aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY, &aHitZombies))
+			{
+				aZombie->TakeDamage(40, 0U);
+				aHitZombies.push_back(aZombie);
+			}
+			mEphraimHitStopCounter = aHitZombies.empty()
+				? EPHRAIM_ATTACK_CLIMAX_PAUSE_TICKS : EPHRAIM_HIT_STOP_TICKS;
+			return;
+		}
+		mShootingCounter--;
+		return;
+	}
 
 	mShootingCounter--;
 

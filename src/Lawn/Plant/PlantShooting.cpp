@@ -79,7 +79,7 @@ namespace
 
 bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 {
-	if (mSeedType == SeedType::SEED_EPHRAIM && mShootingCounter > 0)
+	if ((mSeedType == SeedType::SEED_EPHRAIM || mSeedType == SeedType::SEED_SNIPER_FEMALE) && mShootingCounter > 0)
 		return false;
 
 	Zombie* aZombie = FindTargetZombie(theRow, thePlantWeapon);
@@ -87,6 +87,16 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 		return false;
 
 	EndBlink();
+	if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
+	{
+		mSniperHitStopCounter = 0;
+		// This plant owns mAnimPing as its saved normal/critical atlas selector.
+		mAnimPing = RandRangeInt(0, 1) != 0;
+		const int aSet = mAnimPing ? 1 : 0;
+		mShootingCounter = SNIPER_ATTACK_DURATION_TICKS[aSet];
+		mFrame = 0;
+		return true;
+	}
 	if (mSeedType == SeedType::SEED_EPHRAIM)
 	{
 		Rect aTargetRect = aZombie->GetZombieRect();
@@ -324,6 +334,17 @@ void Plant::StarFruitFire()
 
 void Plant::UpdateShooter()
 {
+	if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
+	{
+		if (mShootingCounter > 0)
+			return;
+		if (--mLaunchCounter <= 0)
+		{
+			mLaunchCounter = 10;
+			FindTargetAndFire(mRow, PlantWeapon::WEAPON_PRIMARY);
+		}
+		return;
+	}
 	if (mSeedType == SeedType::SEED_EPHRAIM)
 	{
 		// Recovery starts after the complete primary animation and all its holds.
@@ -537,10 +558,14 @@ void Plant::UpdateEphraimAfterimages()
 			else
 			{
 				std::vector<Zombie*> aHitZombies;
+				// Snapshot every contact target before damage changes target eligibility.
 				while (Zombie* aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY, &aHitZombies, &anEcho.mTargetX, true, &anOriginX))
-				{
-					aZombie->TakeDamage(EPHRAIM_ATTACK_DAMAGE * EPHRAIM_ATTACK_DAMAGE_PERCENT[aSet] / 100, 0U);
 					aHitZombies.push_back(aZombie);
+				const int aTargetCount = static_cast<int>(aHitZombies.size());
+				for (Zombie* aZombie : aHitZombies)
+				{
+					const int aMultiplier = mBoard->GetQuadraticZombieDamageMultiplier(aZombie, aTargetCount);
+					aZombie->TakeDamage(EphraimMeleeAttackDamage(aSet) * aMultiplier, 0U);
 				}
 				if (!aHitZombies.empty() && anEcho.mNestingDepth < EPHRAIM_MAX_AFTERIMAGE_NESTING)
 				{
@@ -578,6 +603,45 @@ void Plant::UpdateShooting()
 	if (NotOnGround() || (mShootingCounter == 0 && mSeedType != SeedType::SEED_EPHRAIM))
 		return;
 
+	if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
+	{
+		if (mSniperHitStopCounter > 0)
+		{
+			mSniperHitStopCounter--;
+			return;
+		}
+		const int aSet = mAnimPing ? 1 : 0;
+		const int aElapsed = SNIPER_ATTACK_DURATION_TICKS[aSet] - mShootingCounter;
+		int aReleaseTick = 0;
+		for (int aFrame = 0; aFrame < SNIPER_ATTACK_RELEASE_FRAMES[aSet]; aFrame++)
+			aReleaseTick += SNIPER_ATTACK_FRAME_TICKS[aSet][aFrame];
+		// Each critical arrow starts at 300% base damage before armor/body bonuses.
+		// Keep the firing pose visible for all three spaced critical arrows.
+		const int aBurstElapsed = aElapsed - aReleaseTick;
+		const bool aFireArrow = aSet == 0 ? aBurstElapsed == 0 :
+			aBurstElapsed >= 0 && aBurstElapsed < SNIPER_CRITICAL_ARROW_COUNT * SNIPER_CRITICAL_ARROW_SPACING_TICKS &&
+			aBurstElapsed % SNIPER_CRITICAL_ARROW_SPACING_TICKS == 0;
+		if (aFireArrow)
+		{
+			Projectile* anArrow = mBoard->AddProjectile(mX + mWidth / 2,
+				mY + mHeight - FloatRoundToInt(25.0f * SNIPER_FEMALE_DRAW_SCALE),
+				mRenderOrder + 1, mRow, ProjectileType::PROJECTILE_SNIPER_ARROW);
+			if (anArrow != nullptr)
+			{
+				anArrow->mSniperSourcePlantID = static_cast<PlantID>(mBoard->mPlants.DataArrayGetID(this));
+				anArrow->mSniperCriticalArrow = aSet == 1;
+				anArrow->mVelX = 7.0f;
+				anArrow->mDamageRangeFlags = GetDamageRangeFlags(PlantWeapon::WEAPON_PRIMARY);
+				mApp->PlayFoley(FoleyType::FOLEY_THROW);
+			}
+		}
+		if (--mShootingCounter == 0)
+		{
+			mFrame = 0;
+			mLaunchCounter = SNIPER_ATTACK_REST_TICKS[aSet] + 1;
+		}
+		return;
+	}
 	if (mSeedType == SeedType::SEED_EPHRAIM)
 	{
 		// Migrate an older save's single echo before advancing independent clocks.
@@ -649,10 +713,14 @@ void Plant::UpdateShooting()
 			else
 			{
 				std::vector<Zombie*> aHitZombies;
+				// Snapshot every contact target before damage changes target eligibility.
 				while (Zombie* aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY, &aHitZombies, nullptr, true))
-				{
-					aZombie->TakeDamage(EPHRAIM_ATTACK_DAMAGE * EPHRAIM_ATTACK_DAMAGE_PERCENT[aPrimarySet] / 100, 0U);
 					aHitZombies.push_back(aZombie);
+				const int aTargetCount = static_cast<int>(aHitZombies.size());
+				for (Zombie* aZombie : aHitZombies)
+				{
+					const int aMultiplier = mBoard->GetQuadraticZombieDamageMultiplier(aZombie, aTargetCount);
+					aZombie->TakeDamage(EphraimMeleeAttackDamage(aPrimarySet) * aMultiplier, 0U);
 				}
 				mEphraimHitStopCounter = aHitZombies.empty()
 					? EPHRAIM_ATTACK_MISS_STOP_TICKS[aPrimarySet] : EPHRAIM_ATTACK_HITSTOP_TICKS[aPrimarySet];

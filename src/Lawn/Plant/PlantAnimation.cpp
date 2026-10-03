@@ -781,6 +781,20 @@ void Plant::Animate()
 	}
 
 	UpdateBlink();
+	if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
+	{
+		const int aSet = mAnimPing ? 1 : 0;
+		if (mShootingCounter > 0)
+			mFrame = SniperAttackFrame(aSet, SNIPER_ATTACK_DURATION_TICKS[aSet] - mShootingCounter);
+		else
+		{
+			// Ready-arm movement from the sheet; no attack smears in idle.
+			static constexpr int IDLE_FRAMES[] = { 0, 1, 2, 1 };
+			const uint32_t aCounter = IsOnBoard() ? mBoard->mMainCounter : mApp->mAppCounter;
+			mFrame = IDLE_FRAMES[(aCounter / 32) % 4];
+		}
+		return;
+	}
 	if (mSeedType == SeedType::SEED_EPHRAIM &&
 		(mShootingCounter > 0 || (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RECOVERY) != 0))
 	{

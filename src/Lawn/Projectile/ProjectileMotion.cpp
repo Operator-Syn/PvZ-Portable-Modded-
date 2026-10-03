@@ -247,7 +247,7 @@ void Projectile::UpdateLobMotion()
 
 void Projectile::UpdateNormalMotion()
 {
-	if (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN)
+	if (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN || mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW)
 	{
 		mPosX += mVelX;
 	}

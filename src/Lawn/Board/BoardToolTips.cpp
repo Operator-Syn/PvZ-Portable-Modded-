@@ -171,6 +171,43 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 		theHitResult = &aLocalHitResult;
 	}
 
+	// Tooltip-only zombie hit testing preserves the existing click/tool targets.
+	if (mApp->mGameScene == GameScenes::SCENE_PLAYING &&
+		(theHitResult->mObjectType == GameObjectType::OBJECT_TYPE_NONE ||
+		 theHitResult->mObjectType == GameObjectType::OBJECT_TYPE_PLANT))
+	{
+		Zombie* aZombie = ZombieHitTest(aMouseX, aMouseY);
+		if (aZombie != nullptr && aZombie->IsOnBoard())
+		{
+			const int64_t aHealth = static_cast<int64_t>(std::max(0, aZombie->mBodyHealth)) +
+				std::max(0, aZombie->mHelmHealth) + std::max(0, aZombie->mShieldHealth) +
+				std::max(0, aZombie->mTierBucketArmorHealth) + std::max(0, aZombie->mFlyingHealth);
+			const int64_t aMaxHealth = static_cast<int64_t>(aZombie->mBodyMaxHealth) +
+				aZombie->mHelmMaxHealth + aZombie->mShieldMaxHealth +
+				aZombie->mTierBucketArmorMaxHealth + aZombie->mFlyingMaxHealth;
+			const int aHealthPercent = aMaxHealth > 0 ? static_cast<int>(std::clamp<int64_t>(aHealth * 100 / aMaxHealth, 0, 100)) : 0;
+			std::string aDetails = std::format("HP: {} / {} ({}%)\nBody: {} / {}",
+				aHealth, aMaxHealth, aHealthPercent, std::max(0, aZombie->mBodyHealth), aZombie->mBodyMaxHealth);
+			auto aAddArmor = [&](const char* theName, int theHealth, int theMaxHealth)
+			{
+				if (theMaxHealth > 0)
+					aDetails += std::format("\n{}: {} / {}", theName, std::max(0, theHealth), theMaxHealth);
+			};
+			aAddArmor("Helmet", aZombie->mHelmHealth, aZombie->mHelmMaxHealth);
+			aAddArmor("Shield", aZombie->mShieldHealth, aZombie->mShieldMaxHealth);
+			aAddArmor("Bucket armor", aZombie->mTierBucketArmorHealth, aZombie->mTierBucketArmorMaxHealth);
+			aAddArmor("Flying protection", aZombie->mFlyingHealth, aZombie->mFlyingMaxHealth);
+			mToolTip->SetTitle(std::format("[{}]", GetZombieDefinition(aZombie->mZombieType).mZombieName));
+			mToolTip->SetLabel(aDetails);
+			const Rect aRect = aZombie->GetZombieRect();
+			mToolTip->mX = aRect.mX + aRect.mWidth / 2;
+			mToolTip->mY = aRect.mY - 8;
+			mToolTip->mCenter = true;
+			mToolTip->mVisible = true;
+			return;
+		}
+	}
+
 	switch (theHitResult->mObjectType)
 	{
 	case GameObjectType::OBJECT_TYPE_SHOVEL:

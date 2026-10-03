@@ -142,6 +142,9 @@ void Projectile::DoImpact(Zombie* theZombie)
 		mPiercedZombieIDs[mPiercedZombieCount++] = mBoard->ZombieGetID(theZombie);
 	}
 
+	if (mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW && mSniperCriticalArrow && theZombie != nullptr)
+		mSniperPiercedZombieIDs.push_back(mBoard->ZombieGetID(theZombie));
+
 	PlayImpactSound(theZombie);
 
 	if (IsSplashDamage(theZombie))
@@ -157,6 +160,8 @@ void Projectile::DoImpact(Zombie* theZombie)
 	{
 		unsigned int aDamageFlags = GetDamageFlags(theZombie);
 		int aDamage = GetProjectileDef().mDamage;
+		if (mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW && mSniperCriticalArrow)
+			aDamage = aDamage * Plant::SNIPER_CRITICAL_DAMAGE_PERCENT / 100;
 		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && mMillionSunDamage)
 			aDamage *= 5;
 		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && mTwoMillionSunCatTailDamage)
@@ -165,7 +170,23 @@ void Projectile::DoImpact(Zombie* theZombie)
 			int aCurrentBodyHealthBonus = static_cast<int>((aCurrentBodyHealth * 15 + 999) / 1000);
 			aDamage += std::max(50, aCurrentBodyHealthBonus);
 		}
+		if (mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW)
+			aDamageFlags |= 1U << DamageFlags::DAMAGE_SNIPER_ARROW;
 		theZombie->TakeDamage(aDamage, aDamageFlags);
+		if (mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW)
+		{
+			if (!theZombie->IsDeadOrDying() && !theZombie->IsSunTierInvulnerable() && theZombie->CanBeTargetedByPlants())
+				theZombie->mSniperWoundCounter = Zombie::SNIPER_WOUND_DURATION_TICKS;
+			Plant* aSource = mBoard->mPlants.DataArrayTryToGet(static_cast<unsigned int>(mSniperSourcePlantID));
+			if (aSource != nullptr && !aSource->mDead && !aSource->mSquished &&
+				aSource->mSeedType == SeedType::SEED_SNIPER_FEMALE && aSource->mShootingCounter > 0)
+			{
+				const int aSet = aSource->mAnimPing ? 1 : 0;
+				const int aElapsed = Plant::SNIPER_ATTACK_DURATION_TICKS[aSet] - aSource->mShootingCounter;
+				if (Plant::SniperAttackFrame(aSet, aElapsed) >= Plant::SNIPER_ATTACK_RELEASE_FRAMES[aSet])
+					aSource->mSniperHitStopCounter = std::max(aSource->mSniperHitStopCounter, Plant::SNIPER_HITSTOP_TICKS[aSet]);
+			}
+		}
 		if (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN && mEphraimChargedJavelin &&
 			!theZombie->IsDeadOrDying() && theZombie->mZombieType != ZombieType::ZOMBIE_BOSS &&
 			theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE)
@@ -274,6 +295,8 @@ void Projectile::DoImpact(Zombie* theZombie)
 		}
 	}
 
+	if (mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW && mSniperCriticalArrow)
+		return;
 	if (!mPiercesZombies || mProjectileType != ProjectileType::PROJECTILE_PEA || mPiercedZombieCount >= MAX_PIERCING_HITS)
 		Die();
 }

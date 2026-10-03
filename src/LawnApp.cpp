@@ -2311,7 +2311,10 @@ bool LawnApp::HasSeedType(SeedType theSeedType)
 {
 	if (mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
 		return theSeedType >= SeedType::SEED_PEASHOOTER && theSeedType < SeedType::NUM_SEED_TYPES &&
-			(theSeedType != SeedType::SEED_EPHRAIM || Sexy::IMAGE_EPHRAIM_PLANT != nullptr);
+			(theSeedType != SeedType::SEED_EPHRAIM || Sexy::IMAGE_EPHRAIM_PLANT != nullptr) &&
+			(theSeedType != SeedType::SEED_SNIPER_FEMALE || (Sexy::IMAGE_SNIPER_FEMALE_PLANT != nullptr &&
+				Sexy::IMAGE_SNIPER_FEMALE_ATTACKS[0] != nullptr && Sexy::IMAGE_SNIPER_FEMALE_ATTACKS[1] != nullptr &&
+				Sexy::IMAGE_SNIPER_ARROW != nullptr));
 
 	if (IsTrialStageLocked() && theSeedType >= SeedType::SEED_JALAPENO)
 		return false;
@@ -2345,6 +2348,9 @@ bool LawnApp::HasSeedType(SeedType theSeedType)
 		return true;
 	case SeedType::SEED_EPHRAIM:
 		return Sexy::IMAGE_EPHRAIM_PLANT != nullptr;
+	case SeedType::SEED_SNIPER_FEMALE:
+		return Sexy::IMAGE_SNIPER_FEMALE_PLANT != nullptr && Sexy::IMAGE_SNIPER_FEMALE_ATTACKS[0] != nullptr &&
+			Sexy::IMAGE_SNIPER_FEMALE_ATTACKS[1] != nullptr && Sexy::IMAGE_SNIPER_ARROW != nullptr;
 	default:
 		return theSeedType < GetSeedsAvailable();
 	}

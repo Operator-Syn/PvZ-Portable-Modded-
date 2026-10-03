@@ -134,6 +134,9 @@ public:
 	int32_t                         mBodyHealth;
 	int32_t                         mBodyMaxHealth;
 	float                           mContinuousHealthRemainder = 0.0f;
+	static constexpr int SNIPER_WOUND_DURATION_TICKS = 300;
+	int32_t                         mSniperWoundCounter = 0;
+	int32_t                         mSniperDotRemainder = 0; // Units of 1/100000 HP.
 	int32_t                         mHelmHealth;
 	int32_t                         mHelmMaxHealth;
 	int32_t                         mTierBucketArmorHealth;
@@ -188,6 +191,8 @@ public:
 	void                            DrawZombiePart(Graphics* g, Image* theImage, int theFrame, int theRow, const ZombieDrawPosition& theDrawPos);
 	void                            DrawBungeeCord(Graphics* g, int theOffsetX);
 	void                            TakeDamage(int theDamage, unsigned int theDamageFlags);
+	void                            ApplyHealing(float theAmount);
+	void                            UpdateSniperWound();
 	void                 SetRow(int theRow);
 	float                           GetPosYBasedOnRow(int theRow);
 	void                            ApplyChill(bool theIsIceTrap);

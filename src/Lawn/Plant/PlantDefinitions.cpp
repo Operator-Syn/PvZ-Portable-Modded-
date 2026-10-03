@@ -62,6 +62,7 @@
 // Ephraim uses a cel atlas instead of a reanimation. Plant::GetImage
 // reads mPlantImage[0], so the entry is filled during resource loading.
 Image* gEphraimPlantImages[1] = { nullptr };
+Image* gSniperFemalePlantImages[1] = { nullptr };
 
 constinit const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {
 	{ .mSeedType = SeedType::SEED_PEASHOOTER,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_PEASHOOTER,    .mPacketIndex = 0,  .mSeedCost = 100, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 150,  .mPlantName = "PEASHOOTER" },
@@ -119,7 +120,8 @@ constinit const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {
 	{ .mSeedType = SeedType::SEED_LEFTPEATER,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_REPEATER,      .mPacketIndex = 5,  .mSeedCost = 200, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 150,  .mPlantName = "REPEATER" },
 	{ .mSeedType = SeedType::SEED_SUN_MAGNET,        .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_GOLD_MAGNET,  .mPacketIndex = 27, .mSeedCost = 25,  .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "SUN_MAGNET" },
 	{ .mSeedType = SeedType::SEED_CHOMPERNUT,         .mPlantImage = nullptr, .mReanimationType = ReanimationType::REANIM_TALLNUT,        .mPacketIndex = -1, .mSeedCost = 0,   .mRefreshTime = 0,      .mSubClass = PlantSubClass::SUBCLASS_NORMAL,  .mLaunchRate = 0,    .mPlantName = "CHOMPER_NUT" },
-	{ .mSeedType = SeedType::SEED_EPHRAIM,            .mPlantImage = gEphraimPlantImages, .mReanimationType = ReanimationType::REANIM_NONE,           .mPacketIndex = -1, .mSeedCost = 300, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 100,  .mPlantName = "EPHRAIM" }
+	{ .mSeedType = SeedType::SEED_EPHRAIM,            .mPlantImage = gEphraimPlantImages, .mReanimationType = ReanimationType::REANIM_NONE,           .mPacketIndex = -1, .mSeedCost = 300, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER, .mLaunchRate = 100,  .mPlantName = "EPHRAIM" },
+	{ .mSeedType = SeedType::SEED_SNIPER_FEMALE,      .mPlantImage = gSniperFemalePlantImages, .mReanimationType = ReanimationType::REANIM_NONE,      .mPacketIndex = -1, .mSeedCost = 100, .mRefreshTime = 750,    .mSubClass = PlantSubClass::SUBCLASS_SHOOTER,  .mLaunchRate = 55,    .mPlantName = "SNIPER_FEMALE" }
 };
 
 const PlantDefinition& GetPlantDefinition(SeedType theSeedType)
@@ -195,6 +197,8 @@ int Plant::GetCost(SeedType theSeedType, SeedType theImitaterType)
 
 std::string Plant::GetNameString(SeedType theSeedType, SeedType theImitaterType)
 {
+	if (theSeedType == SeedType::SEED_SNIPER_FEMALE)
+		return "Female Sniper";
 	if (theSeedType == SeedType::SEED_CHOMPERNUT)
 		return "Chomper Nut";
 
@@ -215,6 +219,8 @@ std::string Plant::GetNameString(SeedType theSeedType, SeedType theImitaterType)
 
 std::string Plant::GetToolTip(SeedType theSeedType)
 {
+	if (theSeedType == SeedType::SEED_SNIPER_FEMALE)
+		return "Female Sniper";
 	const PlantDefinition& aPlantDef = GetPlantDefinition(theSeedType);
 	std::string aToolTip = std::format("[{}_TOOLTIP]", aPlantDef.mPlantName);
 	return std::string(PvzpStringTranslate(aToolTip));

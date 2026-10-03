@@ -51,6 +51,9 @@ void Projectile::Draw(Graphics* g)
 	float aScale = 1.0f;
 	switch (mProjectileType)
 	{
+	case ProjectileType::PROJECTILE_SNIPER_ARROW:
+		aImage = IMAGE_SNIPER_ARROW;
+		break;
 	case ProjectileType::PROJECTILE_EPHRAIM_JAVELIN:
 		aImage = IMAGE_EPHRAIM_JAVELIN;
 		break;
@@ -118,7 +121,8 @@ void Projectile::Draw(Graphics* g)
 		break;
 	}
 
-	bool aMirror = mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN && mVelX > 0.0f;
+	bool aMirror = (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN ||
+		mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW) && mVelX > 0.0f;
 	if (mMotionType == ProjectileMotion::MOTION_BEE_BACKWARDS)
 	{
 		aMirror = true;

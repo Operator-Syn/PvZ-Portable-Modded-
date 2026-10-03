@@ -79,6 +79,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	mFrame = 0;
 	mShootingCounter = 0;
 	mEphraimAttackSet = 0;
+	mSniperHitStopCounter = 0;
 	mEphraimHitStopCounter = 0;
 	mEphraimAttackPauseFlags = 0;
 	mEphraimAfterimageFrame = -1;
@@ -99,6 +100,8 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 		mNumFrames = EPHRAIM_IDLE_FRAME_COUNT;
 		mFrameLength = 12;  // keep the longer lance idle cycle at the previous breathing pace
 	}
+	if (theSeedType == SeedType::SEED_SNIPER_FEMALE)
+		mNumFrames = SNIPER_IDLE_FRAME_COUNT;
 	mState = PlantState::STATE_NOTREADY;
 	mDead = false;
 	mSquished = false;

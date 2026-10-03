@@ -1135,6 +1135,50 @@ bool Sexy::ExtractInitResources(ResourceManager* theManager)
 		return false;
 	}
 
+	static constexpr const char* SNIPER_FEMALE_ATLAS_NAMES[] = {
+		"bow_windup", "bow_release", "bow_recovery", "critical_windup",
+		"critical_spin", "critical_release", "dodge", "map_idle", "map_down",
+		"map_up", "map_side", "map_attack"
+	};
+	static constexpr int SNIPER_FEMALE_ATLAS_COLUMNS[] = { 7, 7, 3, 6, 6, 6, 2, 3, 4, 4, 3, 3 };
+	for (int i = 0; i < 12; i++)
+	{
+		const std::string aPath = std::format("properties/sniper-female/atlases/{}.png", SNIPER_FEMALE_ATLAS_NAMES[i]);
+		Image* anAtlas = gSexyAppBase->GetImage(aPath.c_str());
+		IMAGE_SNIPER_FEMALE_SEQUENCES[i] = anAtlas;
+		if (anAtlas != nullptr)
+		{
+			anAtlas->mNumCols = SNIPER_FEMALE_ATLAS_COLUMNS[i];
+			anAtlas->mNumRows = 1;
+			PvzpMarkImageForSanding(anAtlas);
+		}
+	}
+	static constexpr const char* SNIPER_ATTACK_NAMES[] = { "bow_complete", "critical_complete" };
+	for (int i = 0; i < 2; i++)
+	{
+		const std::string aPath = std::format("properties/sniper-female/atlases/{}.png", SNIPER_ATTACK_NAMES[i]);
+		IMAGE_SNIPER_FEMALE_ATTACKS[i] = gSexyAppBase->GetImage(aPath.c_str());
+		if (IMAGE_SNIPER_FEMALE_ATTACKS[i] != nullptr)
+		{
+			IMAGE_SNIPER_FEMALE_ATTACKS[i]->mNumCols = Plant::SNIPER_ATTACK_FRAME_COUNTS[i];
+			IMAGE_SNIPER_FEMALE_ATTACKS[i]->mNumRows = 1;
+			PvzpMarkImageForSanding(IMAGE_SNIPER_FEMALE_ATTACKS[i]);
+		}
+	}
+	IMAGE_SNIPER_ARROW = gSexyAppBase->GetImage("properties/sniper-female/atlases/arrow.png");
+	if (IMAGE_SNIPER_ARROW != nullptr)
+		PvzpMarkImageForSanding(IMAGE_SNIPER_ARROW);
+	IMAGE_SNIPER_FEMALE_PLANT = gSexyAppBase->GetImage("properties/sniper-female/atlases/idle.png");
+	gSniperFemalePlantImages[0] = IMAGE_SNIPER_FEMALE_PLANT;
+	if (IMAGE_SNIPER_FEMALE_PLANT != nullptr)
+	{
+		IMAGE_SNIPER_FEMALE_PLANT->mNumCols = Plant::SNIPER_IDLE_FRAME_COUNT;
+		IMAGE_SNIPER_FEMALE_PLANT->mNumRows = 1;
+		PvzpMarkImageForSanding(IMAGE_SNIPER_FEMALE_PLANT);
+	}
+	else
+		PvzpLogLn("Female Sniper atlas missing; run scripts/create_sniper_female_atlases.py");
+
 	// Test-only plant art, loaded from the resource folder instead of main.pak.
 	// properties/ is gitignored, so this stays out of commits; a missing file just
 	// leaves the seed unavailable rather than aborting startup.
@@ -1355,6 +1399,10 @@ Image* Sexy::IMAGE_PACKET_PLANTS;
 Image* Sexy::IMAGE_PEA_PARTICLES;
 Image* Sexy::IMAGE_PEA_SHADOWS;
 Image* Sexy::IMAGE_PEA_SPLATS;
+Image* Sexy::IMAGE_SNIPER_ARROW;
+Image* Sexy::IMAGE_SNIPER_FEMALE_ATTACKS[2] = {};
+Image* Sexy::IMAGE_SNIPER_FEMALE_PLANT;
+Image* Sexy::IMAGE_SNIPER_FEMALE_SEQUENCES[12] = {};
 Image* Sexy::IMAGE_EPHRAIM_PLANT;
 Image* Sexy::IMAGE_EPHRAIM_SEQUENCES[4] = {};
 Image* Sexy::IMAGE_EPHRAIM_JAVELIN;

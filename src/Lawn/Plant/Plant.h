@@ -237,6 +237,10 @@ public:
 	static constexpr int EPHRAIM_ATTACK_HEAL_PER_MILLE = 15;
 	// Lance, critical lance, javelin, critical javelin: heavier attacks hit harder.
 	static constexpr std::array<int, 4> EPHRAIM_ATTACK_DAMAGE_PERCENT = { 250, 350, 100, 175 };
+	static constexpr int EphraimMeleeAttackDamage(int theAttackSet)
+	{
+		return EPHRAIM_ATTACK_DAMAGE * EPHRAIM_ATTACK_DAMAGE_PERCENT[theAttackSet] / 100;
+	}
 	static constexpr int EPHRAIM_PROJECTILE_DAMAGE_PERCENT = 125;
 	static constexpr int EPHRAIM_JAVELIN_WIDTH = 136;
 	static constexpr int EPHRAIM_JAVELIN_HEIGHT = 18;
@@ -289,6 +293,7 @@ public:
 	ParticleSystemID        mParticleID;
 	int32_t                 mShootingCounter;
 	int32_t                 mEphraimAttackSet;
+	int32_t                 mSniperHitStopCounter = 0;
 	int32_t                 mEphraimHitStopCounter;
 	int32_t                 mEphraimAttackPauseFlags;
 	int32_t                 mEphraimAfterimageFrame;
@@ -376,6 +381,46 @@ public:
 	void                    LaunchThreepeater();
 	static Image*           GetImage(SeedType theSeedType);
 	static int              GetCost(SeedType theSeedType, SeedType theImitaterType = SeedType::SEED_NONE);
+	// Match the visible heights of the first idle cels: Ephraim 55px, sniper 48px.
+	static constexpr float SNIPER_FEMALE_DRAW_SCALE = EPHRAIM_DRAW_SCALE * 55.0f / 48.0f;
+	static constexpr int SNIPER_ARROW_WIDTH = 126;
+	static constexpr int SNIPER_ARROW_HEIGHT = 12;
+	static constexpr int SNIPER_ATTACK_DAMAGE = 60;
+	static constexpr int SNIPER_CRITICAL_DAMAGE_PERCENT = 300;
+	static constexpr int SNIPER_IDLE_FRAME_COUNT = 3;
+	static constexpr int SNIPER_CRITICAL_ARROW_COUNT = 3;
+	// At 7px/tick, 23 ticks separate the 126px arrows by 161px center to center.
+	static constexpr int SNIPER_CRITICAL_ARROW_SPACING_TICKS = 23;
+	// Hold the drawn bow, the visible firing pose (including all critical arrows), and recoil.
+	static constexpr std::array<int, 2> SNIPER_WINDUP_STOP_TICKS = { 18, 22 };
+	static constexpr std::array<int, 2> SNIPER_RELEASE_STOP_TICKS = { 14, (SNIPER_CRITICAL_ARROW_COUNT - 1) * SNIPER_CRITICAL_ARROW_SPACING_TICKS + 1 };
+	static constexpr std::array<int, 2> SNIPER_RECOIL_STOP_TICKS = { 10, 14 };
+	static constexpr std::array<int, 2> SNIPER_HITSTOP_TICKS = { 5, 8 };
+	static constexpr std::array<int, 2> SNIPER_ATTACK_FRAME_COUNTS = { 17, 21 };
+	static constexpr std::array<std::array<int, 21>, 2> SNIPER_ATTACK_FRAME_TICKS = {{
+		{ 4, 4, 5, 6, 10, 6, 5, 4, 4, 4, 5, SNIPER_WINDUP_STOP_TICKS[0], 3, SNIPER_RELEASE_STOP_TICKS[0], 2, 5, SNIPER_RECOIL_STOP_TICKS[0] },
+		{ 4, 5, 6, 8, 12, 6, 4, 4, 4, 4, 4, 6, 4, 4, 5, SNIPER_WINDUP_STOP_TICKS[1], 3, SNIPER_RELEASE_STOP_TICKS[1], 2, 6, SNIPER_RECOIL_STOP_TICKS[1] }
+	}};
+	static constexpr std::array<int, 2> SNIPER_ATTACK_DURATION_TICKS = []()
+	{
+		std::array<int, 2> aDurations = {};
+		for (int aSet = 0; aSet < 2; aSet++)
+			for (int aTicks : SNIPER_ATTACK_FRAME_TICKS[aSet])
+				aDurations[aSet] += aTicks;
+		return aDurations;
+	}();
+	static constexpr std::array<int, 2> SNIPER_ATTACK_RELEASE_FRAMES = { 13, 17 };
+	static constexpr std::array<int, 2> SNIPER_ATTACK_REST_TICKS = { 30, 42 };
+	static constexpr int SniperAttackFrame(int theSet, int theElapsedTicks)
+	{
+		for (int aFrame = 0; aFrame < SNIPER_ATTACK_FRAME_COUNTS[theSet]; aFrame++)
+		{
+			if (theElapsedTicks < SNIPER_ATTACK_FRAME_TICKS[theSet][aFrame])
+				return aFrame;
+			theElapsedTicks -= SNIPER_ATTACK_FRAME_TICKS[theSet][aFrame];
+		}
+		return SNIPER_ATTACK_FRAME_COUNTS[theSet] - 1;
+	}
 	static std::string       GetNameString(SeedType theSeedType, SeedType theImitaterType = SeedType::SEED_NONE);
 	static std::string       GetToolTip(SeedType theSeedType);
 	static int              GetRefreshTime(SeedType theSeedType, SeedType theImitaterType = SeedType::SEED_NONE);
@@ -487,6 +532,7 @@ public:
 	const char*         mPlantName;
 };
 extern const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES];
+extern Image* gSniperFemalePlantImages[1];
 extern Image* gEphraimPlantImages[1];  // test plant atlas; filled in during Init resource load
 
 const PlantDefinition& GetPlantDefinition(SeedType theSeedType);

@@ -83,6 +83,8 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 
 	mFromWave = theFromWave;
 	mContinuousHealthRemainder = 0.0f;
+	mSniperWoundCounter = 0;
+	mSniperDotRemainder = 0;
 	mRow = theRow;
 	mPosX = mApp->mWidth - 20 + Rand(ZOMBIE_START_RANDOM_OFFSET);
 	mPosY = GetPosYBasedOnRow(theRow);
@@ -938,6 +940,9 @@ void Zombie::Update()
 
 	if (doUpdate)
 	{
+		UpdateSniperWound();
+		if (mDead)
+			return;
 		if (mZombiePhase == ZombiePhase::PHASE_ZOMBIE_BURNED)
 		{
 			UpdateBurn();

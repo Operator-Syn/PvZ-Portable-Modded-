@@ -363,12 +363,7 @@ void Board::UpdatePlantOverdrive()
 			(aZombie->mZombieType == ZombieType::ZOMBIE_TRAFFIC_CONE || aZombie->mZombieType == ZombieType::ZOMBIE_PAIL ||
 			 aZombie->mZombieType == ZombieType::ZOMBIE_BULWARK_BUCKET))
 			aHealRate += 25.0f;
-		float aChange = aZombie->mContinuousHealthRemainder + aHealRate / 100.0f;
-		int aWholeChange = static_cast<int>(aChange);
-		aZombie->mContinuousHealthRemainder = aChange - aWholeChange;
-		aZombie->mBodyHealth = std::min(aZombie->mBodyHealth + aWholeChange, aZombie->mBodyMaxHealth);
-		if (aZombie->mBodyHealth >= aZombie->mBodyMaxHealth)
-			aZombie->mContinuousHealthRemainder = 0.0f;
+		aZombie->ApplyHealing(aHealRate / 100.0f);
 	}
 	if (mMainCounter % 100 != 99)
 		return;

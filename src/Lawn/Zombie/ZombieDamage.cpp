@@ -1066,6 +1066,38 @@ void Zombie::TakeBodyDamage(int theDamage, unsigned int theDamageFlags)
 	}
 }
 
+void Zombie::ApplyHealing(float theAmount)
+{
+	if (IsDeadOrDying() || mBodyHealth <= 0 || theAmount <= 0.0f)
+		return;
+	const float aChange = mContinuousHealthRemainder + theAmount * (mSniperWoundCounter > 0 ? 0.25f : 1.0f);
+	const int aWholeChange = static_cast<int>(aChange);
+	mContinuousHealthRemainder = aChange - aWholeChange;
+	mBodyHealth = std::min(mBodyHealth + aWholeChange, mBodyMaxHealth);
+	if (mBodyHealth >= mBodyMaxHealth)
+		mContinuousHealthRemainder = 0.0f;
+}
+
+void Zombie::UpdateSniperWound()
+{
+	if (mSniperWoundCounter <= 0)
+		return;
+	if (IsDeadOrDying())
+	{
+		mSniperWoundCounter = 0;
+		mSniperDotRemainder = 0;
+		return;
+	}
+	// Recalculate against current body HP every tick; fractional damage carries forward.
+	const int64_t aDamage = mSniperDotRemainder + std::max<int64_t>(15000, static_cast<int64_t>(mBodyHealth) * 15);
+	const int aWholeDamage = static_cast<int>(aDamage / 100000);
+	mSniperDotRemainder = static_cast<int32_t>(aDamage % 100000);
+	if (aWholeDamage > 0)
+		TakeDamage(aWholeDamage, 1U << DamageFlags::DAMAGE_DOESNT_CAUSE_FLASH);
+	if (--mSniperWoundCounter == 0)
+		mSniperDotRemainder = 0;
+}
+
 void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 {
 	if (IsSunTierInvulnerable())
@@ -1075,7 +1107,10 @@ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 	if (!CanBeTargetedByPlants())
 		return;
 
-	int aDamageRemaining = theDamage;
+	const bool aSniperArrow = TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_SNIPER_ARROW));
+	// Keep armor spillover in armor damage units until it reaches the body.
+	const int aArmorDamage = aSniperArrow ? theDamage * 175 / 100 : theDamage;
+	int aDamageRemaining = aArmorDamage;
 
 	if (IsFlying())
 	{
@@ -1086,7 +1121,7 @@ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 		aDamageRemaining = TakeShieldDamage(aDamageRemaining, theDamageFlags);
 		if (TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_HITS_SHIELD_AND_BODY)))
 		{
-			aDamageRemaining = theDamage;
+			aDamageRemaining = aArmorDamage;
 		}
 	}
 	if (aDamageRemaining > 0 && mTierBucketArmorHealth > 0)
@@ -1097,6 +1132,6 @@ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 	}
 	if (aDamageRemaining > 0)
 	{
-		TakeBodyDamage(aDamageRemaining, theDamageFlags);
+		TakeBodyDamage(aSniperArrow ? aDamageRemaining * 185 / 175 : aDamageRemaining, theDamageFlags);
 	}
 }

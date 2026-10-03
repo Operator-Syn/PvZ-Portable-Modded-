@@ -125,6 +125,10 @@ Zombie* Projectile::FindCollisionTarget()
 			continue;
 		if ((aZombie->mZombieType == ZombieType::ZOMBIE_BOSS || aZombie->mRow == mRow) && aZombie->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)))
 		{
+			if (mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW && mSniperCriticalArrow &&
+				std::find(mSniperPiercedZombieIDs.begin(), mSniperPiercedZombieIDs.end(), mBoard->ZombieGetID(aZombie)) !=
+				mSniperPiercedZombieIDs.end())
+				continue;
 			if (mPiercesZombies && std::find(std::begin(mPiercedZombieIDs),
 				std::begin(mPiercedZombieIDs) + mPiercedZombieCount, mBoard->ZombieGetID(aZombie)) !=
 				std::begin(mPiercedZombieIDs) + mPiercedZombieCount)
@@ -239,6 +243,12 @@ void Projectile::CheckForCollision()
 		}
 
 		DoImpact(aZombie);
+		// Resolve every overlapping target before moving again, including crowded lanes.
+		if (mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW && mSniperCriticalArrow)
+		{
+			while (!mDead && (aZombie = FindCollisionTarget()) != nullptr)
+				DoImpact(aZombie);
+		}
 	}
 }
 
@@ -424,7 +434,7 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 
 Rect Projectile::GetProjectileRect()
 {
-	if (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN)
+	if (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN || mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW)
 		return Rect(mVelX > 0.0f ? mX + mWidth - 12 : mX, mY, 12, mHeight);
 	if (mProjectileType == ProjectileType::PROJECTILE_PEA || mGatlingCherryShot ||
 		mProjectileType == ProjectileType::PROJECTILE_SNOWPEA ||

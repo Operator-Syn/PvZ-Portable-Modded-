@@ -320,7 +320,9 @@ Rect Plant::GetPlantAttackRect(PlantWeapon thePlantWeapon)
 	case SeedType::SEED_SQUASH:         aRect = Rect(mX + 20,       mY,             mWidth - 35,        mHeight);               break;
 	case SeedType::SEED_CHOMPER:
 	case SeedType::SEED_CHOMPERNUT:     aRect = Rect(mX + 80,       mY - 160,        280,                mHeight + 320);        break;
-	case SeedType::SEED_EPHRAIM:        aRect = Rect(0, mY, BOARD_WIDTH, mHeight); break;
+	// Endless Pool extends the logical playfield beyond the stock board width.
+	case SeedType::SEED_EPHRAIM:        aRect = Rect(0, mY, mApp->mWidth, mHeight); break;
+	case SeedType::SEED_SNIPER_FEMALE:  aRect = Rect(mX, mY, mApp->mWidth - mX, mHeight); break;
 	case SeedType::SEED_SPIKEWEED:
 	case SeedType::SEED_SPIKEROCK:      aRect = Rect(mX + 20,       mY,             mWidth - 50,        mHeight);               break;
 	case SeedType::SEED_POTATOMINE:     aRect = Rect(mX,            mY,             mWidth - 25,        mHeight);               break;

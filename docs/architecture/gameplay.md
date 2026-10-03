@@ -29,6 +29,10 @@ In the widened Survival: Endless viewport, Catapult Zombies wait until at least 
 
 Zombie Rain drops zombies directly into playable cells, past the normal right-edge pool-entry trigger used by Dolphins and Snorkels. Rain-spawned pool-capable ground zombies enter their appropriate pool state on landing; ordinary wave spawns retain their normal pool-entry behavior.
 
+## Zombie health hover
+
+During active gameplay, hovering a living zombie shows its name, total current/max HP and percentage, body HP, and its helmet, shield, tier bucket armor and flying protection when those layers have a maximum HP value. The tooltip refreshes with combat changes and disappears when the pointer leaves. Zombie hover takes precedence over a plant underneath it; packets, collectibles, tools and challenge tooltips retain their existing priority. This uses tooltip-only hit testing, so clicking and tool targeting are unchanged. No persistent zombie health labels are added. Runtime hover behavior has not been verified.
+
 ## Placement, packets, and waves
 
 Seed selection and planting cross `SeedPacket` and board placement logic. Challenge-specific constraints are applied in gameplay/UI code, so new placement exceptions should be checked against both ordinary placement and challenge rules. Wave state and zombie selection are board-owned; see `Board::Update` and its wave helpers.

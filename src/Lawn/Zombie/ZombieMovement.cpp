@@ -588,8 +588,7 @@ bool Zombie::ZombiquariumFindClosestBrain()
 			aBrainClosest->GridItemDie();
 			mApp->PlayFoley(FoleyType::FOLEY_SLURP);
 
-			mBodyHealth += 200;
-			mBodyHealth = std::min(mBodyHealth, mBodyMaxHealth);
+			ApplyHealing(200.0f);
 
 			PlayZombieReanim("anim_aquarium_bite", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 10, 24.0f);
 			mZombiePhase = ZombiePhase::PHASE_ZOMBIQUARIUM_BITE;

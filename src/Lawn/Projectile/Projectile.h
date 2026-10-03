@@ -23,6 +23,7 @@
 #define __PROJECTILE_H__
 
 #include <cstdint>
+#include <vector>
 #include "../../ConstEnums.h"
 #include "../Entities/GameObject.h"
 
@@ -85,6 +86,9 @@ public:
 	bool                    mTwoMillionSunCatTailDamage = false;
 	bool                    mWintermelonCherryShot = false;
 	bool                    mEphraimChargedJavelin = false;
+	PlantID                 mSniperSourcePlantID = PlantID::PLANTID_NULL;
+	bool                    mSniperCriticalArrow = false;
+	std::vector<ZombieID>   mSniperPiercedZombieIDs;
 	ZombieID                mPiercedZombieIDs[MAX_PIERCING_HITS];
 
 public:

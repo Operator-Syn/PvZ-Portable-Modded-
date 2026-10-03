@@ -6,6 +6,7 @@ recovery cels are assembled here so runtime playback never changes atlases.
 """
 
 from pathlib import Path
+import json
 import subprocess
 
 
@@ -81,6 +82,19 @@ def main() -> None:
         "-vf", "crop=62:8:434:369,scale=136:18:flags=neighbor",
         "-frames:v", "1", str(OUTPUT / "javelin_projectile.png"),
     ], check=True)
+    # Match the sniper generator's per-atlas metadata format. Bounds describe
+    # each actual source crop as [x, y, width, height], including its padding.
+    manifest = {
+        name: {
+            "columns": len(frames),
+            "rows": 1,
+            "cell": CELL_W,
+            "source_bounds": [[x0, y0, x1 - x0, y1 - y0]
+                              for x0, x1, y0, y1 in frames],
+        }
+        for name, frames in ANIMATIONS.items()
+    }
+    (OUTPUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
 if __name__ == "__main__":

@@ -1413,6 +1413,10 @@ namespace Sexy
 	extern Image* IMAGE_PEA_PARTICLES;
 	extern Image* IMAGE_PEA_SHADOWS;
 	extern Image* IMAGE_PEA_SPLATS;
+	extern Image* IMAGE_SNIPER_ARROW;
+	extern Image* IMAGE_SNIPER_FEMALE_ATTACKS[2];
+	extern Image* IMAGE_SNIPER_FEMALE_PLANT;
+	extern Image* IMAGE_SNIPER_FEMALE_SEQUENCES[12];
 	extern Image* IMAGE_EPHRAIM_PLANT;  // Ephraim idle atlas loaded from properties/ephraim/atlases/
 	extern Image* IMAGE_EPHRAIM_SEQUENCES[4];  // One complete horizontal atlas per attack
 	extern Image* IMAGE_EPHRAIM_JAVELIN;

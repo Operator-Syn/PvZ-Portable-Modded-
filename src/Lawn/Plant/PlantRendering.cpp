@@ -633,9 +633,33 @@ void Plant::Draw(Graphics* g)
 				return;
 		}
 	}
+	if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
+	{
+		if (mShootingCounter > 0)
+			aPlantImage = IMAGE_SNIPER_FEMALE_ATTACKS[mAnimPing ? 1 : 0];
+		if (aPlantImage == nullptr)
+			return;
+		aImageCol = std::clamp(mFrame, 0, aPlantImage->mNumCols - 1);
+		aImageRow = 0;
+	}
 	bool anAfterimageDrawn = false;
 	auto DrawPlantImageCel = [&](Graphics* theGraphics)
 	{
+		if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
+		{
+			const int aWidth = aPlantImage->GetCelWidth();
+			const int aHeight = aPlantImage->GetCelHeight();
+			const Rect aSource(aImageCol * aWidth, 0, aWidth, aHeight);
+			const Rect aDest(
+				FloatRoundToInt(aOffsetX + mWidth * 0.5f - aWidth * SNIPER_FEMALE_DRAW_SCALE * 0.5f),
+				FloatRoundToInt(aOffsetY + mHeight - aHeight * SNIPER_FEMALE_DRAW_SCALE),
+				FloatRoundToInt(aWidth * SNIPER_FEMALE_DRAW_SCALE),
+				FloatRoundToInt(aHeight * SNIPER_FEMALE_DRAW_SCALE));
+			Graphics aSpriteG(*theGraphics);
+			aSpriteG.SetFastStretch(true);
+			aSpriteG.DrawImageMirror(aPlantImage, aDest, aSource, true);
+			return;
+		}
 		if (mSeedType != SeedType::SEED_EPHRAIM)
 		{
 			PvzpDrawImageCelF(theGraphics, aPlantImage, aOffsetX, aOffsetY, aImageCol, aImageRow);
@@ -993,14 +1017,15 @@ void Plant::DrawSeedType(Graphics* g, SeedType theSeedType, SeedType theImitater
 			}
 
 			Image* aPlantImage = Plant::GetImage(aSeedType);
-			if (aSeedType == SeedType::SEED_EPHRAIM)
+			if (aSeedType == SeedType::SEED_EPHRAIM || aSeedType == SeedType::SEED_SNIPER_FEMALE)
 			{
 				if (aPlantImage == nullptr)
 					return;
 				const int aCelWidth = aPlantImage->GetCelWidth();
 				const int aCelHeight = aPlantImage->GetCelHeight();
-				const float aScaleX = aSeedG.mScaleX * EPHRAIM_DRAW_SCALE;
-				const float aScaleY = aSeedG.mScaleY * EPHRAIM_DRAW_SCALE;
+				const float aDrawScale = aSeedType == SeedType::SEED_SNIPER_FEMALE ? SNIPER_FEMALE_DRAW_SCALE : EPHRAIM_DRAW_SCALE;
+				const float aScaleX = aSeedG.mScaleX * aDrawScale;
+				const float aScaleY = aSeedG.mScaleY * aDrawScale;
 				// Use the planted sprite's cell center and 80-pixel tile baseline.
 				const Rect aSourceRect(0, 0, aCelWidth, aCelHeight);
 				const Rect aDestRect(

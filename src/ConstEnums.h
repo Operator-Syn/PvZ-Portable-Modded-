@@ -259,7 +259,9 @@ enum DamageFlags : int32_t
 	DAMAGE_FREEZE = 2,
 	DAMAGE_DOESNT_CAUSE_FLASH = 3,
 	DAMAGE_DOESNT_LEAVE_BODY = 4,
-	DAMAGE_SPIKE = 5
+	DAMAGE_SPIKE = 5,
+	// Bit 6 is already included in legacy 127U damage masks.
+	DAMAGE_SNIPER_ARROW = 7
 };
 enum DamageRangeFlags : int32_t
 {
@@ -825,7 +827,8 @@ enum ProjectileType : int32_t
 	PROJECTILE_TWIN_SUNFLOWER_BOMB = 15,
 	PROJECTILE_PLANTERN_CHERRY_BOMB = 16,
 	PROJECTILE_EPHRAIM_JAVELIN = 17,
-	NUM_PROJECTILES = 18
+	PROJECTILE_SNIPER_ARROW = 18,
+	NUM_PROJECTILES = 19
 };
 enum ReanimationType : uint32_t {
 	REANIM_NONE = static_cast<uint32_t>(-1),
@@ -1102,8 +1105,9 @@ enum SeedType : int32_t
 	SEED_SUN_MAGNET,
 	SEED_CHOMPERNUT,
 	SEED_EPHRAIM,  // second test plant, same plain-image path, for comparing sprite sources
+	SEED_SNIPER_FEMALE,
 	NUM_SEED_TYPES,
-	SEED_BEGHOULED_BUTTON_SHUFFLE,
+	SEED_BEGHOULED_BUTTON_SHUFFLE = 57, // Preserve existing non-plant seed IDs.
 	SEED_BEGHOULED_BUTTON_CRATER,
 	SEED_SLOT_MACHINE_SUN,
 	SEED_SLOT_MACHINE_DIAMOND,
@@ -1124,8 +1128,8 @@ enum SeedType : int32_t
 	SEED_ZOMBIE_DANCER,
 	SEED_ZOMBIE_GARGANTUAR,
 	SEED_ZOMBIE_IMP,
-	// The chooser contains the 50 stock entries plus Ephraim.
-	NUM_SEEDS_IN_CHOOSER = 51,
+	// The chooser contains the 50 stock entries plus Ephraim and Female Sniper.
+	NUM_SEEDS_IN_CHOOSER = 52,
 	SEED_NONE = -1
 };
 enum ShieldType : int32_t

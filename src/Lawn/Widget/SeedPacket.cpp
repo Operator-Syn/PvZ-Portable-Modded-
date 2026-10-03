@@ -262,7 +262,23 @@ void SeedPacketDrawSeed(Graphics* g, float x, float y, SeedType theSeedType, See
 		aImage = FilterEffectGetImage(aImage, aFilterEffect);
 	}
 
-	if (aSeedType == SeedType::SEED_EPHRAIM)
+	if (aSeedType == SeedType::SEED_SNIPER_FEMALE)
+	{
+		Image* aPortrait = IMAGE_SNIPER_FEMALE_PLANT;
+		if (aPortrait == nullptr)
+			return;
+		if (theSeedType == SeedType::SEED_IMITATER)
+			aPortrait = FilterEffectGetImage(aPortrait, FilterEffect::FILTER_EFFECT_WASHED_OUT);
+		// First pose's opaque bounds in the padded idle cel: 27x48.
+		const Rect aSource(18, 16, 27, 48);
+		const Rect aDest(FloatRoundToInt(x + 14.0f * g->mScaleX),
+			FloatRoundToInt(y + 10.0f * g->mScaleY),
+			FloatRoundToInt(25.0f * g->mScaleX), FloatRoundToInt(44.0f * g->mScaleY));
+		Graphics aPortraitG(*g);
+		aPortraitG.SetFastStretch(true);
+		aPortraitG.DrawImageMirror(aPortrait, aDest, aSource, true);
+	}
+	else if (aSeedType == SeedType::SEED_EPHRAIM)
 	{
 		Image* aPortrait = IMAGE_EPHRAIM_PLANT;
 		if (aPortrait == nullptr)

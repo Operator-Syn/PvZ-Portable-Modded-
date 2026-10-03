@@ -16,7 +16,7 @@ A **cross-platform** community-driven reimplementation of Plants vs. Zombies: Ga
 
 **⚠️ Notice:**
 
-* This repository does **NOT** contain any copyrighted game assets (such as images, music, or fonts) owned by PopCap Games or Electronic Arts. Users must provide their own `main.pak` and `properties/` folder from a **legally purchased copy** of Plants vs. Zombies: GOTY Edition.
+* Game assets (including `main.pak`, `properties/`, and any resource ZIP bundle) retain their original owners and licenses; the code license does not grant redistribution rights for them. Use resources from a **legally purchased copy** of Plants vs. Zombies: GOTY Edition and only distribute bundles you have permission to redistribute.
 * The codebase is a manual reimplementation derived from community research (such as [植物大战僵尸吧](https://tieba.baidu.com/f?ie=utf-8&kw=%E6%A4%8D%E7%89%A9%E5%A4%A7%E6%88%98%E5%83%B5%E5%B0%B8), [PVZ Wiki](https://wiki.pvz1.com/doku.php?id=home) and [PvZ Tools](https://pvz.tools/memory/)). It is written to utilize portable backends like SDL2 and OpenGL ES 2.0 (with desktop OpenGL 2.1 fallback). The author (wszqkzqk) **NEVER reverse engineered** the program; the author wrote it solely based on publicly available information and game testing. Also, code generated directly through reverse engineering will **not be accepted**.
 * This project is intended solely for **educational purposes**, focusing on **cross-platform porting techniques**, engine modernization, and learning how classic game logic can be adapted to various hardware architectures.
 * Non-Commercial: This project is not affiliated with, authorized, or endorsed by PopCap Games or Electronic Arts.
@@ -64,6 +64,25 @@ This project supports the following platforms (including but not limited to):
 | Nintendo Switch | sdmc:/switch/PvZPortable | Works on real hardware. Kenji-NX crashes on boot.                           |
 
 To play the game, you need the game data from PvZ GOTY. Place `main.pak` and the `properties/` folder next to the `pvz-portable` executable (the game will search for resources relative to the executable's directory). You can also use extracted data instead of `main.pak` if you prefer.
+
+### Resource ZIP and automatic build extraction
+
+`game-resources.zip` bundles `main.pak` and the complete `properties/` directory, including the custom plant sprite sheets and generated atlases. Keep extracted game files out of Git; update the ZIP after changing local assets:
+
+```sh
+python3 scripts/game_resources.py pack
+```
+
+When this ZIP exists, CMake restores missing resource files into the source directory during configuration and before building `pvz-portable`. Python 3.7 or newer is required on the build host and is included in the repository Nix shell. Files already present are preserved, including local asset edits; extraction also restores individual missing files from a partially extracted bundle. ZIP paths are restricted to `main.pak` and `properties/`, and traversal paths, symlinks and duplicate entries are rejected.
+
+To extract manually:
+
+```sh
+python3 scripts/game_resources.py unpack
+./build/pvz-portable -resdir "$PWD"
+```
+
+`PVZ_RESOURCE_ARCHIVE` selects a different ZIP path. Set `-DPVZ_AUTO_EXTRACT_RESOURCES=OFF` to disable automatic extraction. Without a ZIP, configuration retains the existing user-provided-resource workflow. Assets are restored into the source directory; packaged executables still need their resources supplied through the platform-specific runtime locations above.
 
 Note about writable data and caches:
 

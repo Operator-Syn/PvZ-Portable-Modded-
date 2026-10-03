@@ -34,6 +34,7 @@
               gcc
               clang-tools
               pkg-config
+              python3
             ];
 
             buildInputs = cmakePrefixes;

@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.12...4.0)
 
 project(pvz-portable LANGUAGES C CXX)
 
+include(CMake/GameResources.cmake)
+
 option(PVZ_BUILD_TESTS "Build asset-free gameplay and save-format regression tests" OFF)
 
 include(CMake/ProjectVersion.cmake)
@@ -207,6 +209,10 @@ target_compile_definitions(pvz-portable PRIVATE
 )
 target_compile_features(pvz-portable PRIVATE cxx_std_20)
 set_target_properties(pvz-portable PROPERTIES CXX_EXTENSIONS OFF)
+
+if(TARGET pvz-resources)
+	add_dependencies(pvz-portable pvz-resources)
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	target_compile_options(pvz-portable PRIVATE -fno-omit-frame-pointer)

@@ -22,6 +22,7 @@
 #include "Music.h"
 #include "SaveGame.h"
 #include "../Board/Board.h"
+#include "../Zombie/ZombieStrengthRules.h"
 #include "../Modes/Challenge.h"
 #include "../Widget/SeedPacket.h"
 #include "../../LawnApp.h"
@@ -44,6 +45,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <limits>
 #include <type_traits>
 #include <vector>
 
@@ -52,6 +54,30 @@
 
 namespace SaveGameInternal
 {
+// Keep existing SAVE3/SAVE4 non-plant seed wire IDs 57..77 stable while
+// appending Serra to the contiguous runtime plant table. Her new wire ID is 78.
+static void SyncEnum32(PortableSaveContext& theContext, SeedType& theValue)
+{
+	int32_t aValue = static_cast<int32_t>(theValue);
+	if (!theContext.mReading)
+	{
+		if (theValue == SeedType::SEED_SERRA_BISHOP)
+			aValue = 78;
+		else if (theValue >= SeedType::SEED_BEGHOULED_BUTTON_SHUFFLE && theValue <= SeedType::SEED_ZOMBIE_IMP)
+			--aValue;
+	}
+	theContext.SyncInt32(aValue);
+	if (theContext.mReading)
+	{
+		if (aValue == 78)
+			theValue = SeedType::SEED_SERRA_BISHOP;
+		else if (aValue >= 57 && aValue <= 77)
+			theValue = static_cast<SeedType>(aValue + 1);
+		else
+			theValue = static_cast<SeedType>(aValue);
+	}
+}
+
 enum SaveChunkTypeV4
 {
 	SAVE4_CHUNK_BOARD_BASE = 1,
@@ -617,12 +643,25 @@ static void SyncPlantTailPortable(PortableSaveContext& theContext, Plant& thePla
 
 	if (theContext.mReading)
 	{
+		// Older Serra saves contain production casts only; do not emit sun twice.
+		if (thePlant.mSeedType == SeedType::SEED_SERRA_BISHOP)
+		{
+			const int aSet = thePlant.mAnimPing ? 1 : 0;
+			thePlant.mSerraSunPending = thePlant.mShootingCounter > 0 &&
+				Plant::SERRA_SEQUENCE_DURATION_TICKS[aSet] - thePlant.mShootingCounter <= Plant::SERRA_SUN_RELEASE_TICKS[aSet];
+		}
 		// Upgrade the earlier rendering-only sniper saved as a non-shooter.
 		if (thePlant.mSeedType == SeedType::SEED_SNIPER_FEMALE && thePlant.mLaunchRate == 0)
 		{
 			thePlant.mSubclass = PlantSubClass::SUBCLASS_SHOOTER;
 			thePlant.mLaunchRate = GetPlantDefinition(SeedType::SEED_SNIPER_FEMALE).mLaunchRate;
 			thePlant.mLaunchCounter = 0;
+		}
+		if (thePlant.mSeedType == SeedType::SEED_EPHRAIM && thePlant.mPlantMaxHealth == 3500)
+		{
+			thePlant.mPlantHealth = static_cast<int32_t>(std::clamp<int64_t>(
+				static_cast<int64_t>(thePlant.mPlantHealth) * Plant::EPHRAIM_MAX_HEALTH / 3500, 0, Plant::EPHRAIM_MAX_HEALTH));
+			thePlant.mPlantMaxHealth = Plant::EPHRAIM_MAX_HEALTH;
 		}
 		int aLegacyMaxHealth = 0;
 		if (thePlant.mSeedType == SeedType::SEED_SPIKEWEED)
@@ -1286,15 +1325,27 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 				aZombie.mEphraimStaggerCounter = 0;
 			if (!(aZombie.mContinuousHealthRemainder > -1.0f && aZombie.mContinuousHealthRemainder < 1.0f))
 				aZombie.mContinuousHealthRemainder = 0.0f;
-			if (aZombie.mTierBucketArmorHealth < 0 || aZombie.mTierBucketArmorMaxHealth < 0 ||
-				aZombie.mTierBucketArmorMaxHealth > 1100 * 124 ||
-				aZombie.mTierBucketArmorHealth > aZombie.mTierBucketArmorMaxHealth ||
-				theBoard->mZombieStrengthTier < 5 || aZombie.mZombieType == ZombieType::ZOMBIE_BUNGEE)
-			{
-				aZombie.mTierBucketArmorHealth = 0;
-				aZombie.mTierBucketArmorMaxHealth = 0;
-			}
 		});
+	if (theContext.mReading)
+	{
+		// Validate only after type, armor and durability fields have all been read.
+		for (Zombie* aZombie : theBoard->mZombies)
+		{
+			const int aMaxTier = ZombieStrengthRules::ZombieStrengthTierForSun(std::numeric_limits<int>::max());
+			const int aMaxMultiplier = ZombieStrengthRules::ZombieHealthMultiplierForZombie(
+				aZombie->mZombieType, aZombie->mZombiePhase, aMaxTier);
+			const int64_t aArmorLimit = static_cast<int64_t>(1100) * aMaxMultiplier * 3 / 2;
+			if (aZombie->mTierBucketArmorHealth < 0 || aZombie->mTierBucketArmorMaxHealth < 0 ||
+				aZombie->mTierBucketArmorMaxHealth > aArmorLimit ||
+				aZombie->mTierBucketArmorHealth > aZombie->mTierBucketArmorMaxHealth ||
+				theBoard->mZombieStrengthTier < 5 || aZombie->mZombieType == ZombieType::ZOMBIE_BUNGEE)
+			{
+				aZombie->mTierBucketArmorHealth = 0;
+				aZombie->mTierBucketArmorMaxHealth = 0;
+			}
+			theBoard->EnsureZombieTierBucketArmor(aZombie);
+		}
+	}
 }
 
 static void SyncEphraimAfterimagePortable(PortableSaveContext& c, Plant::EphraimAfterimage& theEcho)
@@ -1353,6 +1404,25 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 				}
 			});
 			AppendFieldWithSync(aOut, 117U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mSniperHitStopCounter); });
+			AppendFieldWithSync(aOut, 121U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mSniperCoffeeTicksRemaining); });
+			AppendFieldWithSync(aOut, 118U, [&](PortableSaveContext& c)
+			{
+				c.SyncInt32(aPlant.mSniperHomeRow);
+				c.SyncInt32(aPlant.mSniperDodgeStartY);
+				c.SyncInt32(aPlant.mSniperDodgeTicksRemaining);
+				c.SyncInt32(aPlant.mSniperDodgeDurationTicks);
+			});
+			AppendFieldWithSync(aOut, 120U, [&](PortableSaveContext& c)
+			{
+				c.SyncInt32(aPlant.mSerraHealCooldown);
+				c.SyncBool(aPlant.mSerraSunPending);
+				c.SyncInt32(aPlant.mSerraBlessingTicksRemaining);
+			});
+			AppendFieldWithSync(aOut, 119U, [&](PortableSaveContext& c)
+			{
+				c.SyncInt32(aPlant.mSniperDestinationRow);
+				c.SyncInt32(aPlant.mSniperDodgeFromRow);
+			});
 			AppendFieldWithSync(aOut, 108U, [&](PortableSaveContext& c){ c.SyncFloat(aPlant.mContinuousHealthRemainder); });
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Plant& aPlant)
@@ -1467,6 +1537,57 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 				}))
 					theContext.mFailed = true;
 			}
+			else if (aFieldId == 121U)
+			{
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
+				{
+					c.SyncInt32(aPlant.mSniperCoffeeTicksRemaining);
+					if (aPlant.mSniperCoffeeTicksRemaining < 0 || aPlant.mSniperCoffeeTicksRemaining > Plant::SNIPER_COFFEE_DURATION_TICKS)
+						c.mFailed = true;
+				}))
+					theContext.mFailed = true;
+			}
+			else if (aFieldId == 120U)
+			{
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
+				{
+					c.SyncInt32(aPlant.mSerraHealCooldown);
+					c.SyncBool(aPlant.mSerraSunPending);
+					c.SyncInt32(aPlant.mSerraBlessingTicksRemaining);
+					if (aPlant.mSerraHealCooldown < 0 || aPlant.mSerraHealCooldown > Plant::SERRA_HEAL_COOLDOWN_TICKS ||
+						aPlant.mSerraBlessingTicksRemaining < 0 || aPlant.mSerraBlessingTicksRemaining > Plant::SERRA_BLESSING_DURATION_TICKS)
+						c.mFailed = true;
+				}))
+					theContext.mFailed = true;
+			}
+			else if (aFieldId == 119U)
+			{
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
+				{
+					c.SyncInt32(aPlant.mSniperDestinationRow);
+					c.SyncInt32(aPlant.mSniperDodgeFromRow);
+					if (aPlant.mSniperDestinationRow < -1 || aPlant.mSniperDestinationRow >= MAX_GRID_SIZE_Y ||
+						aPlant.mSniperDodgeFromRow < -1 || aPlant.mSniperDodgeFromRow >= MAX_GRID_SIZE_Y)
+						c.mFailed = true;
+				}))
+					theContext.mFailed = true;
+			}
+			else if (aFieldId == 118U)
+			{
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
+				{
+					c.SyncInt32(aPlant.mSniperHomeRow);
+					c.SyncInt32(aPlant.mSniperDodgeStartY);
+					c.SyncInt32(aPlant.mSniperDodgeTicksRemaining);
+					c.SyncInt32(aPlant.mSniperDodgeDurationTicks);
+					if (aPlant.mSniperHomeRow < -1 || aPlant.mSniperHomeRow >= MAX_GRID_SIZE_Y ||
+						aPlant.mSniperDodgeDurationTicks < 0 || aPlant.mSniperDodgeDurationTicks > Plant::SNIPER_MAX_DODGE_TICKS ||
+						aPlant.mSniperDodgeTicksRemaining < 0 || aPlant.mSniperDodgeTicksRemaining > aPlant.mSniperDodgeDurationTicks ||
+						std::abs(static_cast<int64_t>(aPlant.mSniperDodgeStartY)) > 2 * BOARD_HEIGHT)
+						c.mFailed = true;
+				}))
+					theContext.mFailed = true;
+			}
 			else if (aFieldId == 117U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mSniperHitStopCounter); });
 			else if (aFieldId == 108U)
@@ -1542,6 +1663,11 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 			AppendFieldWithSync(aOut, 110U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mEphraimChargedJavelin); });
 			AppendFieldWithSync(aOut, 111U, [&](PortableSaveContext& c){ SyncEnumU32(c, aProjectile.mSniperSourcePlantID); });
 			AppendFieldWithSync(aOut, 112U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mSniperCriticalArrow); });
+			AppendFieldWithSync(aOut, 114U, [&](PortableSaveContext& c)
+			{
+				SyncEnumU32(c, aProjectile.mSourceZombieID);
+				SyncEnum32(c, aProjectile.mSourceZombieType);
+			});
 			AppendFieldWithSync(aOut, 113U, [&](PortableSaveContext& c)
 			{
 				uint32_t aCount = static_cast<uint32_t>(aProjectile.mSniperPiercedZombieIDs.size());
@@ -1585,6 +1711,18 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncEnumU32(c, aProjectile.mSniperSourcePlantID); });
 			else if (aFieldId == 112U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mSniperCriticalArrow); });
+			else if (aFieldId == 114U)
+			{
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
+				{
+					SyncEnumU32(c, aProjectile.mSourceZombieID);
+					SyncEnum32(c, aProjectile.mSourceZombieType);
+					if (aProjectile.mSourceZombieType != ZombieType::ZOMBIE_INVALID &&
+						(aProjectile.mSourceZombieType < 0 || aProjectile.mSourceZombieType >= ZombieType::NUM_ZOMBIE_TYPES))
+						c.mFailed = true;
+				}))
+					theContext.mFailed = true;
+			}
 			else if (aFieldId == 113U)
 			{
 				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)

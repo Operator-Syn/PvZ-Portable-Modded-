@@ -377,7 +377,11 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 				Plant* aAffectedPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aAffectedPlantID));
 				if (aAffectedPlant == nullptr || aAffectedPlant->mDead)
 					continue;
-				if (aAffectedPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
+				if (aAffectedPlant->mSeedType == SeedType::SEED_SNIPER_FEMALE)
+				{
+					aAffectedPlant->mSniperCoffeeTicksRemaining = Plant::SNIPER_COFFEE_DURATION_TICKS;
+				}
+				else if (aAffectedPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
 				{
 					aAffectedPlant->StartSunMagnetCoffeeBoost();
 				}

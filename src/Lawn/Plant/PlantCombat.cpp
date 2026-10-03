@@ -88,6 +88,8 @@ int Plant::GetDamageRangeFlags(PlantWeapon thePlantWeapon)
 		return 9;
 	case SeedType::SEED_CATTAIL:
 		return 11;
+	case SeedType::SEED_EPHRAIM:
+		return (1U << DamageRangeFlags::DAMAGES_GROUND) | (1U << DamageRangeFlags::DAMAGES_FLYING);
 	case SeedType::SEED_TANGLEKELP:
 		return 5;
 	case SeedType::SEED_GIANT_WALLNUT:
@@ -102,11 +104,43 @@ bool Plant::IsOnHighGround()
 	return mBoard && mBoard->mGridSquareType[mPlantCol][mRow] == GridSquareType::GRIDSQUARE_HIGH_GROUND;
 }
 
-void Plant::SpikyTakeDamage()
+void Plant::LogDamage(int theHealthBefore, std::string_view theCause, Zombie* theSource, Projectile* theProjectile, bool theDestroyed)
+{
+	if (mBoard == nullptr)
+		return;
+	const int aEffectiveAfter = theDestroyed ? 0 : std::max(0, mPlantHealth);
+	const int aDamage = std::max(0, theHealthBefore - aEffectiveAfter);
+	if (aDamage == 0)
+		return;
+	const ZombieType aSourceType = theSource != nullptr ? theSource->mZombieType :
+		(theProjectile != nullptr ? theProjectile->mSourceZombieType : ZombieType::ZOMBIE_INVALID);
+	const unsigned int aSourceID = theSource != nullptr ? mBoard->mZombies.DataArrayGetID(theSource) :
+		(theProjectile != nullptr ? static_cast<unsigned int>(theProjectile->mSourceZombieID) : 0U);
+	PvzpLogLn("[damage] tick={} cause={} source_kind={} source=\"{}\" source_id={} source_type={} source_row={} "
+		"projectile_id={} projectile_type={} target=\"{}\" target_id={} target_seed={} target_row={} target_col={} target_x={} target_y={} "
+		"hp_before={} hp_after={} stored_hp_after={} hp_max={} hp_percent_before={:.2f} hp_percent_after={:.2f} damage={} raw_damage={} "
+		"overkill={} destroyed={} squished={} sun_balance={}",
+		mBoard->mMainCounter, theCause, theProjectile != nullptr ? "zombie_projectile" : (theSource != nullptr ? "zombie" : "effect"),
+		aSourceType >= 0 && aSourceType < ZombieType::NUM_ZOMBIE_TYPES ? std::string_view(GetZombieDefinition(aSourceType).mZombieName) :
+			(theProjectile != nullptr ? std::string_view("unrecorded_zombie") : theCause), aSourceID,
+		static_cast<int>(aSourceType), theSource != nullptr ? theSource->mRow : -1,
+		theProjectile != nullptr ? mBoard->mProjectiles.DataArrayGetID(theProjectile) : 0U,
+		theProjectile != nullptr ? static_cast<int>(theProjectile->mProjectileType) : -1,
+		GetNameString(mSeedType, mImitaterType), mBoard->mPlants.DataArrayGetID(this), static_cast<int>(mSeedType), mRow, mPlantCol, mX, mY,
+		theHealthBefore, aEffectiveAfter, mPlantHealth, mPlantMaxHealth,
+		mPlantMaxHealth > 0 ? 100.0f * theHealthBefore / mPlantMaxHealth : 0.0f,
+		mPlantMaxHealth > 0 ? 100.0f * aEffectiveAfter / mPlantMaxHealth : 0.0f,
+		aDamage, theDestroyed ? theHealthBefore : theHealthBefore - mPlantHealth, theDestroyed ? 0 : std::max(0, -mPlantHealth),
+		theDestroyed || mPlantHealth <= 0, mSquished, mBoard->mSunMoney);
+}
+
+void Plant::SpikyTakeDamage(Zombie* theSource)
 {
 	SpikeweedAttack();
 
+	const int aHealthBefore = mPlantHealth;
 	mPlantHealth -= 50;
+	LogDamage(aHealthBefore, "spike_contact", theSource);
 	if (mSeedType == SeedType::SEED_SPIKEROCK)
 	{
 		Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
@@ -122,12 +156,14 @@ void Plant::SpikyTakeDamage()
 	}
 }
 
-void Plant::GargantuarSmashTakeDamage()
+void Plant::GargantuarSmashTakeDamage(Zombie* theSource)
 {
-	if (!IsTallNut())
+	if (!HasTallNutDefense())
 		return;
 
+	const int aHealthBefore = mPlantHealth;
 	mPlantHealth -= 50;
+	LogDamage(aHealthBefore, "gargantuar_smash", theSource);
 	mRecentlyEatenCountdown = 50;
 	if (mPlantHealth <= 0)
 	{
@@ -149,6 +185,33 @@ bool Plant::IsChomper() const
 bool Plant::IsTallNut() const
 {
 	return mSeedType == SeedType::SEED_TALLNUT || mSeedType == SeedType::SEED_CHOMPERNUT;
+}
+
+bool Plant::HasTallNutDefense() const
+{
+	return IsTallNut() || mSeedType == SeedType::SEED_EPHRAIM;
+}
+
+void Plant::ApplyEphraimHitEffects(Zombie* theZombie)
+{
+	if (theZombie == nullptr || theZombie->IsDeadOrDying() || !theZombie->CanBeTargetedByPlants())
+		return;
+	if (theZombie->mZombieType == ZombieType::ZOMBIE_BALLOON &&
+		theZombie->mZombiePhase == ZombiePhase::PHASE_BALLOON_FLYING)
+	{
+		theZombie->mFlyingHealth = 0;
+		theZombie->LandFlyer(0U);
+	}
+	if (!theZombie->IsDeadOrDying() && !theZombie->mFlatTires &&
+		(theZombie->mZombieType == ZombieType::ZOMBIE_ZAMBONI || theZombie->mZombieType == ZombieType::ZOMBIE_CATAPULT) &&
+		Rand(100) < EPHRAIM_TIRE_POP_CHANCE_PERCENT)
+	{
+		theZombie->mFlatTires = true;
+		if (theZombie->mZombieType == ZombieType::ZOMBIE_ZAMBONI)
+			theZombie->ZamboniDeath(1U << DamageFlags::DAMAGE_SPIKE);
+		else
+			theZombie->CatapultDeath(1U << DamageFlags::DAMAGE_SPIKE);
+	}
 }
 
 void Plant::DoRowAreaDamage(int theDamage, unsigned int theDamageFlags)
@@ -180,7 +243,7 @@ void Plant::DoRowAreaDamage(int theDamage, unsigned int theDamageFlags)
 				{
 					aDamage = 1800;
 
-					SpikyTakeDamage();
+					SpikyTakeDamage(aZombie);
 				}
 
 				aZombie->TakeDamage(aDamage, theDamageFlags);
@@ -216,7 +279,7 @@ void Plant::RemoveEffects()
 	mApp->RemoveReanimation(mSleepingReanimID);
 }
 
-void Plant::Squish()
+void Plant::Squish(Zombie* theSource, std::string_view theCause)
 {
 	if (NotOnGround())
 		return;
@@ -241,6 +304,7 @@ void Plant::Squish()
 
 	mRenderOrder = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_GRAVE_STONE, mRow, 8);
 	mSquished = true;
+	LogDamage(mPlantHealth, theCause, theSource, nullptr, true);
 	mDisappearCountdown = 500;
 	mApp->PlayFoley(FoleyType::FOLEY_SQUISH);
 	RemoveEffects();

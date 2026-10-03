@@ -73,6 +73,8 @@ public:
 	float                   mCobTargetX;          // Wintermelon bonus-volley X offset when not used by Cob Cannon
 	int32_t                 mCobTargetRow;        // Wintermelon bonus-volley Y offset when not used by Cob Cannon
 	ZombieID                mTargetZombieID;
+	ZombieID                mSourceZombieID = ZombieID::ZOMBIEID_NULL;
+	ZombieType              mSourceZombieType = ZombieType::ZOMBIE_INVALID;
 	int32_t                 mLastPortalX;
 	bool                    mTargetTrackingEnded;
 	int32_t                 mCattailRedirectionCount = 0;

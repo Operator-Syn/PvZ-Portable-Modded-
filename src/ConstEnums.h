@@ -261,7 +261,8 @@ enum DamageFlags : int32_t
 	DAMAGE_DOESNT_LEAVE_BODY = 4,
 	DAMAGE_SPIKE = 5,
 	// Bit 6 is already included in legacy 127U damage masks.
-	DAMAGE_SNIPER_ARROW = 7
+	DAMAGE_SNIPER_ARROW = 7,
+	DAMAGE_SNIPER_DOT = 8
 };
 enum DamageRangeFlags : int32_t
 {
@@ -1106,8 +1107,9 @@ enum SeedType : int32_t
 	SEED_CHOMPERNUT,
 	SEED_EPHRAIM,  // second test plant, same plain-image path, for comparing sprite sources
 	SEED_SNIPER_FEMALE,
+	SEED_SERRA_BISHOP,
 	NUM_SEED_TYPES,
-	SEED_BEGHOULED_BUTTON_SHUFFLE = 57, // Preserve existing non-plant seed IDs.
+	SEED_BEGHOULED_BUTTON_SHUFFLE = 58, // Portable saves retain the older wire IDs.
 	SEED_BEGHOULED_BUTTON_CRATER,
 	SEED_SLOT_MACHINE_SUN,
 	SEED_SLOT_MACHINE_DIAMOND,
@@ -1128,8 +1130,8 @@ enum SeedType : int32_t
 	SEED_ZOMBIE_DANCER,
 	SEED_ZOMBIE_GARGANTUAR,
 	SEED_ZOMBIE_IMP,
-	// The chooser contains the 50 stock entries plus Ephraim and Female Sniper.
-	NUM_SEEDS_IN_CHOOSER = 52,
+	// The chooser contains the 50 stock entries plus three custom plants.
+	NUM_SEEDS_IN_CHOOSER = 53,
 	SEED_NONE = -1
 };
 enum ShieldType : int32_t

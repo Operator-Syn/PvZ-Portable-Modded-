@@ -129,11 +129,45 @@ static float GetPlantHealingAmount(Board* theBoard, Plant* thePlant, float theBa
 
 void PlantHealing::HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmount)
 {
+	HealPlant(theBoard, thePlant, theBaseAmount, std::numeric_limits<int>::max());
+}
+
+int PlantHealing::HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmount, int theMaxBaseHealing, HealingAudit* theAudit)
+{
 	if (!PlantHealing::PlantCanRegenerate(thePlant))
-		return;
-	float aHealingAmount = GetPlantHealingAmount(theBoard, thePlant, theBaseAmount) + thePlant->mContinuousHealthRemainder;
-	int aWholeHealing = static_cast<int>(aHealingAmount);
+		return 0;
+	const int aOldHealth = thePlant->mPlantHealth;
+	const int aHealingLimit = thePlant->mPlantMaxHealth - aOldHealth;
+	const bool aIsBudgeted = theMaxBaseHealing != std::numeric_limits<int>::max();
+	const float aFundedBase = aIsBudgeted ?
+		std::min(theBaseAmount, static_cast<float>(std::max(0, std::min(theMaxBaseHealing, aHealingLimit)))) : theBaseAmount;
+	const float aModifiedAmount = GetPlantHealingAmount(theBoard, thePlant, theBaseAmount);
+	float aHealingAmount = aModifiedAmount + thePlant->mContinuousHealthRemainder;
+	const float aFundedAmount = GetPlantHealingAmount(theBoard, thePlant, aFundedBase) + thePlant->mContinuousHealthRemainder;
+	if (theAudit != nullptr)
+	{
+		*theAudit = {};
+		theAudit->mBaseAmount = theBaseAmount;
+		theAudit->mModifiedAmount = aModifiedAmount;
+		theAudit->mRequestedAmount = aHealingAmount;
+		theAudit->mHealthBefore = aOldHealth;
+		theAudit->mHealthAfter = aOldHealth;
+		theAudit->mMaxHealth = thePlant->mPlantMaxHealth;
+		theAudit->mRemainderBefore = thePlant->mContinuousHealthRemainder;
+		theAudit->mRemainderAfter = thePlant->mContinuousHealthRemainder;
+		theAudit->mOverflow = std::max(0.0f, aHealingAmount - (thePlant->mPlantMaxHealth - aOldHealth));
+		theAudit->mUnaffordable = std::max(0.0f,
+			std::min(aHealingAmount, static_cast<float>(aHealingLimit)) -
+			std::max(0.0f, std::min(aFundedAmount, static_cast<float>(aHealingLimit))));
+	}
+	if (theMaxBaseHealing <= 0)
+		return 0;
+	if (aIsBudgeted)
+		aHealingAmount = std::min(aFundedAmount, static_cast<float>(aHealingLimit));
+	int aWholeHealing = std::min(static_cast<int>(aHealingAmount), aHealingLimit);
 	thePlant->mContinuousHealthRemainder = aHealingAmount - aWholeHealing;
+	if (aIsBudgeted && aWholeHealing == aHealingLimit)
+		thePlant->mContinuousHealthRemainder = 0.0f;
 	thePlant->mPlantHealth = std::min(thePlant->mPlantHealth + aWholeHealing, thePlant->mPlantMaxHealth);
 	if (thePlant->mPlantHealth >= thePlant->mPlantMaxHealth && thePlant->mContinuousHealthRemainder > 0.0f)
 		thePlant->mContinuousHealthRemainder = 0.0f;
@@ -148,6 +182,17 @@ void PlantHealing::HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmou
 				thePlant->mPlantHealth > thePlant->mPlantMaxHealth / 3 ? RENDER_GROUP_NORMAL : RENDER_GROUP_HIDDEN);
 		}
 	}
+	if (theAudit != nullptr)
+	{
+		theAudit->mHealthAfter = thePlant->mPlantHealth;
+		theAudit->mRemainderAfter = thePlant->mContinuousHealthRemainder;
+		if (aIsBudgeted)
+		{
+			theAudit->mPaidBaseHealing = std::min(aWholeHealing, static_cast<int>(std::ceil(aFundedBase)));
+			theAudit->mBonusHealing = aWholeHealing - theAudit->mPaidBaseHealing;
+		}
+	}
+	return thePlant->mPlantHealth - aOldHealth;
 }
 
 void PlantHealing::ApplyPlantHealthRate(Plant* thePlant, float theHealthPerSecond)
@@ -449,6 +494,8 @@ void Board::ShowPlantHealGlow(Plant* thePlant)
 
 void Board::UpdatePlantHealGlows()
 {
+	if (mApp->mGameScene != GameScenes::SCENE_PLAYING || mApp->mSeedChooserScreen != nullptr)
+		return;
 	constexpr int aRegenerationDuration = 300;
 	if (mMainCounter % 100 == 99)
 	{

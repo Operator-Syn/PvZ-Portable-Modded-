@@ -207,10 +207,11 @@ void Zombie::UpdateZombiePogo()
 		mAltitude += HIGH_GROUND_HEIGHT;
 	}
 
-	if (mZombiePhase == ZombiePhase::PHASE_POGO_FORWARD_BOUNCE_2 && mPhaseCounter == 70)
+	// Keep checking through the forward jump if contact missed the original bonk tick.
+	if (mZombiePhase == ZombiePhase::PHASE_POGO_FORWARD_BOUNCE_2 && mPhaseCounter <= 70)
 	{
 		Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_VAULT);
-		if (aPlant && aPlant->IsTallNut())
+		if (aPlant && aPlant->HasTallNutDefense())
 		{
 			mApp->PlayFoley(FoleyType::FOLEY_BONK);
 			mApp->AddPvzpParticle(aPlant->mX + 60, aPlant->mY - 20, mRenderOrder + 1, ParticleEffect::PARTICLE_TALL_NUT_BLOCK);
@@ -285,7 +286,12 @@ void Zombie::UpdateZombieFlyer()
 	if (mZombiePhase == ZombiePhase::PHASE_BALLOON_POPPING)
 	{
 		Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
-		if (aBodyReanim->mLoopCount > 0)
+		int aPopStart, aPopCount;
+		aBodyReanim->GetFramesForLayer("anim_pop", aPopStart, aPopCount);
+		if (aBodyReanim->mFrameStart != aPopStart || aBodyReanim->mFrameCount != aPopCount)
+			PlayZombieReanim("anim_pop", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, 24.0f);
+		aBodyReanim->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
+		if (aBodyReanim->mLoopCount > 0 || aBodyReanim->mAnimTime >= 1.0f)
 		{
 			mZombiePhase = ZombiePhase::PHASE_BALLOON_WALKING;
 			StartWalkAnim(0);
@@ -363,7 +369,7 @@ void Zombie::UpdateZombiePolevaulter()
 		if (aBodyReanim->mAnimTime > 0.6f && aBodyReanim->mAnimTime <= 0.7f)
 		{
 			Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_VAULT);
-			if (aPlant && aPlant->IsTallNut())
+			if (aPlant && aPlant->HasTallNutDefense())
 			{
 				mApp->PlayFoley(FoleyType::FOLEY_BONK);
 				aJumpEnds = true;
@@ -784,6 +790,8 @@ void Zombie::UpdateZombieFalling()
 	{
 		mAltitude = aGroundHeight;
 		mZombieHeight = ZombieHeight::HEIGHT_ZOMBIE_NORMAL;
+		if (mSpawnedByZombieRain)
+			UpdateAnimSpeed();
 	}
 }
 
@@ -811,12 +819,21 @@ float Zombie::ZombieTargetLeadX(float theTime)
 
 bool Zombie::ZombieNotWalking()
 {
+	if (mSpawnedByZombieRain && mZombieHeight == ZombieHeight::HEIGHT_FALLING)
+		return true;
+	// A surviving plant still blocks the Gargantuar between consecutive smash cycles.
+	if ((mZombieType == ZombieType::ZOMBIE_GARGANTUAR || mZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR) &&
+		mZombiePhase == ZombiePhase::PHASE_ZOMBIE_NORMAL && !mMindControlled &&
+		mApp->mGameScene == GameScenes::SCENE_PLAYING && IsOnBoard() && mFromWave != Zombie::ZOMBIE_WAVE_WINNER &&
+		FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW) != nullptr)
+		return true;
 	if (mIsEating || IsImmobilizied())
 	{
 		return true;
 	}
 
-	if (mZombiePhase == ZombiePhase::PHASE_JACK_IN_THE_BOX_POPPING ||
+	if (mZombiePhase == ZombiePhase::PHASE_BALLOON_POPPING ||
+		mZombiePhase == ZombiePhase::PHASE_JACK_IN_THE_BOX_POPPING ||
 		mZombiePhase == ZombiePhase::PHASE_NEWSPAPER_MADDENING ||
 		mZombiePhase == ZombiePhase::PHASE_GARGANTUAR_THROWING ||
 		mZombiePhase == ZombiePhase::PHASE_GARGANTUAR_SMASHING ||

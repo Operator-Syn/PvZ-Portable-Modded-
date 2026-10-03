@@ -108,7 +108,7 @@ CoffeeBeanColumnPlan BuildCoffeeBeanColumnPlan(Board* theBoard, int theColumn)
 			continue;
 
 		PlantID aPlantID = static_cast<PlantID>(theBoard->mPlants.DataArrayGetID(aPlant));
-		if (aPlant->mSeedType == SeedType::SEED_SUN_MAGNET ||
+		if (aPlant->mSeedType == SeedType::SEED_SUN_MAGNET || aPlant->mSeedType == SeedType::SEED_SNIPER_FEMALE ||
 			(aPlant->mIsAsleep && aPlant->mWakeUpCounter == 0))
 		{
 			aPlan.mAffectedPlants.push_back(aPlantID);

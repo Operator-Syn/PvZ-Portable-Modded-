@@ -739,6 +739,9 @@ void Coin::UpdateCollected()
 
 void Coin::Update()
 {
+	if (IsSun() && mBoard != nullptr &&
+		(mApp->mGameScene != GameScenes::SCENE_PLAYING || mApp->mSeedChooserScreen != nullptr))
+		return;
 	mCoinAge++;
 	if (mApp->mGameScene != GameScenes::SCENE_PLAYING && mApp->mGameScene != GameScenes::SCENE_AWARD && mBoard && !mBoard->mCutScene->ShouldRunUpsellBoard())
 	{

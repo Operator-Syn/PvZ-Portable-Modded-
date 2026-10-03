@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <array>
 #include <string>
+#include <string_view>
 #include <vector>
 #include "../Entities/GameObject.h"
 
@@ -171,6 +172,7 @@ public:
 
 class Coin;
 class Zombie;
+class Projectile;
 class Reanimation;
 class PvzpParticleSystem;
 
@@ -233,6 +235,8 @@ public:
 	static constexpr int EPHRAIM_LANCE_IMPACT_FRAME = 2;
 	static constexpr int EPHRAIM_CRITICAL_LANCE_IMPACT_FRAME = 2;
 	static constexpr int EPHRAIM_HIT_STOP_TICKS = 46;
+	static constexpr int EPHRAIM_MAX_HEALTH = 6000;
+	static constexpr int EPHRAIM_TIRE_POP_CHANCE_PERCENT = 10;
 	static constexpr int EPHRAIM_ATTACK_DAMAGE = 80;
 	static constexpr int EPHRAIM_ATTACK_HEAL_PER_MILLE = 15;
 	// Lance, critical lance, javelin, critical javelin: heavier attacks hit harder.
@@ -279,6 +283,9 @@ public:
 	int32_t                 mPlantHealth;
 	int32_t                 mPlantMaxHealth;
 	float                   mContinuousHealthRemainder = 0.0f;
+	int32_t                 mSerraHealCooldown = 0;
+	bool                    mSerraSunPending = false;
+	int32_t                 mSerraBlessingTicksRemaining = 0;
 	int32_t                 mSubclass;
 	int32_t                 mDisappearCountdown;
 	int32_t                 mDoSpecialCountdown;
@@ -294,6 +301,13 @@ public:
 	int32_t                 mShootingCounter;
 	int32_t                 mEphraimAttackSet;
 	int32_t                 mSniperHitStopCounter = 0;
+	int32_t                 mSniperCoffeeTicksRemaining = 0;
+	int32_t                 mSniperHomeRow = -1;
+	int32_t                 mSniperDestinationRow = -1;
+	int32_t                 mSniperDodgeFromRow = -1;
+	int32_t                 mSniperDodgeStartY = 0;
+	int32_t                 mSniperDodgeTicksRemaining = 0;
+	int32_t                 mSniperDodgeDurationTicks = 0;
 	int32_t                 mEphraimHitStopCounter;
 	int32_t                 mEphraimAttackPauseFlags;
 	int32_t                 mEphraimAfterimageFrame;
@@ -382,12 +396,33 @@ public:
 	static Image*           GetImage(SeedType theSeedType);
 	static int              GetCost(SeedType theSeedType, SeedType theImitaterType = SeedType::SEED_NONE);
 	// Match the visible heights of the first idle cels: Ephraim 55px, sniper 48px.
-	static constexpr float SNIPER_FEMALE_DRAW_SCALE = EPHRAIM_DRAW_SCALE * 55.0f / 48.0f;
+	static constexpr int SERRA_STAFF_FRAME_COUNT = 5;
+	static constexpr int SERRA_CRITICAL_FRAME_COUNT = 17;
+	static constexpr int SERRA_HEAL_COOLDOWN_TICKS = 300;
+	static constexpr int SERRA_PRODUCTION_RATE_TICKS = 312;
+	static constexpr int SERRA_PRODUCTION_JITTER_TICKS = 75;
+	static constexpr int SERRA_HEAL_SUN_PER_HP = 50;
+	static constexpr int SERRA_BLESSING_FRAME_COUNT = 18;
+	static constexpr int SERRA_BLESSING_FRAME_TICKS = 7;
+	static constexpr int SERRA_BLESSING_DURATION_TICKS = SERRA_BLESSING_FRAME_COUNT * SERRA_BLESSING_FRAME_TICKS;
+	static constexpr std::array<int, 2> SERRA_SEQUENCE_DURATION_TICKS = { 100, 272 };
+	static constexpr std::array<int, 2> SERRA_SUN_RELEASE_TICKS = { 60, 144 };
+	static constexpr float SERRA_BISHOP_DRAW_SCALE = EPHRAIM_DRAW_SCALE * 55.0f / 33.0f * 0.85f * 0.90f;
+	static constexpr float SNIPER_FEMALE_DRAW_SCALE = EPHRAIM_DRAW_SCALE * 55.0f / 48.0f * 1.15f;
 	static constexpr int SNIPER_ARROW_WIDTH = 126;
 	static constexpr int SNIPER_ARROW_HEIGHT = 12;
 	static constexpr int SNIPER_ATTACK_DAMAGE = 60;
+	static constexpr int SNIPER_HOME_STACK_LIMIT = 5;
+	static constexpr int SNIPER_COFFEE_DURATION_TICKS = 700;
+	static constexpr int SNIPER_COFFEE_ATTACK_SPEED_MULTIPLIER = 3;
+	static constexpr int SNIPER_COFFEE_ARROW_SUN_COST = 300;
 	static constexpr int SNIPER_CRITICAL_DAMAGE_PERCENT = 300;
+	static constexpr int SNIPER_ARMOR_DAMAGE_PERCENT = 750;
+	static constexpr int SNIPER_BODY_DAMAGE_PERCENT = 185;
 	static constexpr int SNIPER_IDLE_FRAME_COUNT = 3;
+	static constexpr int SNIPER_DODGE_ATLAS_INDEX = 6;
+	static constexpr int SNIPER_DODGE_TICKS_PER_100_PIXELS = 30;
+	static constexpr int SNIPER_MAX_DODGE_TICKS = 180;
 	static constexpr int SNIPER_CRITICAL_ARROW_COUNT = 3;
 	// At 7px/tick, 23 ticks separate the 126px arrows by 161px center to center.
 	static constexpr int SNIPER_CRITICAL_ARROW_SPACING_TICKS = 23;
@@ -430,7 +465,8 @@ public:
 	static bool  IsFlying(SeedType theSeedtype);
 	static bool  IsUpgrade(SeedType theSeedtype);
 	void                    UpdateAbilities();
-	void                    Squish();
+	void                    Squish(Zombie* theSource = nullptr, std::string_view theCause = "squash");
+	void                    LogDamage(int theHealthBefore, std::string_view theCause, Zombie* theSource = nullptr, Projectile* theProjectile = nullptr, bool theDestroyed = false);
 	void                    DoRowAreaDamage(int theDamage, unsigned int theDamageFlags);
 	int                     GetDamageRangeFlags(PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY);
 	Rect                    GetPlantRect();
@@ -466,6 +502,12 @@ public:
 	void                    AnimateNuts();
 	void                    SetSleeping(bool theIsAsleep);
 	void                    UpdateShooting();
+	void                    UpdateSniperLaneMovement();
+	bool                    IsSniperMoving() const
+	{
+		return mSniperDodgeTicksRemaining > 0 ||
+			(mSniperDestinationRow >= 0 && mSniperDestinationRow != mRow);
+	}
 	void                    DrawShadow(Graphics* g, float theOffsetX, float theOffsetY);
 	void                    UpdateScaredyShroom();
 	int                     DistanceToClosestZombie();
@@ -484,6 +526,8 @@ public:
 	bool                    IsPartOfUpgradableTo(SeedType theUpgradedType);
 	bool                    IsChomper() const;
 	bool                    IsTallNut() const;
+	bool                    HasTallNutDefense() const;
+	static void             ApplyEphraimHitEffects(Zombie* theZombie);
 	void                    UpdateCobCannon();
 	void                    CobCannonFire(int theTargetX, int theTargetY);
 	void                    UpdateGoldMagnetShroom();
@@ -500,8 +544,8 @@ public:
 	void                    ImitaterMorph();
 	void                    UpdateImitater();
 	void                    UpdateReanim();
-	void                    SpikyTakeDamage();
-	void                    GargantuarSmashTakeDamage();
+	void                    SpikyTakeDamage(Zombie* theSource = nullptr);
+	void                    GargantuarSmashTakeDamage(Zombie* theSource = nullptr);
 	bool                    IsSpiky();
 	static void  PreloadPlantResources(SeedType theSeedType);
 	bool         IsInPlay();
@@ -513,6 +557,7 @@ public:
 	bool                    CollectSunMagnetCoin(Coin* theCoin);
 	bool                    IsAGoldMagnetAboutToSuck();
 	bool                    DrawMagnetItemsOnTop();
+	void                    DrawSerraBlessing(Graphics* g);
 };
 
 float                       PlantDrawHeightOffset(Board* theBoard, Plant* thePlant, SeedType theSeedType, int theCol, int theRow);
@@ -533,6 +578,9 @@ public:
 };
 extern const PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES];
 extern Image* gSniperFemalePlantImages[1];
+extern Image* gSerraBishopPlantImages[1];
+extern Image* gSerraBishopSequences[2];
+extern Image* gSerraDivineBlessing;
 extern Image* gEphraimPlantImages[1];  // test plant atlas; filled in during Init resource load
 
 const PlantDefinition& GetPlantDefinition(SeedType theSeedType);

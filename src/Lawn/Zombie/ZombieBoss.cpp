@@ -130,7 +130,7 @@ void Zombie::BossRVLanding()
 			continue;
 		if (aPlant->mRow >= mTargetRow && aPlant->mRow <= mTargetRow + 1 && aPlant->mPlantCol >= mTargetCol && aPlant->mPlantCol <= mTargetCol + 2)
 		{
-			aPlant->Squish();
+			aPlant->Squish(this, "boss_rv_landing");
 		}
 	}
 
@@ -274,7 +274,7 @@ void Zombie::BossStompContact()
 			continue;
 		if (aPlant->mRow >= mTargetRow && aPlant->mRow <= mTargetRow + 1 && aPlant->mPlantCol >= 5)
 		{
-			aPlant->Squish();
+			aPlant->Squish(this, "boss_stomp");
 		}
 	}
 

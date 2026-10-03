@@ -655,7 +655,7 @@ bool Board::IsIceAt(int theGridX, int theGridY)
 
 
 
-PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedType)
+PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedType, bool theSniperMovement)
 {
 	PlantingReason aCellReason = PlantingRules::ValidateCell(theGridX, theGridY, GetNumPlayableColumns(), MAX_GRID_SIZE_Y, theSeedType);
 	if (aCellReason != PlantingReason::PLANTING_OK)
@@ -669,6 +669,34 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 
 	PlantsOnLawn aPlantOnLawn;
 	GetPlantsOnLawn(theGridX, theGridY, &aPlantOnLawn);
+	if (theSniperMovement && theSeedType == SeedType::SEED_SNIPER_FEMALE)
+	{
+		// Only roaming snipers can share tiles; supports remain terrain checks.
+		for (Plant* aPlant : mPlants)
+		{
+			if (aPlant->mDead || aPlant->mSquished || aPlant->mPlantCol != theGridX || aPlant->mRow != theGridY)
+				continue;
+			if (aPlant->mSeedType != SeedType::SEED_SNIPER_FEMALE &&
+				aPlant->mSeedType != SeedType::SEED_LILYPAD && aPlant->mSeedType != SeedType::SEED_FLOWERPOT &&
+				aPlant->mSeedType != SeedType::SEED_PUMPKINSHELL)
+				return PlantingReason::PLANTING_NOT_HERE;
+		}
+		aPlantOnLawn.mNormalPlant = nullptr;
+	}
+	// Reserve a roaming sniper's home cell for her return, without making
+	// zombies see a second plant there through GetPlantsOnLawn.
+	if (!theSniperMovement && aPlantOnLawn.mNormalPlant == nullptr)
+	{
+		for (Plant* aPlant : mPlants)
+		{
+			if (!aPlant->mDead && !aPlant->mSquished && aPlant->mSeedType == SeedType::SEED_SNIPER_FEMALE &&
+				aPlant->mPlantCol == theGridX && aPlant->mSniperHomeRow == theGridY && aPlant->mRow != theGridY)
+			{
+				aPlantOnLawn.mNormalPlant = aPlant;
+				break;
+			}
+		}
+	}
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
 	{
 		if (aPlantOnLawn.mUnderPlant || aPlantOnLawn.mPumpkinPlant || aPlantOnLawn.mFlyingPlant || aPlantOnLawn.mNormalPlant)
@@ -708,6 +736,9 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 				(aClickedPlant->mIsAsleep && aClickedPlant->mWakeUpCounter == 0 &&
 				 aClickedPlant->mOnBungeeState != PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE);
 			PlantID aClickedPlantID = static_cast<PlantID>(mPlants.DataArrayGetID(aClickedPlant));
+			aClickedPlantIsEligible = aClickedPlantIsEligible ||
+				(aClickedPlant->mSeedType == SeedType::SEED_SNIPER_FEMALE &&
+				 std::find(aPlan.mAffectedPlants.begin(), aPlan.mAffectedPlants.end(), aClickedPlantID) != aPlan.mAffectedPlants.end());
 			aClickedPlantIsEligible = aClickedPlantIsEligible ||
 				std::find(aPlan.mPlanterns.begin(), aPlan.mPlanterns.end(), aClickedPlantID) != aPlan.mPlanterns.end();
 		}
@@ -861,6 +892,29 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 
 	if (aNormalPlant)
 	{
+		if (theSeedType == SeedType::SEED_SNIPER_FEMALE && aNormalPlant->mSeedType == SeedType::SEED_SNIPER_FEMALE)
+		{
+			// A visitor occupies this lane for combat, but does not own its
+			// planting slot. Check all residents and reservations in the stack.
+			int aHomeSnipers = 0;
+			for (Plant* aPlant : mPlants)
+			{
+				if (aPlant->mDead || aPlant->mSquished || aPlant->mPlantCol != theGridX)
+					continue;
+				if (aPlant->mSeedType == SeedType::SEED_SNIPER_FEMALE && aPlant->mSniperHomeRow == theGridY)
+					++aHomeSnipers;
+				if (aPlant->NotOnGround() || aPlant->mRow != theGridY)
+					continue;
+				const SeedType aSeedType = aPlant->mSeedType == SeedType::SEED_IMITATER ? aPlant->mImitaterType : aPlant->mSeedType;
+				if (Plant::IsFlying(aSeedType) || aSeedType == SeedType::SEED_FLOWERPOT ||
+					aSeedType == SeedType::SEED_PUMPKINSHELL ||
+					(aSeedType == SeedType::SEED_LILYPAD && mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN))
+					continue;
+				if (aPlant->mSeedType != SeedType::SEED_SNIPER_FEMALE || aPlant->mSniperHomeRow < 0)
+					return PlantingReason::PLANTING_NOT_HERE;
+			}
+			return aHomeSnipers < Plant::SNIPER_HOME_STACK_LIMIT ? PlantingReason::PLANTING_OK : PlantingReason::PLANTING_NOT_HERE;
+		}
 		bool aIsFumeGloomStack = PlantRules::IsFumeGloomStackType(aNormalPlant->mSeedType);
 		if (aIsFumeGloomStack &&
 			PlantRules::IsFumeGloomStackType(theSeedType))

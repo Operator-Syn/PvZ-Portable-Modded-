@@ -87,17 +87,32 @@ void Zombie::UpdateZombiePeaHead()
 		{
 			aOriginX += 90.0f * mScaleZombie;
 			Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_PEA);
+			if (aProjectile != nullptr)
+			{
+				aProjectile->mSourceZombieID = mBoard->ZombieGetID(this);
+				aProjectile->mSourceZombieType = mZombieType;
+			}
 			if (aProjectile)
 				aProjectile->mDamageRangeFlags = 1;
 		}
 		else
 		{
 			Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_ZOMBIE_PEA);
+			if (aProjectile != nullptr)
+			{
+				aProjectile->mSourceZombieID = mBoard->ZombieGetID(this);
+				aProjectile->mSourceZombieType = mZombieType;
+			}
 			if (aProjectile)
 				aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
 		}
 #else
 		Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_ZOMBIE_PEA);
+		if (aProjectile != nullptr)
+		{
+			aProjectile->mSourceZombieID = mBoard->ZombieGetID(this);
+			aProjectile->mSourceZombieType = mZombieType;
+		}
 		if (aProjectile)
 			aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
 #endif
@@ -210,17 +225,32 @@ void Zombie::UpdateZombieGatlingHead()
 		{
 			aOriginX += 90.0f * mScaleZombie;
 			Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_PEA);
+			if (aProjectile != nullptr)
+			{
+				aProjectile->mSourceZombieID = mBoard->ZombieGetID(this);
+				aProjectile->mSourceZombieType = mZombieType;
+			}
 			if (aProjectile)
 				aProjectile->mDamageRangeFlags = 1;
 		}
 		else
 		{
 			Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_ZOMBIE_PEA);
+			if (aProjectile != nullptr)
+			{
+				aProjectile->mSourceZombieID = mBoard->ZombieGetID(this);
+				aProjectile->mSourceZombieType = mZombieType;
+			}
 			if (aProjectile)
 				aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
 		}
 #else
 		Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_ZOMBIE_PEA);
+		if (aProjectile != nullptr)
+		{
+			aProjectile->mSourceZombieID = mBoard->ZombieGetID(this);
+			aProjectile->mSourceZombieType = mZombieType;
+		}
 		if (aProjectile)
 			aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
 #endif

@@ -781,10 +781,29 @@ void Plant::Animate()
 	}
 
 	UpdateBlink();
+	if (mSeedType == SeedType::SEED_SERRA_BISHOP)
+	{
+		const int aSet = mAnimPing ? 1 : 0;
+		const int aFrames = aSet == 0 ? SERRA_STAFF_FRAME_COUNT : SERRA_CRITICAL_FRAME_COUNT;
+		if (mShootingCounter > 0)
+			mFrame = std::clamp(
+				(SERRA_SEQUENCE_DURATION_TICKS[aSet] - mShootingCounter) * aFrames / SERRA_SEQUENCE_DURATION_TICKS[aSet], 0, aFrames - 1);
+		else
+		{
+			// Slowly use the complete staff row, with a resting beat before each loop.
+			static constexpr int IDLE_FRAMES[] = { 0, 0, 0, 1, 2, 3, 4 };
+			const uint32_t aCounter = IsOnBoard() ? mBoard->mMainCounter : mApp->mAppCounter;
+			mFrame = IDLE_FRAMES[(aCounter / 40) % 7];
+		}
+		return;
+	}
 	if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
 	{
 		const int aSet = mAnimPing ? 1 : 0;
-		if (mShootingCounter > 0)
+		if (IsSniperMoving())
+			mFrame = mSniperDodgeTicksRemaining > 0 ?
+				(mSniperDodgeDurationTicks - mSniperDodgeTicksRemaining) * 2 / mSniperDodgeDurationTicks : 1;
+		else if (mShootingCounter > 0)
 			mFrame = SniperAttackFrame(aSet, SNIPER_ATTACK_DURATION_TICKS[aSet] - mShootingCounter);
 		else
 		{

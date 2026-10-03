@@ -74,6 +74,27 @@ int Board::GetQuadraticZombieDamageMultiplier(const Zombie* theZombie, int theTa
 		theZombie == nullptr || theZombie->mZombieType == ZombieType::ZOMBIE_BUNGEE, theTargetCount);
 }
 
+void Board::EnsureZombieTierBucketArmor(Zombie* theZombie)
+{
+	if (theZombie == nullptr || !theZombie->IsOnBoard() || theZombie->IsDeadOrDying() ||
+		theZombie->mZombieType == ZombieType::ZOMBIE_BUNGEE ||
+		theZombie->mTierBucketArmorMaxHealth > 0 || theZombie->mTierBucketArmorHealth > 0 ||
+		mZombieStrengthTier < 5 ||
+		(mZombieStrengthTier < ZombieStrengthRules::TWO_AND_HALF_MILLION_ZOMBIE_TIER_INDEX &&
+		 (theZombie->mHelmType == HelmType::HELMTYPE_PAIL ||
+		  theZombie->mZombieType == ZombieType::ZOMBIE_PAIL ||
+		  theZombie->mZombieType == ZombieType::ZOMBIE_BULWARK_BUCKET ||
+		  theZombie->mZombieType == ZombieType::ZOMBIE_IMP)))
+		return;
+	const int aMultiplier = ZombieStrengthRules::ZombieHealthMultiplierForZombie(
+		theZombie->mZombieType, theZombie->mZombiePhase, mZombieStrengthTier);
+	int64_t aHealth = static_cast<int64_t>(1100) * aMultiplier;
+	if (theZombie->mThreeMillionSunDurabilityApplied)
+		aHealth = aHealth * 3 / 2;
+	theZombie->mTierBucketArmorMaxHealth = static_cast<int32_t>(std::min<int64_t>(aHealth, std::numeric_limits<int32_t>::max()));
+	theZombie->mTierBucketArmorHealth = theZombie->mTierBucketArmorMaxHealth;
+}
+
 void Board::ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier, int theToTier)
 {
 	if (theZombie == nullptr || theFromTier == theToTier)

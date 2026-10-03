@@ -224,7 +224,9 @@ void Projectile::CheckForCollision()
 		if (aPlant)
 		{
 			const ProjectileDefinition& aProjectileDef = GetProjectileDef();
+			const int aHealthBefore = aPlant->mPlantHealth;
 			aPlant->mPlantHealth -= aProjectileDef.mDamage;
+			aPlant->LogDamage(aHealthBefore, "zombotany_pea", mBoard->ZombieTryToGet(mSourceZombieID), this);
 			aPlant->mEatenFlashCountdown = std::max(aPlant->mEatenFlashCountdown, 25);
 
 			mApp->PlayFoley(FoleyType::FOLEY_SPLAT);

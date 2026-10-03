@@ -78,6 +78,11 @@ void Zombie::ZombieCatapultFire(Plant* thePlant)
 	mApp->PlayFoley(FoleyType::FOLEY_BASKETBALL);
 
 	Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_BASKETBALL);
+	if (aProjectile != nullptr)
+	{
+		aProjectile->mSourceZombieID = mBoard->ZombieGetID(this);
+		aProjectile->mSourceZombieType = mZombieType;
+	}
 	if (aProjectile == nullptr)
 		return;
 	float aRangeX = aOriginX - aTargetX - 20.0f;

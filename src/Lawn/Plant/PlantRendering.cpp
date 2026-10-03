@@ -584,7 +584,7 @@ void Plant::Draw(Graphics* g)
 	int aImageIndex = mFrame;
 	int aImageCol = aImageIndex;
 	int aImageRow = 0;
-	uint32_t anIdleAnimationCounter = 0;
+	uint32_t anIdleAnimationCounter = IsOnBoard() ? mBoard->mMainCounter : mApp->mAppCounter;
 	Image* aPlantImage = Plant::GetImage(mSeedType);
 	if (mSeedType == SeedType::SEED_EPHRAIM)
 	{
@@ -635,29 +635,44 @@ void Plant::Draw(Graphics* g)
 	}
 	if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
 	{
-		if (mShootingCounter > 0)
+		if (IsSniperMoving())
+			aPlantImage = IMAGE_SNIPER_FEMALE_SEQUENCES[SNIPER_DODGE_ATLAS_INDEX];
+		else if (mShootingCounter > 0)
 			aPlantImage = IMAGE_SNIPER_FEMALE_ATTACKS[mAnimPing ? 1 : 0];
 		if (aPlantImage == nullptr)
 			return;
 		aImageCol = std::clamp(mFrame, 0, aPlantImage->mNumCols - 1);
 		aImageRow = 0;
 	}
+	if (mSeedType == SeedType::SEED_SERRA_BISHOP)
+	{
+		aPlantImage = gSerraBishopSequences[mShootingCounter > 0 && mAnimPing ? 1 : 0];
+		if (aPlantImage == nullptr)
+			return;
+		aImageCol = std::clamp(mFrame, 0, aPlantImage->mNumCols - 1);
+		aImageRow = 0;
+	}
+
 	bool anAfterimageDrawn = false;
 	auto DrawPlantImageCel = [&](Graphics* theGraphics)
 	{
-		if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
+		if (mSeedType == SeedType::SEED_SNIPER_FEMALE || mSeedType == SeedType::SEED_SERRA_BISHOP)
 		{
+			float aDrawScale = mSeedType == SeedType::SEED_SERRA_BISHOP ? SERRA_BISHOP_DRAW_SCALE : SNIPER_FEMALE_DRAW_SCALE;
+			if (mSeedType == SeedType::SEED_SERRA_BISHOP && mShootingCounter == 0)
+				aDrawScale *= 1.0f + std::sin(static_cast<float>(anIdleAnimationCounter) * 2.0f * PI / 420.0f) * 0.010f;
 			const int aWidth = aPlantImage->GetCelWidth();
 			const int aHeight = aPlantImage->GetCelHeight();
 			const Rect aSource(aImageCol * aWidth, 0, aWidth, aHeight);
 			const Rect aDest(
-				FloatRoundToInt(aOffsetX + mWidth * 0.5f - aWidth * SNIPER_FEMALE_DRAW_SCALE * 0.5f),
-				FloatRoundToInt(aOffsetY + mHeight - aHeight * SNIPER_FEMALE_DRAW_SCALE),
-				FloatRoundToInt(aWidth * SNIPER_FEMALE_DRAW_SCALE),
-				FloatRoundToInt(aHeight * SNIPER_FEMALE_DRAW_SCALE));
+				FloatRoundToInt(aOffsetX + mWidth * 0.5f - aWidth * aDrawScale * 0.5f),
+				FloatRoundToInt(aOffsetY + mHeight - aHeight * aDrawScale),
+				FloatRoundToInt(aWidth * aDrawScale),
+				FloatRoundToInt(aHeight * aDrawScale));
 			Graphics aSpriteG(*theGraphics);
 			aSpriteG.SetFastStretch(true);
-			aSpriteG.DrawImageMirror(aPlantImage, aDest, aSource, true);
+			aSpriteG.DrawImageMirror(aPlantImage, aDest, aSource,
+				mSeedType == SeedType::SEED_SERRA_BISHOP || mTargetX == -1 || mTargetX >= mX + mWidth / 2);
 			return;
 		}
 		if (mSeedType != SeedType::SEED_EPHRAIM)
@@ -688,9 +703,9 @@ void Plant::Draw(Graphics* g)
 		const Rect aDestRect(aDrawX, aDrawY, aScaledWidth, aScaledHeight);
 		Graphics aScaledGraphics(*theGraphics);
 		aScaledGraphics.SetFastStretch(true);
-		// The PNG source faces left. Face right while idle and toward targets on
-		// the right; leave the original orientation only for attacks to the left.
-		const bool aMirrorAtlas = anIdlePose || mTargetX >= mX + mWidth / 2;
+		// The PNG source faces left. Keep facing the current target through
+		// rest as well as windup; preview plants without a target face right.
+		const bool aMirrorAtlas = mTargetX == -1 || mTargetX >= mX + mWidth / 2;
 		if (!anAfterimageDrawn)
 		{
 			for (const EphraimAfterimage& anEcho : mEphraimAfterimages)
@@ -938,6 +953,29 @@ void Plant::Draw(Graphics* g)
 	}
 }
 
+void Plant::DrawSerraBlessing(Graphics* g)
+{
+	const float aOffsetX = mShakeOffsetX * mApp->GetScreenShakeScale();
+	const float aOffsetY = PlantDrawHeightOffset(mBoard, this, mSeedType, mPlantCol, mRow) +
+		mShakeOffsetY * mApp->GetScreenShakeScale();
+	if (mSerraBlessingTicksRemaining > 0 && !NotOnGround() && gSerraDivineBlessing != nullptr)
+	{
+		const int aFrame = std::clamp(
+			(SERRA_BLESSING_DURATION_TICKS - mSerraBlessingTicksRemaining) / SERRA_BLESSING_FRAME_TICKS,
+			0, SERRA_BLESSING_FRAME_COUNT - 1);
+		const int aCell = gSerraDivineBlessing->GetCelWidth();
+		const Rect aSource((aFrame % 5) * aCell, (aFrame / 5) * aCell, aCell, aCell);
+		// The effect's fixed source center is (90, 96), independent of ray size.
+		const Rect aDest(FloatRoundToInt(aOffsetX + mWidth * 0.5f - 45.0f),
+			FloatRoundToInt(aOffsetY + mHeight * 0.5f - 48.0f), 96, 96);
+		Graphics aBlessingGraphics(*g);
+		aBlessingGraphics.SetColorizeImages(false);
+		aBlessingGraphics.SetDrawMode(Graphics::DRAWMODE_NORMAL);
+		aBlessingGraphics.SetFastStretch(true);
+		aBlessingGraphics.DrawImage(gSerraDivineBlessing, aDest, aSource);
+	}
+}
+
 void Plant::DrawSeedType(Graphics* g, SeedType theSeedType, SeedType theImitaterType, DrawVariation theDrawVariation, float thePosX, float thePosY)
 {
 	Graphics aSeedG(*g);
@@ -1017,13 +1055,14 @@ void Plant::DrawSeedType(Graphics* g, SeedType theSeedType, SeedType theImitater
 			}
 
 			Image* aPlantImage = Plant::GetImage(aSeedType);
-			if (aSeedType == SeedType::SEED_EPHRAIM || aSeedType == SeedType::SEED_SNIPER_FEMALE)
+			if (aSeedType == SeedType::SEED_EPHRAIM || aSeedType == SeedType::SEED_SNIPER_FEMALE || aSeedType == SeedType::SEED_SERRA_BISHOP)
 			{
 				if (aPlantImage == nullptr)
 					return;
 				const int aCelWidth = aPlantImage->GetCelWidth();
 				const int aCelHeight = aPlantImage->GetCelHeight();
-				const float aDrawScale = aSeedType == SeedType::SEED_SNIPER_FEMALE ? SNIPER_FEMALE_DRAW_SCALE : EPHRAIM_DRAW_SCALE;
+				const float aDrawScale = aSeedType == SeedType::SEED_SERRA_BISHOP ? SERRA_BISHOP_DRAW_SCALE :
+					(aSeedType == SeedType::SEED_SNIPER_FEMALE ? SNIPER_FEMALE_DRAW_SCALE : EPHRAIM_DRAW_SCALE);
 				const float aScaleX = aSeedG.mScaleX * aDrawScale;
 				const float aScaleY = aSeedG.mScaleY * aDrawScale;
 				// Use the planted sprite's cell center and 80-pixel tile baseline.

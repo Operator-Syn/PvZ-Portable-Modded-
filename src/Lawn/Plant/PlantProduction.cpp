@@ -57,16 +57,20 @@
 
 
 #include "PlantRules.h"
+#include "PlantHealing.h"
 #include "../Rules/TargetingRules.h"
 
 bool Plant::MakesSun()
 {
 	return mSeedType == SeedType::SEED_SUNFLOWER || mSeedType == SeedType::SEED_TWINSUNFLOWER ||
-		mSeedType == SeedType::SEED_SUNSHROOM || mSeedType == SeedType::SEED_PLANTERN;
+		mSeedType == SeedType::SEED_SUNSHROOM || mSeedType == SeedType::SEED_PLANTERN ||
+		mSeedType == SeedType::SEED_SERRA_BISHOP;
 }
 
 void Plant::UpdateProductionPlant()
 {
+	if (mApp->mGameScene != GameScenes::SCENE_PLAYING || mApp->mSeedChooserScreen != nullptr)
+		return;
 	if (!IsInPlay() || mApp->IsIZombieLevel() || mApp->mGameMode == GameMode::GAMEMODE_UPSELL || mApp->mGameMode == GameMode::GAMEMODE_INTRO)
 		return;
 	if (mSeedType == SeedType::SEED_PLANTERN && mBoard->mSunMoney >= FIVE_MILLION_SUN_THRESHOLD)
@@ -88,6 +92,125 @@ void Plant::UpdateProductionPlant()
 
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_LAST_STAND && mBoard->mChallenge->mChallengeState != ChallengeState::STATECHALLENGE_LAST_STAND_ONSLAUGHT)
 		return;
+
+	auto AddFlagScaledSun = [&](CoinType theCoinType)
+	{
+		Coin* aCoin = mBoard->AddCoin(mX, mY, theCoinType, CoinMotion::COIN_MOTION_FROM_PLANT);
+		if (!aCoin)
+			return;
+		int aBaseValue = aCoin->GetSunValue();
+		int aScaledValue = mBoard->ScaleSunValueForCompletedFlags(aBaseValue);
+		if (mSeedType == SeedType::SEED_PLANTERN &&
+			mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
+			aScaledValue = static_cast<int>(std::min<int64_t>(
+				static_cast<int64_t>(aScaledValue) * 5, std::numeric_limits<int32_t>::max()));
+		if (aScaledValue != aBaseValue)
+			aCoin->mSunValueOverride = aScaledValue;
+	};
+
+	if (mSeedType == SeedType::SEED_SERRA_BISHOP)
+	{
+		auto FindHealingTarget = [&]() -> Plant*
+		{
+			Plant* aBest = nullptr;
+			for (Plant* aPlant : mBoard->mPlants)
+			{
+				if (!PlantHealing::PlantCanRegenerate(aPlant) || aPlant->NotOnGround() ||
+					!aPlant->IsInPlay() || aPlant->mPlantHealth >= aPlant->mPlantMaxHealth)
+					continue;
+				if (aBest == nullptr || static_cast<int64_t>(aPlant->mPlantHealth) * aBest->mPlantMaxHealth <
+					static_cast<int64_t>(aBest->mPlantHealth) * aPlant->mPlantMaxHealth)
+					aBest = aPlant;
+			}
+			return aBest;
+		};
+		if (mSerraHealCooldown > 0)
+			--mSerraHealCooldown;
+		// Migrate the earlier Sunflower cadence without restarting a running cast.
+		if (mLaunchRate != SERRA_PRODUCTION_RATE_TICKS)
+		{
+			mLaunchRate = SERRA_PRODUCTION_RATE_TICKS;
+			mLaunchCounter = std::clamp(mLaunchCounter, 0, mLaunchRate);
+		}
+		if (--mLaunchCounter <= 0)
+		{
+			mLaunchCounter = RandRangeInt(mLaunchRate - SERRA_PRODUCTION_JITTER_TICKS, mLaunchRate);
+			mSerraSunPending = true;
+		}
+		if (mShootingCounter == 0 &&
+			(mSerraSunPending || (mSerraHealCooldown == 0 && mBoard->mSunMoney >= SERRA_HEAL_SUN_PER_HP &&
+				FindHealingTarget() != nullptr)))
+		{
+			// Randomly choose a complete source sequence, like the other custom plants.
+			mAnimPing = RandRangeInt(0, 1) != 0;
+			mShootingCounter = SERRA_SEQUENCE_DURATION_TICKS[mAnimPing ? 1 : 0];
+			mFrame = 0;
+			Plant* aRequestedTarget = mSerraHealCooldown == 0 && mBoard->mSunMoney >= SERRA_HEAL_SUN_PER_HP ? FindHealingTarget() : nullptr;
+			PvzpLogLn("[healing] tick={} event=serra_cast_start source_id={} source_row={} source_col={} source_hp={} source_max_hp={} "
+				"sequence={} sun_pending={} healing_requested={} requested_target_id={} sun_balance={} release_after_ticks={}",
+				mBoard->mMainCounter, mBoard->mPlants.DataArrayGetID(this), mRow, mPlantCol, mPlantHealth, mPlantMaxHealth,
+				mAnimPing ? "critical" : "staff", mSerraSunPending, aRequestedTarget != nullptr,
+				aRequestedTarget != nullptr ? mBoard->mPlants.DataArrayGetID(aRequestedTarget) : 0U,
+				mBoard->mSunMoney, SERRA_SUN_RELEASE_TICKS[mAnimPing ? 1 : 0]);
+		}
+		if (mShootingCounter > 0)
+		{
+			const int aSet = mAnimPing ? 1 : 0;
+			const int aElapsed = SERRA_SEQUENCE_DURATION_TICKS[aSet] - mShootingCounter;
+			if (aElapsed == SERRA_SUN_RELEASE_TICKS[aSet])
+			{
+				const int aProducedSuns = mSerraSunPending ? (aSet == 1 ? 5 : 1) : 0;
+				if (mSerraSunPending)
+				{
+					mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
+					for (int aSun = 0; aSun < (aSet == 1 ? 5 : 1); aSun++)
+						AddFlagScaledSun(CoinType::COIN_SUN);
+					mSerraSunPending = false;
+				}
+				// Resolve priority at the release pose so dead or restored targets are skipped.
+				Plant* aTarget = mSerraHealCooldown == 0 ? FindHealingTarget() : nullptr;
+				if (aTarget != nullptr)
+				{
+					const int aSunBefore = mBoard->mSunMoney;
+					const int aAffordableHP = std::max(0, aSunBefore) / SERRA_HEAL_SUN_PER_HP;
+					PlantHealing::HealingAudit anAudit;
+					const int aHealed = PlantHealing::HealPlant(mBoard, aTarget, aTarget->mPlantMaxHealth * 0.05f,
+						aAffordableHP, &anAudit);
+					bool aPaymentSucceeded = true;
+					if (aHealed > 0)
+					{
+						aPaymentSucceeded = mBoard->TakeSunMoney(anAudit.mPaidBaseHealing * SERRA_HEAL_SUN_PER_HP);
+						aTarget->mSerraBlessingTicksRemaining = SERRA_BLESSING_DURATION_TICKS;
+						mSerraHealCooldown = SERRA_HEAL_COOLDOWN_TICKS;
+					}
+					PvzpLogLn("[healing] tick={} event=serra_release status={} sequence={} source=\"{}\" source_id={} source_seed={} source_row={} source_col={} "
+						"target=\"{}\" target_id={} target_seed={} target_row={} target_col={} target_x={} target_y={} hp_before={} hp_after={} hp_max={} "
+						"hp_percent_before={:.2f} hp_percent_after={:.2f} base={:.3f} modified={:.3f} requested_with_carry={:.3f} healed={} "
+						"overflow={:.3f} unaffordable={:.3f} carry_before={:.3f} carry_after={:.3f} affordable_hp={} sun_per_hp={} "
+						"paid_base_hp={} bonus_hp={} sun_cost={} sun_spent={} sun_before={} sun_after={} payment_succeeded={} practice_exempt={} suns_produced={} blessing_ticks={} blessing_asset_loaded={}",
+						mBoard->mMainCounter, aHealed > 0 ? "healed" : (aAffordableHP == 0 ? "insufficient_sun" : "fractional_only"),
+						aSet == 1 ? "critical" : "staff", GetNameString(mSeedType, mImitaterType), mBoard->mPlants.DataArrayGetID(this), static_cast<int>(mSeedType), mRow, mPlantCol,
+						GetNameString(aTarget->mSeedType, aTarget->mImitaterType), mBoard->mPlants.DataArrayGetID(aTarget), static_cast<int>(aTarget->mSeedType),
+						aTarget->mRow, aTarget->mPlantCol, aTarget->mX, aTarget->mY, anAudit.mHealthBefore, anAudit.mHealthAfter, anAudit.mMaxHealth,
+						100.0f * anAudit.mHealthBefore / anAudit.mMaxHealth, 100.0f * anAudit.mHealthAfter / anAudit.mMaxHealth,
+						anAudit.mBaseAmount, anAudit.mModifiedAmount, anAudit.mRequestedAmount, aHealed, anAudit.mOverflow, anAudit.mUnaffordable,
+						anAudit.mRemainderBefore, anAudit.mRemainderAfter, aAffordableHP, SERRA_HEAL_SUN_PER_HP,
+						anAudit.mPaidBaseHealing, anAudit.mBonusHealing, anAudit.mPaidBaseHealing * SERRA_HEAL_SUN_PER_HP,
+						aSunBefore - mBoard->mSunMoney, aSunBefore, mBoard->mSunMoney, aPaymentSucceeded,
+						mApp->mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE, aProducedSuns, aTarget->mSerraBlessingTicksRemaining, gSerraDivineBlessing != nullptr);
+				}
+				else
+				{
+					PvzpLogLn("[healing] tick={} event=serra_release status={} source=\"{}\" source_id={} source_row={} source_col={} sequence={} cooldown={} sun_balance={} suns_produced={}",
+						mBoard->mMainCounter, mSerraHealCooldown > 0 ? "cooldown" : "no_injured_target", GetNameString(mSeedType, mImitaterType),
+						mBoard->mPlants.DataArrayGetID(this), mRow, mPlantCol, aSet == 1 ? "critical" : "staff", mSerraHealCooldown, mBoard->mSunMoney, aProducedSuns);
+				}
+			}
+			if (--mShootingCounter == 0)
+				mFrame = 0;
+		}
+		return;
+	}
 
 	if (mSeedType == SeedType::SEED_TWINSUNFLOWER &&
 		mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
@@ -122,20 +245,6 @@ void Plant::UpdateProductionPlant()
 		if (mSeedType != SeedType::SEED_TWINSUNFLOWER ||
 			mBoard->mSunMoney < TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
 			mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
-		auto AddFlagScaledSun = [&](CoinType theCoinType)
-		{
-			Coin* aCoin = mBoard->AddCoin(mX, mY, theCoinType, CoinMotion::COIN_MOTION_FROM_PLANT);
-			if (!aCoin)
-				return;
-			int aBaseValue = aCoin->GetSunValue();
-			int aScaledValue = mBoard->ScaleSunValueForCompletedFlags(aBaseValue);
-			if (mSeedType == SeedType::SEED_PLANTERN &&
-				mBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD)
-				aScaledValue = static_cast<int>(std::min<int64_t>(
-					static_cast<int64_t>(aScaledValue) * 5, std::numeric_limits<int32_t>::max()));
-			if (aScaledValue != aBaseValue)
-				aCoin->mSunValueOverride = aScaledValue;
-		};
 
 		if (mSeedType == SeedType::SEED_SUNSHROOM)
 		{

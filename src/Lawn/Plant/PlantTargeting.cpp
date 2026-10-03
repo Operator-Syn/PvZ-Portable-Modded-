@@ -64,6 +64,8 @@ Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, const st
 	Sexy::FrameProfileScope aProfileScope(Sexy::FrameProfileMetric::PLANT_TARGETING, true);
 	int aDamageRangeFlags = GetDamageRangeFlags(thePlantWeapon);
 	Rect aAttackRect = GetPlantAttackRect(thePlantWeapon);
+	if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
+		aAttackRect.mY = mBoard->GridToPixelY(mPlantCol, theRow);
 	int aHighestWeight = 0;
 	Zombie* aBestZombie = nullptr;
 	Zombie* aLockedTarget = nullptr;
@@ -210,12 +212,6 @@ Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, const st
 			}
 
 			int aWeight = -aZombieRect.mX;
-			if (mSeedType == SeedType::SEED_EPHRAIM)
-			{
-				const int aPlantCenterX = theAttackOriginX ? *theAttackOriginX : mX + mWidth / 2;
-				const int aZombieCenterX = aZombieRect.mX + aZombieRect.mWidth / 2;
-				aWeight = -std::abs(aZombieCenterX - aPlantCenterX);
-			}
 			if (aCanTargetAcrossLanes)
 			{
 				aWeight = -Distance2D(mX + 40.0f, mY + 40.0f, aZombieRect.mX + aZombieRect.mWidth / 2, aZombieRect.mY + aZombieRect.mHeight / 2);
@@ -241,10 +237,21 @@ Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, const st
 					aBestCattailDistance = aCattailDistance;
 				}
 			}
-			else if (aBestZombie == nullptr || aWeight > aHighestWeight)
+			else
 			{
-				aHighestWeight = aWeight;
-				aBestZombie = aZombie;
+				bool aIsHigherPriority = aBestZombie == nullptr || aWeight > aHighestWeight;
+				if (mSeedType == SeedType::SEED_SNIPER_FEMALE && aBestZombie != nullptr)
+				{
+					const bool aIsBungee = aZombie->mZombieType == ZombieType::ZOMBIE_BUNGEE;
+					const bool aBestIsBungee = aBestZombie->mZombieType == ZombieType::ZOMBIE_BUNGEE;
+					if (aIsBungee != aBestIsBungee)
+						aIsHigherPriority = aIsBungee;
+				}
+				if (aIsHigherPriority)
+				{
+					aHighestWeight = aWeight;
+					aBestZombie = aZombie;
+				}
 			}
 		}
 	}
@@ -283,7 +290,7 @@ int Plant::DistanceToClosestZombie()
 Rect Plant::GetPlantRect()
 {
 	Rect aRect;
-	if (IsTallNut())
+	if (HasTallNutDefense())
 	{
 		aRect = Rect(mX + 10, mY, mWidth, mHeight);
 	}
@@ -322,7 +329,7 @@ Rect Plant::GetPlantAttackRect(PlantWeapon thePlantWeapon)
 	case SeedType::SEED_CHOMPERNUT:     aRect = Rect(mX + 80,       mY - 160,        280,                mHeight + 320);        break;
 	// Endless Pool extends the logical playfield beyond the stock board width.
 	case SeedType::SEED_EPHRAIM:        aRect = Rect(0, mY, mApp->mWidth, mHeight); break;
-	case SeedType::SEED_SNIPER_FEMALE:  aRect = Rect(mX, mY, mApp->mWidth - mX, mHeight); break;
+	case SeedType::SEED_SNIPER_FEMALE:  aRect = Rect(0, mY, mApp->mWidth, mHeight); break;
 	case SeedType::SEED_SPIKEWEED:
 	case SeedType::SEED_SPIKEROCK:      aRect = Rect(mX + 20,       mY,             mWidth - 50,        mHeight);               break;
 	case SeedType::SEED_POTATOMINE:     aRect = Rect(mX,            mY,             mWidth - 25,        mHeight);               break;

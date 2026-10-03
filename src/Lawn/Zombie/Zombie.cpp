@@ -840,6 +840,8 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 	}
 	if (IsOnBoard() && mBoard->mZombieStrengthTier > 0)
 		mBoard->ApplyZombieStrengthTierToZombie(this, 0, mBoard->mZombieStrengthTier);
+	if (IsOnBoard())
+		mBoard->EnsureZombieTierBucketArmor(this);
 
 	if (IsOnBoard())
 	{
@@ -884,7 +886,7 @@ void Zombie::UpdateZombieJackInTheBox()
 			else
 			{
 				mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, JACK_IN_THE_BOX_ZOMBIE_RADIUS, 1, true, 255);
-				mBoard->KillAllPlantsInRadius(aPosX, aPosY, JACK_IN_THE_BOX_PLANT_RADIUS);
+				mBoard->KillAllPlantsInRadius(aPosX, aPosY, JACK_IN_THE_BOX_PLANT_RADIUS, this);
 			}
 
 			mApp->AddPvzpParticle(aPosX, aPosY, Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_TOP, 0, 0), ParticleEffect::PARTICLE_JACKEXPLODE);
@@ -981,7 +983,8 @@ void Zombie::Update()
 			{
 				UpdateZombieBungee();
 			}
-			if (mZombieType == ZombieType::ZOMBIE_POGO && mBloverKnockbackDistanceRemaining <= 0 && mEphraimStaggerCounter <= 0)
+			if (mZombieType == ZombieType::ZOMBIE_POGO && mBloverKnockbackDistanceRemaining <= 0 && mEphraimStaggerCounter <= 0 &&
+				!(mSpawnedByZombieRain && mZombieHeight == ZombieHeight::HEIGHT_FALLING))
 			{
 				UpdateZombiePogo();
 			}
@@ -1225,6 +1228,7 @@ void Zombie::CheckForBoardEdge()
 
 void Zombie::UpdatePlaying()
 {
+	mBoard->EnsureZombieTierBucketArmor(this);
 	PVZP_ASSERT(mBodyHealth > 0 || mZombiePhase == ZombiePhase::PHASE_BOBSLED_CRASHING);
 	bool aDolphinButterException = ZombieEffects::CanDolphinBeButterStunned(this);
 	if (mBoard->mZombieTierSunMoney >= TWO_AND_HALF_MILLION_SUN_THRESHOLD &&
@@ -1320,6 +1324,32 @@ void Zombie::UpdatePlaying()
 		}
 	}
 
+	if (mZombieType == ZombieType::ZOMBIE_BALLOON &&
+		mZombiePhase == ZombiePhase::PHASE_BALLOON_FLYING && mFlyingHealth <= 0)
+	{
+		// A save can retain the flight phase after its balloon was destroyed.
+		LandFlyer(0U);
+		if (mDead)
+			return;
+	}
+	// Clear legacy javelin control effects on popped Balloons before their
+	// early returns can suspend the landing and one-shot pop animation.
+	if (mZombieType == ZombieType::ZOMBIE_BALLOON &&
+		(mZombiePhase == ZombiePhase::PHASE_BALLOON_POPPING || mZombieHeight == ZombieHeight::HEIGHT_FALLING) &&
+		(mEphraimKnockbackDistanceRemaining != 0 || mEphraimStaggerCounter > 0))
+	{
+		mEphraimKnockbackDistanceRemaining = 0;
+		mEphraimStaggerCounter = 0;
+		UpdateAnimSpeed();
+	}
+	if (mZombieType == ZombieType::ZOMBIE_BALLOON && mZombiePhase == ZombiePhase::PHASE_BALLOON_POPPING)
+	{
+		// Restore a saved zero playback rate even when no stagger remains.
+		mOriginalAnimRate = 24.0f;
+		UpdateAnimSpeed(); // Retain genuine ice/butter pauses and chilled speed.
+		if (mAltitude > (mOnHighGround ? HIGH_GROUND_HEIGHT : 0))
+			mZombieHeight = ZombieHeight::HEIGHT_FALLING;
+	}
 	if (mEphraimKnockbackDistanceRemaining != 0)
 	{
 		// Finish the push before counting down the stop at its destination.

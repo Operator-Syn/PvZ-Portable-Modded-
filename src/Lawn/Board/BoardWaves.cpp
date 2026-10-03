@@ -989,7 +989,7 @@ static bool IsZombieRainExcludedType(ZombieType theZombieType)
 
 void Board::UpdateZombieRain()
 {
-	if (!mZombieRainActive || mApp->mGameScene != GameScenes::SCENE_PLAYING || mCurrentWave <= 0)
+	if (!mZombieRainActive || mApp->mGameScene != GameScenes::SCENE_PLAYING || mApp->mSeedChooserScreen != nullptr || mCurrentWave <= 0)
 		return;
 
 	if (mZombieRainPendingCount <= 0)
@@ -1043,7 +1043,7 @@ void Board::UpdateZombieRain()
 			{
 				if (!RowCanHaveZombieType(aRow, aType))
 					continue;
-				for (int aColumn = std::max(0, GetNumPlayableColumns() - 3); aColumn < GetNumPlayableColumns(); aColumn++)
+				for (int aColumn = std::max(0, GetNumPlayableColumns() - 2); aColumn < GetNumPlayableColumns(); aColumn++)
 					aCells.emplace_back(aColumn, aRow);
 			}
 			if (aCells.empty())
@@ -1068,7 +1068,7 @@ void Board::UpdateZombieRain()
 			{
 				if (!RowCanHaveZombieType(aRow, ZombieType::ZOMBIE_NORMAL))
 					continue;
-				for (int aColumn = std::max(0, GetNumPlayableColumns() - 3); aColumn < GetNumPlayableColumns(); aColumn++)
+				for (int aColumn = std::max(0, GetNumPlayableColumns() - 2); aColumn < GetNumPlayableColumns(); aColumn++)
 					aNormalCells.emplace_back(aColumn, aRow);
 			}
 			if (aNormalCells.empty())
@@ -1099,14 +1099,22 @@ void Board::UpdateZombieRain()
 		}
 		aZombie->mSpawnedByZombieRain = true;
 		if (aSpawn.mType == ZombieType::ZOMBIE_BUNGEE)
+		{
+			aZombie->PickBungeeZombieTarget(aSpawn.mColumn);
 			continue;
+		}
 
-		aZombie->mPosX = static_cast<float>(GridToPixelX(aSpawn.mColumn, aSpawn.mRow));
+		// Match normal zombie entry, rather than anchoring drops to the plant grid.
+		aZombie->mPosX = static_cast<float>(mApp->mWidth - 20 -
+			(GetNumPlayableColumns() - 1 - aSpawn.mColumn) * 80);
 		aZombie->mPosY = aZombie->GetPosYBasedOnRow(aSpawn.mRow);
 		aZombie->mX = static_cast<int>(aZombie->mPosX);
 		aZombie->mY = static_cast<int>(aZombie->mPosY);
 		aZombie->mAltitude = RandRangeInt(150, 300);
 		aZombie->mZombieHeight = ZombieHeight::HEIGHT_FALLING;
+		PvzpLogLn("[zombie_rain] tick={} zombie_id={} type={} row={} column={} x={} screen_width={} altitude={}",
+			mMainCounter, mZombies.DataArrayGetID(aZombie), static_cast<int>(aSpawn.mType), aSpawn.mRow, aSpawn.mColumn,
+			aZombie->mPosX, mApp->mWidth, aZombie->mAltitude);
 	}
 
 	mZombieRainPendingCount = 0;
@@ -1115,6 +1123,8 @@ void Board::UpdateZombieRain()
 
 void Board::UpdateSunSpawning()
 {
+	if (mApp->mGameScene != GameScenes::SCENE_PLAYING || mApp->mSeedChooserScreen != nullptr)
+		return;
 	if (StageIsNight() ||
 		HasLevelAwardDropped() ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_RAINING_SEEDS ||

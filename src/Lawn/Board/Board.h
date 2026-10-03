@@ -369,7 +369,7 @@ public:
 	void							RemoveAllZombies();
 	void							RemoveCutsceneZombies();
 	void							SpawnZombiesFromGraves();
-	PlantingReason					CanPlantAt(int theGridX, int theGridY, SeedType theSeedType);
+	PlantingReason					CanPlantAt(int theGridX, int theGridY, SeedType theSeedType, bool theSniperMovement = false);
 	void							MouseMove(int x, int y) override;
 	void							MouseDrag(int x, int y) override;
 	void							MouseDown(int x, int y, int theClickCount) override;
@@ -423,6 +423,7 @@ public:
 	void							UpdatePlantOverdrive();
 	void							UpdateZombieRain();
 	void							ApplyZombieStrengthTierToZombie(Zombie* theZombie, int theFromTier, int theToTier);
+	void							EnsureZombieTierBucketArmor(Zombie* theZombie);
 	void							ApplyThreeMillionSunDurabilityToZombie(Zombie* theZombie, bool theApply);
 	int							GetZombieExplosiveDamage() const;
 	int							GetQuadraticZombieDamageMultiplier(const Zombie* theZombie, int theTargetCount) const;
@@ -483,7 +484,7 @@ public:
 	void							DrawUIBottom(Graphics* g);
 	void							DrawUITop(Graphics* g);
 	Zombie*							ZombieHitTest(int theMouseX, int theMouseY);
-	void							KillAllPlantsInRadius(int theX, int theY, int theRadius);
+	void							KillAllPlantsInRadius(int theX, int theY, int theRadius, Zombie* theSource = nullptr);
 	Plant*							GetPumpkinAt(int theGridX, int theGridY);
 	Plant*							GetFlowerPotAt(int theGridX, int theGridY);
 	static bool						CanZombieSpawnOnLevel(ZombieType theZombieType, int theLevel);

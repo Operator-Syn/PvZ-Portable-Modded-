@@ -99,7 +99,7 @@ void Zombie::UpdateZombieGargantuar()
 					if (aPlant->IsSpiky())
 					{
 						TakeDamage(20, 32U);
-						aPlant->SpikyTakeDamage();
+						aPlant->SpikyTakeDamage(this);
 						if (aPlant->mPlantHealth <= 0)
 						{
 							SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
@@ -110,12 +110,12 @@ void Zombie::UpdateZombieGargantuar()
 						PlantsOnLawn aPlantsOnTile;
 						mBoard->GetPlantsOnLawn(aPlant->mPlantCol, aPlant->mRow, &aPlantsOnTile);
 						Plant* aTallNut = aPlantsOnTile.mNormalPlant;
-						if (aTallNut && aTallNut->IsTallNut() &&
+						if (aTallNut && aTallNut->HasTallNutDefense() &&
 							(aPlant == aTallNut || aPlant == aPlantsOnTile.mPumpkinPlant))
 						{
 							// Keep a Pumpkin shell intact while its layered Tall-nut body absorbs the hit.
-							// Chomper Nut shares the Tall-nut damage behavior through IsTallNut().
-							aTallNut->GargantuarSmashTakeDamage();
+							// Ephraim and Chomper Nut share Tall-nut smash protection.
+							aTallNut->GargantuarSmashTakeDamage(this);
 						}
 						else
 						{

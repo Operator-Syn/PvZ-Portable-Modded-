@@ -1093,7 +1093,8 @@ void Zombie::UpdateSniperWound()
 	const int aWholeDamage = static_cast<int>(aDamage / 100000);
 	mSniperDotRemainder = static_cast<int32_t>(aDamage % 100000);
 	if (aWholeDamage > 0)
-		TakeDamage(aWholeDamage, 1U << DamageFlags::DAMAGE_DOESNT_CAUSE_FLASH);
+		TakeDamage(aWholeDamage, (1U << DamageFlags::DAMAGE_DOESNT_CAUSE_FLASH) |
+			(1U << DamageFlags::DAMAGE_SNIPER_DOT));
 	if (--mSniperWoundCounter == 0)
 		mSniperDotRemainder = 0;
 }
@@ -1108,11 +1109,32 @@ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 		return;
 
 	const bool aSniperArrow = TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_SNIPER_ARROW));
+	const bool aSniperDamage = aSniperArrow || TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_SNIPER_DOT));
+	if (aSniperDamage)
+	{
+		// Piercing crosses targets, never their shields or armor layers.
+		SetBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_BYPASSES_SHIELD), false);
+		SetBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_HITS_SHIELD_AND_BODY), false);
+	}
+	mBoard->EnsureZombieTierBucketArmor(this);
 	// Keep armor spillover in armor damage units until it reaches the body.
-	const int aArmorDamage = aSniperArrow ? theDamage * 175 / 100 : theDamage;
+	const int aArmorDamage = aSniperArrow ? theDamage * Plant::SNIPER_ARMOR_DAMAGE_PERCENT / 100 : theDamage;
 	int aDamageRemaining = aArmorDamage;
+	// A Balloon's flight protection must break before any armor can absorb a hit.
+	if (mZombieType == ZombieType::ZOMBIE_BALLOON && IsFlying() && mFlyingHealth > 0)
+	{
+		aDamageRemaining = TakeFlyingDamage(aDamageRemaining, theDamageFlags);
+		if (IsDeadOrDying())
+			return;
+	}
+	// After the balloon, the sun-tier bucket is the outer armor layer.
+	if (mTierBucketArmorHealth > 0)
+		aDamageRemaining = TakeTierBucketArmorDamage(aDamageRemaining, theDamageFlags);
+	if (aDamageRemaining <= 0)
+		return;
+	const int aDamagePastBucket = aDamageRemaining;
 
-	if (IsFlying())
+	if (IsFlying() && mZombieType != ZombieType::ZOMBIE_BALLOON)
 	{
 		aDamageRemaining = TakeFlyingDamage(aDamageRemaining, theDamageFlags);
 	}
@@ -1121,17 +1143,15 @@ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 		aDamageRemaining = TakeShieldDamage(aDamageRemaining, theDamageFlags);
 		if (TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_HITS_SHIELD_AND_BODY)))
 		{
-			aDamageRemaining = aArmorDamage;
+			aDamageRemaining = aDamagePastBucket;
 		}
 	}
-	if (aDamageRemaining > 0 && mTierBucketArmorHealth > 0)
-		aDamageRemaining = TakeTierBucketArmorDamage(aDamageRemaining, theDamageFlags);
 	if (aDamageRemaining > 0 && mHelmType != HelmType::HELMTYPE_NONE)
 	{
 		aDamageRemaining = TakeHelmDamage(aDamageRemaining, theDamageFlags);
 	}
 	if (aDamageRemaining > 0)
 	{
-		TakeBodyDamage(aSniperArrow ? aDamageRemaining * 185 / 175 : aDamageRemaining, theDamageFlags);
+		TakeBodyDamage(aSniperArrow ? aDamageRemaining * Plant::SNIPER_BODY_DAMAGE_PERCENT / Plant::SNIPER_ARMOR_DAMAGE_PERCENT : aDamageRemaining, theDamageFlags);
 	}
 }

@@ -1197,12 +1197,8 @@ void LawnApp::Init()
 
 	Sexy::MkDir(Sexy::GetAppDataPath("userdata"));
 	std::string aLogPath = Sexy::GetAppDataPath("userdata/") + "log.txt";
-#ifdef PVZ_DEBUG
 	Sexy::RegisterLogFileSink(aLogPath);
 	PvzpLogLn("Started {}", static_cast<uint64_t>(std::time(nullptr)));
-#else
-	Sexy::RegisterCrashLogFileSink(aLogPath);
-#endif
 	const char* aProfileMode = std::getenv("PVZ_PROFILE");
 	Sexy::FrameProfiler::Get().Initialize(Sexy::GetAppDataPath("userdata/performance.log"),
 		static_cast<uint64_t>(mSessionID), mBuildNum, mCommitDate,
@@ -2312,9 +2308,11 @@ bool LawnApp::HasSeedType(SeedType theSeedType)
 	if (mGameMode == GameMode::GAMEMODE_PLANT_PRACTICE)
 		return theSeedType >= SeedType::SEED_PEASHOOTER && theSeedType < SeedType::NUM_SEED_TYPES &&
 			(theSeedType != SeedType::SEED_EPHRAIM || Sexy::IMAGE_EPHRAIM_PLANT != nullptr) &&
+			(theSeedType != SeedType::SEED_SERRA_BISHOP || (Sexy::IMAGE_SERRA_BISHOP_PLANT != nullptr &&
+				gSerraBishopSequences[0] != nullptr && gSerraBishopSequences[1] != nullptr && gSerraDivineBlessing != nullptr)) &&
 			(theSeedType != SeedType::SEED_SNIPER_FEMALE || (Sexy::IMAGE_SNIPER_FEMALE_PLANT != nullptr &&
 				Sexy::IMAGE_SNIPER_FEMALE_ATTACKS[0] != nullptr && Sexy::IMAGE_SNIPER_FEMALE_ATTACKS[1] != nullptr &&
-				Sexy::IMAGE_SNIPER_ARROW != nullptr));
+				Sexy::IMAGE_SNIPER_ARROW != nullptr && Sexy::IMAGE_SNIPER_FEMALE_SEQUENCES[Plant::SNIPER_DODGE_ATLAS_INDEX] != nullptr));
 
 	if (IsTrialStageLocked() && theSeedType >= SeedType::SEED_JALAPENO)
 		return false;
@@ -2348,9 +2346,13 @@ bool LawnApp::HasSeedType(SeedType theSeedType)
 		return true;
 	case SeedType::SEED_EPHRAIM:
 		return Sexy::IMAGE_EPHRAIM_PLANT != nullptr;
+	case SeedType::SEED_SERRA_BISHOP:
+		return Sexy::IMAGE_SERRA_BISHOP_PLANT != nullptr &&
+			gSerraBishopSequences[0] != nullptr && gSerraBishopSequences[1] != nullptr && gSerraDivineBlessing != nullptr;
 	case SeedType::SEED_SNIPER_FEMALE:
 		return Sexy::IMAGE_SNIPER_FEMALE_PLANT != nullptr && Sexy::IMAGE_SNIPER_FEMALE_ATTACKS[0] != nullptr &&
-			Sexy::IMAGE_SNIPER_FEMALE_ATTACKS[1] != nullptr && Sexy::IMAGE_SNIPER_ARROW != nullptr;
+			Sexy::IMAGE_SNIPER_FEMALE_ATTACKS[1] != nullptr && Sexy::IMAGE_SNIPER_ARROW != nullptr &&
+			Sexy::IMAGE_SNIPER_FEMALE_SEQUENCES[Plant::SNIPER_DODGE_ATLAS_INDEX] != nullptr;
 	default:
 		return theSeedType < GetSeedsAvailable();
 	}

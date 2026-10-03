@@ -182,7 +182,8 @@ void Board::DrawGameObjects(Graphics* g)
 			{
 				AddGameObjectRenderItemPlant(mRenderItems, RenderObjectType::RENDER_ITEM_PLANT, aPlant);
 
-				if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN && aPlant->mPottedPlantIndex != -1)
+				if ((mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN && aPlant->mPottedPlantIndex != -1) ||
+					aPlant->mSerraBlessingTicksRemaining > 0)
 				{
 					RenderItem& aRenderItem = AppendRenderItem(mRenderItems, RenderObjectType::RENDER_ITEM_PLANT_OVERLAY,
 						MakeRenderOrder(RenderLayer::RENDER_LAYER_PARTICLE, 0, mY));
@@ -441,7 +442,9 @@ void Board::DrawGameObjects(Graphics* g)
 			Plant* aPlant = aRenderItem.mPlant;
 			if (aPlant->BeginDraw(g))
 			{
-				mApp->mZenGarden->DrawPlantOverlay(g, aPlant);
+				if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN && aPlant->mPottedPlantIndex != -1)
+					mApp->mZenGarden->DrawPlantOverlay(g, aPlant);
+				aPlant->DrawSerraBlessing(g);
 				aPlant->EndDraw(g);
 			}
 			break;

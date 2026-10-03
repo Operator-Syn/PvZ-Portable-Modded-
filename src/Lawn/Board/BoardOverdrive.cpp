@@ -86,6 +86,8 @@ MagnetItem* Board::GetSunMagnetExtraItems(PlantID thePlantID, bool theCreate)
 
 void Board::UpdateSunMagnetCollection()
 {
+	if (mApp->mGameScene != GameScenes::SCENE_PLAYING || mApp->mSeedChooserScreen != nullptr)
+		return;
 	Sexy::FrameProfileScope aProfileScope(Sexy::FrameProfileMetric::SUN_MAGNET_ASSIGNMENT, true);
 	struct SunMagnetCandidate
 	{
@@ -293,6 +295,8 @@ bool Board::TryLaunchTwinSunflowerSunBomb()
 
 void Board::UpdatePlantOverdrive()
 {
+	if (mApp->mGameScene != GameScenes::SCENE_PLAYING || mApp->mSeedChooserScreen != nullptr)
+		return;
 	float aContinuousSunCost = 0.0f;
 	int aPaidGloomShrooms = 0;
 	int aGloomShroomCount = 0;
@@ -314,9 +318,11 @@ void Board::UpdatePlantOverdrive()
 		if (mGoldMagnetOverdriveActive && aPlant->mSeedType == SeedType::SEED_GOLD_MAGNET)
 		{
 			aContinuousSunCost += 250.0f;
+			const int aHealthBefore = aPlant->mPlantHealth;
 			if (aPlant->mPlantHealth > 1)
 				PlantHealing::ApplyPlantHealthRate(aPlant, -25.0f);
 			if (aPlant->mPlantHealth <= 1) { aPlant->mPlantHealth = 1; aPlant->mContinuousHealthRemainder = 0.0f; }
+			aPlant->LogDamage(aHealthBefore, "gold_magnet_overdrive_health_drain");
 		}
 		if (mPumpkinOverdriveActive && aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
 			PlantHealing::HealPlant(this, aPlant, 0.5f);
@@ -332,22 +338,28 @@ void Board::UpdatePlantOverdrive()
 		if (mSunMoney >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD && aPlant->mSeedType == SeedType::SEED_WINTERMELON)
 		{
 			aContinuousSunCost += 500.0f;
+			const int aHealthBefore = aPlant->mPlantHealth;
 			if (aPlant->mPlantHealth > 1)
 				PlantHealing::ApplyPlantHealthRate(aPlant, -10.0f);
 			if (aPlant->mPlantHealth <= 1) { aPlant->mPlantHealth = 1; aPlant->mContinuousHealthRemainder = 0.0f; }
+			aPlant->LogDamage(aHealthBefore, "winter_melon_overdrive_health_drain");
 		}
 		if (mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD && aPlant->mSeedType == SeedType::SEED_GATLINGPEA)
 			aContinuousSunCost += 300.0f;
 		if (mSunMoney >= TWO_MILLION_SUN_THRESHOLD && aPlant->mSeedType == SeedType::SEED_CATTAIL)
 		{
+			const int aHealthBefore = aPlant->mPlantHealth;
 			PlantHealing::ApplyPlantHealthRate(aPlant, -std::max(1.0f, aPlant->mPlantMaxHealth / 100.0f));
+			aPlant->LogDamage(aHealthBefore, "cattail_high_sun_health_drain");
 			if (aPlant->mPlantHealth <= 0) { aPlant->Die(); continue; }
 		}
 		if (mSunMagnetOverdriveActive && aPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
 		{
+			const int aHealthBefore = aPlant->mPlantHealth;
 			if (aPlant->mPlantHealth > 1)
 				PlantHealing::ApplyPlantHealthRate(aPlant, -1.0f);
 			if (aPlant->mPlantHealth <= 1) { aPlant->mPlantHealth = 1; aPlant->mContinuousHealthRemainder = 0.0f; }
+			aPlant->LogDamage(aHealthBefore, "sun_magnet_overdrive_health_drain");
 		}
 	}
 	if (aContinuousSunCost > 0.0f)
@@ -407,25 +419,31 @@ void Board::UpdatePlantOverdrive()
 		if (aPlant->mDead || !aPlant->IsOnBoard())
 			continue;
 		int aDesiredMaxHealth = 0;
-		bool aOverdriveActive = false;
 		if (aPlant->IsTallNut())
 		{
 			aDesiredMaxHealth = (mTallNutOverdriveActive ? 10000 : 8000) +
 				(aPlant->mSeedType == SeedType::SEED_CHOMPERNUT ? 500 : 0);
-			aOverdriveActive = mTallNutOverdriveActive;
 		}
 		else if (aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
 		{
 			aDesiredMaxHealth = mPumpkinOverdriveActive ? 5000 : 4000;
-			aOverdriveActive = mPumpkinOverdriveActive;
 		}
 		else
 			continue;
 		if (aPlant->mPlantMaxHealth != aDesiredMaxHealth)
 		{
+			const int aOldMaxHealth = aPlant->mPlantMaxHealth;
+			const int aHealthBefore = aPlant->mPlantHealth;
+			const int aMissingHealth = std::max(0, aOldMaxHealth - aHealthBefore);
 			aPlant->mPlantMaxHealth = aDesiredMaxHealth;
-			if (!aOverdriveActive)
-				aPlant->mPlantHealth = std::min(aPlant->mPlantHealth, aDesiredMaxHealth);
+			// Changing the bonus health capacity must not create an injury or erase healing.
+			if (aHealthBefore > 0)
+				aPlant->mPlantHealth = std::clamp(aDesiredMaxHealth - aMissingHealth, 1, aDesiredMaxHealth);
+			PvzpLogLn("[health] tick={} event=overdrive_capacity_change target_id={} target_seed={} target_row={} target_col={} "
+				"hp_before={} hp_after={} max_before={} max_after={} missing_before={} missing_after={} sun_balance={}",
+				mMainCounter, mPlants.DataArrayGetID(aPlant), static_cast<int>(aPlant->mSeedType), aPlant->mRow, aPlant->mPlantCol,
+				aHealthBefore, aPlant->mPlantHealth, aOldMaxHealth, aDesiredMaxHealth, aMissingHealth,
+				aDesiredMaxHealth - aPlant->mPlantHealth, mSunMoney);
 		}
 	}
 	int aNewZombieStrengthTier = std::max(mZombieStrengthTier, ZombieStrengthRules::ZombieStrengthTierForSun(aZombieSunTier));

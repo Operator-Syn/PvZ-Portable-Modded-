@@ -149,7 +149,7 @@ void Zombie::UpdateZombieDolphinRider()
 		if (aBodyReanim->ShouldTriggerTimedEvent(0.3f))
 		{
 			Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_VAULT);
-			if (aPlant && aPlant->IsTallNut())
+			if (aPlant && aPlant->HasTallNutDefense())
 			{
 				mApp->PlayFoley(FoleyType::FOLEY_BONK);
 				aJumpEnds = true;

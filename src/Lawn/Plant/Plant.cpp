@@ -80,6 +80,13 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	mShootingCounter = 0;
 	mEphraimAttackSet = 0;
 	mSniperHitStopCounter = 0;
+	mSniperCoffeeTicksRemaining = 0;
+	mSniperHomeRow = theSeedType == SeedType::SEED_SNIPER_FEMALE ? theGridY : -1;
+	mSniperDestinationRow = -1;
+	mSniperDodgeFromRow = -1;
+	mSniperDodgeStartY = 0;
+	mSniperDodgeTicksRemaining = 0;
+	mSniperDodgeDurationTicks = 0;
 	mEphraimHitStopCounter = 0;
 	mEphraimAttackPauseFlags = 0;
 	mEphraimAfterimageFrame = -1;
@@ -88,6 +95,9 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	mEphraimAfterimagesRemaining = 0;
 	mEphraimAfterimages.clear();
 	mContinuousHealthRemainder = 0.0f;
+	mSerraHealCooldown = 0;
+	mSerraSunPending = false;
+	mSerraBlessingTicksRemaining = 0;
 	mShakeOffsetX = 0.0f;
 	mShakeOffsetY = 0.0f;
 	mFrameLength = RandRangeInt(12, 18);
@@ -102,6 +112,8 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	}
 	if (theSeedType == SeedType::SEED_SNIPER_FEMALE)
 		mNumFrames = SNIPER_IDLE_FRAME_COUNT;
+	if (theSeedType == SeedType::SEED_SERRA_BISHOP)
+		mNumFrames = 1;
 	mState = PlantState::STATE_NOTREADY;
 	mDead = false;
 	mSquished = false;
@@ -182,7 +194,9 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 
 	if (mLaunchRate > 0)
 	{
-		if (MakesSun())
+		if (mSeedType == SeedType::SEED_SERRA_BISHOP)
+			mLaunchCounter = RandRangeInt(mLaunchRate - SERRA_PRODUCTION_JITTER_TICKS, mLaunchRate);
+		else if (MakesSun())
 			mLaunchCounter = RandRangeInt(300, mLaunchRate / 2);
 		else
 			mLaunchCounter = RandRangeInt(0, mLaunchRate);
@@ -280,7 +294,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 		break;
 	}
 	case SeedType::SEED_EPHRAIM:
-		mPlantHealth = 3500;
+		mPlantHealth = EPHRAIM_MAX_HEALTH;
 		break;
 	case SeedType::SEED_WALLNUT:
 		mPlantHealth = 4000;
@@ -296,7 +310,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 		mBlinkCountdown = 1000 + Sexy::Rand(1000);
 		break;
 	case SeedType::SEED_TALLNUT:
-		mPlantHealth = 8000;
+		mPlantHealth = 8000 + (mBoard != nullptr && mBoard->mTallNutOverdriveActive ? 2000 : 0);
 		mHeight = 80;
 		mBlinkCountdown = 1000 + Sexy::Rand(1000);
 		break;
@@ -403,7 +417,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 		break;
 	case SeedType::SEED_PUMPKINSHELL:
 	{
-		mPlantHealth = 4000;
+		mPlantHealth = 4000 + (mBoard != nullptr && mBoard->mPumpkinOverdriveActive ? 1000 : 0);
 		mWidth = 120;
 
 		PVZP_ASSERT(aBodyReanim);
@@ -507,6 +521,95 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	}
 }
 
+void Plant::UpdateSniperLaneMovement()
+{
+	if (mSeedType != SeedType::SEED_SNIPER_FEMALE)
+		return;
+	if (mSniperHomeRow < 0 || mSniperHomeRow >= MAX_GRID_SIZE_Y)
+		mSniperHomeRow = mRow;
+	// Older lane-movement saves have no adjacent-step route: resume at the
+	// saved lane instead of completing a potentially obstructed long jump.
+	if (mSniperDestinationRow < 0 || mSniperDodgeFromRow < 0)
+	{
+		mSniperDestinationRow = mRow;
+		mSniperDodgeFromRow = mRow;
+		mSniperDodgeTicksRemaining = 0;
+		mY = mBoard->GridToPixelY(mPlantCol, mRow);
+	}
+
+	auto CanEnterRow = [&](int theRow)
+	{
+		return mBoard->CanPlantAt(mPlantCol, theRow, SeedType::SEED_SNIPER_FEMALE, true) == PlantingReason::PLANTING_OK;
+	};
+	auto CanReachRow = [&](int theRow)
+	{
+		const int aStep = theRow > mRow ? 1 : -1;
+		for (int aRow = mRow; aRow != theRow; )
+		{
+			aRow += aStep;
+			if (!CanEnterRow(aRow))
+				return false;
+		}
+		return true;
+	};
+	auto StartStep = [&](int theRow)
+	{
+		mSniperDodgeStartY = mY;
+		mSniperDodgeFromRow = mRow;
+		mRow = theRow;
+		const int aDistance = std::abs(mBoard->GridToPixelY(mPlantCol, mRow) - mY);
+		mSniperDodgeDurationTicks = std::clamp((aDistance * SNIPER_DODGE_TICKS_PER_100_PIXELS + 99) / 100, 1, SNIPER_MAX_DODGE_TICKS);
+		mSniperDodgeTicksRemaining = mSniperDodgeDurationTicks;
+		mRenderOrder = CalcRenderOrder();
+	};
+
+	if (FindTargetZombie(mSniperHomeRow, PlantWeapon::WEAPON_PRIMARY) != nullptr)
+	{
+		mSniperDestinationRow = mSniperHomeRow;
+		// Reverse an outbound adjacent step immediately when its origin is
+		// closer to home, provided that tile is still traversable.
+		if (mSniperDodgeTicksRemaining > 0 &&
+			std::abs(mSniperDodgeFromRow - mSniperHomeRow) < std::abs(mRow - mSniperHomeRow) &&
+			CanEnterRow(mSniperDodgeFromRow))
+			StartStep(mSniperDodgeFromRow);
+	}
+	else if (!IsSniperMoving() && mShootingCounter == 0 &&
+		FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY) == nullptr)
+	{
+		mSniperDestinationRow = mSniperHomeRow;
+		int aClosestDistance = MAX_GRID_SIZE_Y;
+		for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
+		{
+			if (aRow == mRow || aRow == mSniperHomeRow || !CanReachRow(aRow) ||
+				FindTargetZombie(aRow, PlantWeapon::WEAPON_PRIMARY) == nullptr)
+				continue;
+			const int aDistance = std::abs(aRow - mRow);
+			if (aDistance < aClosestDistance)
+			{
+				aClosestDistance = aDistance;
+				mSniperDestinationRow = aRow;
+			}
+		}
+	}
+
+	if (mSniperDodgeTicksRemaining == 0 && mSniperDestinationRow != mRow)
+	{
+		const int aNextRow = mRow + (mSniperDestinationRow > mRow ? 1 : -1);
+		if (CanEnterRow(aNextRow))
+			StartStep(aNextRow);
+		else
+			mSniperDestinationRow = mRow; // Stop before an obstruction; retry on subsequent updates.
+	}
+	if (mSniperDodgeTicksRemaining > 0)
+	{
+		--mSniperDodgeTicksRemaining;
+		const float aProgress = 1.0f - static_cast<float>(mSniperDodgeTicksRemaining) / mSniperDodgeDurationTicks;
+		const float aBlend = aProgress * aProgress * (3.0f - 2.0f * aProgress);
+		const int aDestinationY = mBoard->GridToPixelY(mPlantCol, mRow);
+		mY = mSniperDodgeStartY + static_cast<int>(std::lround((aDestinationY - mSniperDodgeStartY) * aBlend));
+	}
+}
+
 void Plant::UpdateAbilities()
 {
 	if (!IsInPlay())
@@ -542,6 +645,8 @@ void Plant::UpdateAbilities()
 
 	if (mIsAsleep || mSquished || mOnBungeeState != PlantOnBungeeState::NOT_ON_BUNGEE)
 		return;
+
+	UpdateSniperLaneMovement();
 
 	if (mSeedType == SeedType::SEED_GLOOMSHROOM && mLaunchRate == 200)
 	{
@@ -606,7 +711,20 @@ void Plant::UpdateAbilities()
 		mStateCountdown = (mStateCountdown + 1) / 2;
 	}
 
-	UpdateShooting();
+	if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
+	{
+		const int aSteps = mSniperCoffeeTicksRemaining > 0 ? SNIPER_COFFEE_ATTACK_SPEED_MULTIPLIER : 1;
+		for (int aStep = 0; aStep < aSteps; ++aStep)
+		{
+			// Advance every release tick individually, including critical burst arrows.
+			UpdateShooting();
+			UpdateShooter();
+		}
+		if (mSniperCoffeeTicksRemaining > 0)
+			--mSniperCoffeeTicksRemaining;
+	}
+	else
+		UpdateShooting();
 
 	if (mStateCountdown > 0)
 	{
@@ -649,7 +767,7 @@ void Plant::UpdateAbilities()
 	else if (mSeedType == SeedType::SEED_TANGLEKELP)                                            UpdateTanglekelp();
 	else if (mSeedType == SeedType::SEED_SCAREDYSHROOM)                                         UpdateScaredyShroom();
 
-	if (mSubclass == PlantSubClass::SUBCLASS_SHOOTER)
+	if (mSubclass == PlantSubClass::SUBCLASS_SHOOTER && mSeedType != SeedType::SEED_SNIPER_FEMALE)
 	{
 		UpdateShooter();
 	}
@@ -708,6 +826,8 @@ void Plant::Update()
 
 	if (doUpdate)
 	{
+		if (mSerraBlessingTicksRemaining > 0)
+			--mSerraBlessingTicksRemaining;
 		UpdateAbilities();
 		Animate();
 

@@ -232,7 +232,9 @@ void Plant::UpdateSpikeweed()
 		{
 			if (mBoard->mSpikeweedOverdriveActive)
 			{
+				const int aHealthBefore = mPlantHealth;
 				mPlantHealth -= mSeedType == SeedType::SEED_SPIKEROCK ? 2 : 1;
+				LogDamage(aHealthBefore, "spikeweed_overdrive_attack_cost");
 				if (mPlantHealth <= 0)
 				{
 					Die();

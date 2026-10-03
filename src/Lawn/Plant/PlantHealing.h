@@ -26,7 +26,25 @@ class Plant;
 
 namespace PlantHealing
 {
+struct HealingAudit
+{
+	float mBaseAmount = 0.0f;
+	float mModifiedAmount = 0.0f;
+	float mRequestedAmount = 0.0f;
+	float mOverflow = 0.0f;
+	float mUnaffordable = 0.0f;
+	float mRemainderBefore = 0.0f;
+	float mRemainderAfter = 0.0f;
+	int mHealthBefore = 0;
+	int mHealthAfter = 0;
+	int mMaxHealth = 0;
+	int mPaidBaseHealing = 0;
+	int mBonusHealing = 0;
+};
+
 bool PlantCanRegenerate(Plant* thePlant);
 void HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmount);
+// The bounded overload budgets base HP; healing bonuses do not consume the budget.
+int HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmount, int theMaxBaseHealing, HealingAudit* theAudit = nullptr);
 void ApplyPlantHealthRate(Plant* thePlant, float theHealthPerSecond);
 }

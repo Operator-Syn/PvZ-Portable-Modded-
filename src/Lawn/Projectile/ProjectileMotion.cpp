@@ -211,7 +211,9 @@ void Projectile::UpdateLobMotion()
 		}
 		else
 		{
+			const int aHealthBefore = aPlant->mPlantHealth;
 			aPlant->mPlantHealth -= GetProjectileDef().mDamage;
+			aPlant->LogDamage(aHealthBefore, "catapult_basketball", mBoard->ZombieTryToGet(mSourceZombieID), this);
 			aPlant->mEatenFlashCountdown = std::max(aPlant->mEatenFlashCountdown, 25);
 			mApp->PlayFoley(FoleyType::FOLEY_SPLAT);
 			Die();

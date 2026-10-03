@@ -304,6 +304,30 @@ void Zombie::SquishAllInSquare(int theX, int theY, ZombieAttackType theAttackTyp
 {
 	PlantsOnLawn aPlantsOnTile;
 	mBoard->GetPlantsOnLawn(theX, theY, &aPlantsOnTile);
+	Plant* anEphraim = aPlantsOnTile.mNormalPlant;
+	if (theAttackType == ZombieAttackType::ATTACKTYPE_DRIVE_OVER &&
+		(mZombieType == ZombieType::ZOMBIE_ZAMBONI || mZombieType == ZombieType::ZOMBIE_CATAPULT) &&
+		!mFlatTires && !IsDeadOrDying() && anEphraim != nullptr &&
+		anEphraim->mSeedType == SeedType::SEED_EPHRAIM && !anEphraim->NotOnGround())
+	{
+		// Take one eighth of maximum HP rather than an instant squash.
+		// Resolve before the Pumpkin layer so it cannot hide his tire defense.
+		const int aHealthBefore = anEphraim->mPlantHealth;
+		anEphraim->mPlantHealth -= std::max(1, anEphraim->mPlantMaxHealth / 8);
+		anEphraim->LogDamage(aHealthBefore, "vehicle_contact", this);
+		anEphraim->mRecentlyEatenCountdown = 50;
+		if (anEphraim->mPlantHealth <= 0)
+		{
+			mApp->PlayFoley(FoleyType::FOLEY_SQUISH);
+			anEphraim->Die();
+		}
+		mFlatTires = true;
+		if (mZombieType == ZombieType::ZOMBIE_ZAMBONI)
+			ZamboniDeath(1U << DamageFlags::DAMAGE_SPIKE);
+		else
+			CatapultDeath(1U << DamageFlags::DAMAGE_SPIKE);
+		return;
+	}
 	Plant* aPlantLayers[] = {
 		aPlantsOnTile.mPumpkinPlant,
 		aPlantsOnTile.mNormalPlant,
@@ -320,7 +344,10 @@ void Zombie::SquishAllInSquare(int theX, int theY, ZombieAttackType theAttackTyp
 			continue;
 
 		mBoard->mPlantsEaten++;
-		aPlant->Squish();
+		const std::string_view aCause = mZombieType == ZombieType::ZOMBIE_BOSS ? "boss_fireball" :
+			(mZombieType == ZombieType::ZOMBIE_JALAPENO_HEAD ? "zombotany_jalapeno_explosion" :
+				(theAttackType == ZombieAttackType::ATTACKTYPE_DRIVE_OVER ? "vehicle_squash" : "gargantuar_squash"));
+		aPlant->Squish(this, aCause);
 		return;
 	}
 }

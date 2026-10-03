@@ -79,6 +79,8 @@ namespace
 
 bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 {
+	if (mSeedType == SeedType::SEED_SNIPER_FEMALE && IsSniperMoving())
+		return false;
 	if ((mSeedType == SeedType::SEED_EPHRAIM || mSeedType == SeedType::SEED_SNIPER_FEMALE) && mShootingCounter > 0)
 		return false;
 
@@ -89,6 +91,9 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 	EndBlink();
 	if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
 	{
+		const Rect aTargetRect = aZombie->GetZombieRect();
+		mTargetX = aTargetRect.mX + aTargetRect.mWidth / 2;
+		mTargetZombieID = mBoard->ZombieGetID(aZombie);
 		mSniperHitStopCounter = 0;
 		// This plant owns mAnimPing as its saved normal/critical atlas selector.
 		mAnimPing = RandRangeInt(0, 1) != 0;
@@ -101,6 +106,7 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 	{
 		Rect aTargetRect = aZombie->GetZombieRect();
 		mTargetX = aTargetRect.mX + aTargetRect.mWidth / 2;
+		mTargetZombieID = mBoard->ZombieGetID(aZombie);
 		const bool aRanged = std::abs(mTargetX - (mX + mWidth / 2)) > EPHRAIM_ATTACK_RANGE_FRONT;
 		mEphraimAttackSet = RandRangeInt(aRanged ? 2 : 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
 		mEphraimAfterimagesRemaining = RollEphraimAfterimageCount();
@@ -336,8 +342,13 @@ void Plant::UpdateShooter()
 {
 	if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
 	{
-		if (mShootingCounter > 0)
+		if (IsSniperMoving() || mShootingCounter > 0)
 			return;
+		if (Zombie* aTarget = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY))
+		{
+			const Rect aRect = aTarget->GetZombieRect();
+			mTargetX = aRect.mX + aRect.mWidth / 2;
+		}
 		if (--mLaunchCounter <= 0)
 		{
 			mLaunchCounter = 10;
@@ -351,6 +362,12 @@ void Plant::UpdateShooter()
 		// Independent echoes never participate in this countdown.
 		if (mShootingCounter > 0)
 			return;
+		// Look on both sides during rest, so rear targets also turn the idle pose.
+		if (Zombie* aTarget = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY))
+		{
+			const Rect aRect = aTarget->GetZombieRect();
+			mTargetX = aRect.mX + aRect.mWidth / 2;
+		}
 		if (--mLaunchCounter <= 0)
 		{
 			mEphraimAttackPauseFlags &= ~EPHRAIM_ATTACK_FLAG_RECOVERY;
@@ -566,6 +583,7 @@ void Plant::UpdateEphraimAfterimages()
 				{
 					const int aMultiplier = mBoard->GetQuadraticZombieDamageMultiplier(aZombie, aTargetCount);
 					aZombie->TakeDamage(EphraimMeleeAttackDamage(aSet) * aMultiplier, 0U);
+					ApplyEphraimHitEffects(aZombie);
 				}
 				if (!aHitZombies.empty() && anEcho.mNestingDepth < EPHRAIM_MAX_AFTERIMAGE_NESTING)
 				{
@@ -600,11 +618,15 @@ void Plant::UpdateEphraimAfterimages()
 
 void Plant::UpdateShooting()
 {
+	if (mSeedType == SeedType::SEED_SERRA_BISHOP)
+		return; // Production owns this plant's saved sequence countdown.
 	if (NotOnGround() || (mShootingCounter == 0 && mSeedType != SeedType::SEED_EPHRAIM))
 		return;
 
 	if (mSeedType == SeedType::SEED_SNIPER_FEMALE)
 	{
+		if (IsSniperMoving())
+			return;
 		if (mSniperHitStopCounter > 0)
 		{
 			mSniperHitStopCounter--;
@@ -618,22 +640,33 @@ void Plant::UpdateShooting()
 		// Each critical arrow starts at 300% base damage before armor/body bonuses.
 		// Keep the firing pose visible for all three spaced critical arrows.
 		const int aBurstElapsed = aElapsed - aReleaseTick;
-		const bool aFireArrow = aSet == 0 ? aBurstElapsed == 0 :
+		bool aFireArrow = aSet == 0 ? aBurstElapsed == 0 :
 			aBurstElapsed >= 0 && aBurstElapsed < SNIPER_CRITICAL_ARROW_COUNT * SNIPER_CRITICAL_ARROW_SPACING_TICKS &&
 			aBurstElapsed % SNIPER_CRITICAL_ARROW_SPACING_TICKS == 0;
+		int aSunSpent = 0;
+		if (aFireArrow && mSniperCoffeeTicksRemaining > 0)
+		{
+			const int aSunBefore = mBoard->mSunMoney;
+			aFireArrow = mBoard->mProjectiles.mSize < mBoard->mProjectiles.mMaxSize &&
+				aSunBefore >= SNIPER_COFFEE_ARROW_SUN_COST && mBoard->TakeSunMoney(SNIPER_COFFEE_ARROW_SUN_COST);
+			aSunSpent = aSunBefore - mBoard->mSunMoney;
+		}
 		if (aFireArrow)
 		{
-			Projectile* anArrow = mBoard->AddProjectile(mX + mWidth / 2,
+			const bool aFacingLeft = mTargetX < mX + mWidth / 2;
+			Projectile* anArrow = mBoard->AddProjectile(mX + mWidth / 2 - (aFacingLeft ? SNIPER_ARROW_WIDTH : 0),
 				mY + mHeight - FloatRoundToInt(25.0f * SNIPER_FEMALE_DRAW_SCALE),
 				mRenderOrder + 1, mRow, ProjectileType::PROJECTILE_SNIPER_ARROW);
 			if (anArrow != nullptr)
 			{
 				anArrow->mSniperSourcePlantID = static_cast<PlantID>(mBoard->mPlants.DataArrayGetID(this));
 				anArrow->mSniperCriticalArrow = aSet == 1;
-				anArrow->mVelX = 7.0f;
+				anArrow->mVelX = aFacingLeft ? -7.0f : 7.0f;
 				anArrow->mDamageRangeFlags = GetDamageRangeFlags(PlantWeapon::WEAPON_PRIMARY);
 				mApp->PlayFoley(FoleyType::FOLEY_THROW);
 			}
+			else if (aSunSpent > 0)
+				mBoard->AddSunMoney(aSunSpent);
 		}
 		if (--mShootingCounter == 0)
 		{
@@ -677,6 +710,24 @@ void Plant::UpdateShooting()
 		const int aImpactFrame = aPrimaryTiming.mImpactFrame;
 		const int aPrimarySet = std::clamp(mEphraimAttackSet, 0, EPHRAIM_ATTACK_VARIANT_COUNT - 1);
 		const bool aRanged = (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RANGED) != 0;
+		if (aRanged && (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_PRIMARY_IMPACT) == 0)
+		{
+			// Aim at the living target's current side until the javelin leaves.
+			// The selected complete attack and all pose holds keep their timing.
+			Zombie* aTarget = mBoard->ZombieTryToGet(mTargetZombieID);
+			if (aTarget == nullptr || aTarget->mRow != mRow ||
+				!aTarget->EffectedByDamage(GetDamageRangeFlags(PlantWeapon::WEAPON_PRIMARY)))
+			{
+				const int anOriginX = mX + mWidth / 2;
+				aTarget = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY, nullptr, nullptr, false, &anOriginX);
+				mTargetZombieID = aTarget != nullptr ? mBoard->ZombieGetID(aTarget) : ZombieID::ZOMBIEID_NULL;
+			}
+			if (aTarget != nullptr)
+			{
+				const Rect aRect = aTarget->GetZombieRect();
+				mTargetX = aRect.mX + aRect.mWidth / 2;
+			}
+		}
 		if ((mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RANGED) != 0 &&
 			mFrame == EPHRAIM_ATTACK_RELEASE_FRAMES[aPrimarySet] && (mEphraimAttackPauseFlags & EPHRAIM_ATTACK_FLAG_RELEASE) == 0)
 		{
@@ -721,6 +772,7 @@ void Plant::UpdateShooting()
 				{
 					const int aMultiplier = mBoard->GetQuadraticZombieDamageMultiplier(aZombie, aTargetCount);
 					aZombie->TakeDamage(EphraimMeleeAttackDamage(aPrimarySet) * aMultiplier, 0U);
+					ApplyEphraimHitEffects(aZombie);
 				}
 				mEphraimHitStopCounter = aHitZombies.empty()
 					? EPHRAIM_ATTACK_MISS_STOP_TICKS[aPrimarySet] : EPHRAIM_ATTACK_HITSTOP_TICKS[aPrimarySet];

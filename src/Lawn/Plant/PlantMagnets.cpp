@@ -502,7 +502,9 @@ void Plant::UpdateGoldMagnetShroom()
 	if (mSeedType == SeedType::SEED_SUN_MAGNET && mSunMagnetCoffeeTicksRemaining > 0)
 	{
 		--mSunMagnetCoffeeTicksRemaining;
+		const int aHealthBefore = mPlantHealth;
 		PlantHealing::ApplyPlantHealthRate(this, -4.0f);
+		LogDamage(aHealthBefore, "sun_magnet_coffee_health_drain");
 		if (mPlantHealth <= 0)
 		{
 			Die();

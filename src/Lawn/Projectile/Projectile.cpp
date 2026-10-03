@@ -82,6 +82,8 @@ void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, in
 	mAttachmentID = AttachmentID::ATTACHMENTID_NULL;
 	mCobTargetRow = 0;
 	mTargetZombieID = ZombieID::ZOMBIEID_NULL;
+	mSourceZombieID = ZombieID::ZOMBIEID_NULL;
+	mSourceZombieType = ZombieType::ZOMBIE_INVALID;
 	mTargetTrackingEnded = false;
 	mCattailRedirectionCount = 0;
 	mPiercesZombies = false;

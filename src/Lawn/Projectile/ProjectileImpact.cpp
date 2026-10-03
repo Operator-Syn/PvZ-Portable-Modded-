@@ -161,7 +161,31 @@ void Projectile::DoImpact(Zombie* theZombie)
 		unsigned int aDamageFlags = GetDamageFlags(theZombie);
 		int aDamage = GetProjectileDef().mDamage;
 		if (mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW && mSniperCriticalArrow)
+		{
 			aDamage = aDamage * Plant::SNIPER_CRITICAL_DAMAGE_PERCENT / 100;
+			// Include previous contacts so killing a target does not reduce this arrow's scaling.
+			int aTargetCount = static_cast<int>(mSniperPiercedZombieIDs.size());
+			const Rect anArrowRect = GetProjectileRect();
+			for (Zombie* aTarget : mBoard->mZombies)
+			{
+				if (aTarget->mDead || (aTarget->mRow != mRow && aTarget->mZombieType != ZombieType::ZOMBIE_BOSS) ||
+					!aTarget->EffectedByDamage(static_cast<unsigned int>(mDamageRangeFlags)) ||
+					std::find(mSniperPiercedZombieIDs.begin(), mSniperPiercedZombieIDs.end(), mBoard->ZombieGetID(aTarget)) != mSniperPiercedZombieIDs.end())
+					continue;
+				if ((aTarget->mOnHighGround && CantHitHighGround()) ||
+					(aTarget->mZombiePhase == ZombiePhase::PHASE_SNORKEL_WALKING_IN_POOL && mPosZ <= 45.0f))
+					continue;
+				const Rect aTargetRect = aTarget->GetZombieRect();
+				if (aTargetRect.mY + aTargetRect.mHeight < anArrowRect.mY ||
+					aTargetRect.mY > anArrowRect.mY + anArrowRect.mHeight)
+					continue;
+				if ((mVelX >= 0.0f && aTargetRect.mX + aTargetRect.mWidth < anArrowRect.mX) ||
+					(mVelX < 0.0f && aTargetRect.mX > anArrowRect.mX + anArrowRect.mWidth))
+					continue;
+				++aTargetCount;
+			}
+			aDamage *= mBoard->GetQuadraticZombieDamageMultiplier(theZombie, aTargetCount);
+		}
 		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && mMillionSunDamage)
 			aDamage *= 5;
 		if (mProjectileType == ProjectileType::PROJECTILE_SPIKE && mTwoMillionSunCatTailDamage)
@@ -173,6 +197,8 @@ void Projectile::DoImpact(Zombie* theZombie)
 		if (mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW)
 			aDamageFlags |= 1U << DamageFlags::DAMAGE_SNIPER_ARROW;
 		theZombie->TakeDamage(aDamage, aDamageFlags);
+		if (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN)
+			Plant::ApplyEphraimHitEffects(theZombie);
 		if (mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW)
 		{
 			if (!theZombie->IsDeadOrDying() && !theZombie->IsSunTierInvulnerable() && theZombie->CanBeTargetedByPlants())
@@ -188,13 +214,18 @@ void Projectile::DoImpact(Zombie* theZombie)
 			}
 		}
 		if (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN && mEphraimChargedJavelin &&
+			!(theZombie->mZombieType == ZombieType::ZOMBIE_BALLOON &&
+				(theZombie->IsFlying() || theZombie->mZombieHeight == ZombieHeight::HEIGHT_FALLING)) &&
 			!theZombie->IsDeadOrDying() && theZombie->mZombieType != ZombieType::ZOMBIE_BOSS &&
 			theZombie->mZombieType != ZombieType::ZOMBIE_BUNGEE)
 		{
-			// Queue displacement for the movement loop instead of teleporting on impact.
-			const int aDistance = mVelX < 0.0f ? -Plant::EPHRAIM_JAVELIN_KNOCKBACK_DISTANCE : Plant::EPHRAIM_JAVELIN_KNOCKBACK_DISTANCE;
-			theZombie->mEphraimKnockbackDistanceRemaining = std::clamp(
-				theZombie->mEphraimKnockbackDistanceRemaining + aDistance, -BOARD_WIDTH, BOARD_WIDTH);
+			// Rear throws retain stagger without pushing zombies toward the house.
+			if (mVelX > 0.0f)
+			{
+				// Queue displacement for the movement loop instead of teleporting on impact.
+				theZombie->mEphraimKnockbackDistanceRemaining = std::clamp(
+					theZombie->mEphraimKnockbackDistanceRemaining + Plant::EPHRAIM_JAVELIN_KNOCKBACK_DISTANCE, -BOARD_WIDTH, BOARD_WIDTH);
+			}
 			theZombie->mEphraimStaggerCounter = Plant::EPHRAIM_JAVELIN_STAGGER_TICKS;
 			theZombie->UpdateAnimSpeed();
 		}

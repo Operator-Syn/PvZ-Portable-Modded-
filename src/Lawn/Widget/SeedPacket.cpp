@@ -262,7 +262,22 @@ void SeedPacketDrawSeed(Graphics* g, float x, float y, SeedType theSeedType, See
 		aImage = FilterEffectGetImage(aImage, aFilterEffect);
 	}
 
-	if (aSeedType == SeedType::SEED_SNIPER_FEMALE)
+	if (aSeedType == SeedType::SEED_SERRA_BISHOP)
+	{
+		Image* aPortrait = IMAGE_SERRA_BISHOP_PLANT;
+		if (aPortrait == nullptr)
+			return;
+		if (theSeedType == SeedType::SEED_IMITATER)
+			aPortrait = FilterEffectGetImage(aPortrait, FilterEffect::FILTER_EFFECT_WASHED_OUT);
+		const Rect aSource(20, 31, 24, 33);
+		const Rect aDest(FloatRoundToInt(x + 11.0f * g->mScaleX),
+			FloatRoundToInt(y + 10.0f * g->mScaleY),
+			FloatRoundToInt(32.0f * g->mScaleX), FloatRoundToInt(44.0f * g->mScaleY));
+		Graphics aPortraitG(*g);
+		aPortraitG.SetFastStretch(true);
+		aPortraitG.DrawImageMirror(aPortrait, aDest, aSource, true);
+	}
+	else if (aSeedType == SeedType::SEED_SNIPER_FEMALE)
 	{
 		Image* aPortrait = IMAGE_SNIPER_FEMALE_PLANT;
 		if (aPortrait == nullptr)

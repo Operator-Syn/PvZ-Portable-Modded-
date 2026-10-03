@@ -471,6 +471,7 @@ void Zombie::EatPlant(Plant* thePlant)
 		}
 	}
 
+	const int aHealthBefore = thePlant->mPlantHealth;
 	thePlant->mPlantHealth -= DAMAGE_PER_EAT;
 	thePlant->mRecentlyEatenCountdown = 50;
 	if (mApp->IsIZombieLevel() && mJustGotShotCounter < -500)
@@ -481,6 +482,7 @@ void Zombie::EatPlant(Plant* thePlant)
 		}
 	}
 
+	thePlant->LogDamage(aHealthBefore, "zombie_bite", this);
 	if (thePlant->mPlantHealth <= 0)
 	{
 		mApp->PlaySample(SOUND_GULP);

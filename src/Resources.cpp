@@ -1135,6 +1135,35 @@ bool Sexy::ExtractInitResources(ResourceManager* theManager)
 		return false;
 	}
 
+	IMAGE_SERRA_BISHOP_PLANT = gSexyAppBase->GetImage("properties/serra-bishop/atlases/idle.png");
+	gSerraBishopPlantImages[0] = IMAGE_SERRA_BISHOP_PLANT;
+	if (IMAGE_SERRA_BISHOP_PLANT != nullptr)
+	{
+		IMAGE_SERRA_BISHOP_PLANT->mNumCols = 1;
+		IMAGE_SERRA_BISHOP_PLANT->mNumRows = 1;
+		PvzpMarkImageForSanding(IMAGE_SERRA_BISHOP_PLANT);
+	}
+
+	static constexpr const char* SERRA_SEQUENCE_NAMES[] = { "staff", "critical" };
+	gSerraDivineBlessing = gSexyAppBase->GetImage("properties/serra-bishop/atlases/divine_blessing.png");
+	if (gSerraDivineBlessing != nullptr)
+	{
+		gSerraDivineBlessing->mNumCols = 5;
+		gSerraDivineBlessing->mNumRows = 4;
+		PvzpMarkImageForSanding(gSerraDivineBlessing);
+	}
+	for (int aSet = 0; aSet < 2; aSet++)
+	{
+		Image* aSequence = gSexyAppBase->GetImage(std::format("properties/serra-bishop/atlases/{}.png", SERRA_SEQUENCE_NAMES[aSet]));
+		gSerraBishopSequences[aSet] = aSequence;
+		if (aSequence != nullptr)
+		{
+			aSequence->mNumCols = aSet == 0 ? Plant::SERRA_STAFF_FRAME_COUNT : Plant::SERRA_CRITICAL_FRAME_COUNT;
+			aSequence->mNumRows = 1;
+			PvzpMarkImageForSanding(aSequence);
+		}
+	}
+
 	static constexpr const char* SNIPER_FEMALE_ATLAS_NAMES[] = {
 		"bow_windup", "bow_release", "bow_recovery", "critical_windup",
 		"critical_spin", "critical_release", "dodge", "map_idle", "map_down",
@@ -1402,6 +1431,7 @@ Image* Sexy::IMAGE_PEA_SPLATS;
 Image* Sexy::IMAGE_SNIPER_ARROW;
 Image* Sexy::IMAGE_SNIPER_FEMALE_ATTACKS[2] = {};
 Image* Sexy::IMAGE_SNIPER_FEMALE_PLANT;
+Image* Sexy::IMAGE_SERRA_BISHOP_PLANT;
 Image* Sexy::IMAGE_SNIPER_FEMALE_SEQUENCES[12] = {};
 Image* Sexy::IMAGE_EPHRAIM_PLANT;
 Image* Sexy::IMAGE_EPHRAIM_SEQUENCES[4] = {};

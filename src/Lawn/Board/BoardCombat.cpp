@@ -98,7 +98,7 @@ bool GetCircleRectOverlap(int theCircleX, int theCircleY, int theRadius, const R
 	return dx * dx + dy * dy <= theRadius * theRadius;
 }
 
-void Board::KillAllPlantsInRadius(int theX, int theY, int theRadius)
+void Board::KillAllPlantsInRadius(int theX, int theY, int theRadius, Zombie* theSource)
 {
 	for (Plant* aPlant : mPlants)
 	{
@@ -108,7 +108,9 @@ void Board::KillAllPlantsInRadius(int theX, int theY, int theRadius)
 		{
 			int aDivisor = mZombieStrengthTier >= 3 ? 6 : 3;
 			int aDamage = std::max(1, (aPlant->mPlantMaxHealth + aDivisor - 1) / aDivisor);
+			const int aHealthBefore = aPlant->mPlantHealth;
 			aPlant->mPlantHealth -= aDamage;
+			aPlant->LogDamage(aHealthBefore, "jack_in_the_box_explosion", theSource);
 			aPlant->mEatenFlashCountdown = std::max(aPlant->mEatenFlashCountdown, 25);
 			if (aPlant->mPlantHealth <= 0)
 			{

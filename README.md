@@ -229,6 +229,45 @@ cmake --build build
 
 ### Performance Optimization
 
+#### Faster local rebuilds
+
+Keep the same build directory so Ninja can reuse unchanged object files. CMake uses
+`ccache` automatically when available with GCC/Clang and Ninja/Makefiles, unless a
+compiler launcher is already configured. The repository Nix shell includes it.
+Disable automatic caching with `-DPVZ_USE_CCACHE=OFF`. The first compilation fills
+the cache; later identical compilations can reuse it. Source or header changes
+that affect compiler output still require compilation, and linking is not cached.
+
+For the Nix development workflow:
+
+```bash
+nix develop -c cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release
+nix develop -c cmake --build build --target pvz-portable --parallel 8
+nix develop -c ccache --show-stats
+```
+
+The game target avoids building optional test executables. Adjust the parallel job
+count to available memory and CPU capacity; Ninja already builds in parallel by
+default. Avoid cleaning the build directory between edits. Changing Release to
+Debug reduces optimization work but also changes runtime performance and debug
+feature defaults; Release remains recommended for gameplay.
+
+For frequent gameplay edits, opt into lighter optimization for the game target:
+
+```bash
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DPVZ_FAST_ITERATION=ON -DPVZ_BUILD_TESTS=OFF
+cmake --build build --target pvz-portable --parallel 8
+```
+
+`PVZ_FAST_ITERATION` uses `-O1` instead of `-O3` for Release game compilation
+with GCC/Clang, retaining Release definitions. This reduces optimization work
+but can reduce runtime performance; no speedup has been measured here. Turning
+it on or off requires recompiling the game once, and changed shared headers
+still invalidate their dependent files. Keep the option stable between edits.
+Configure once, then use only the build command for subsequent source changes;
+Ninja automatically reruns CMake when configuration inputs change. Restore full
+Release optimization with `-DPVZ_FAST_ITERATION=OFF`.
+
 It is recommended to use the **Release** build type for the best performance, as it usually implies compiler optimizations:
 
 ```bash
@@ -271,11 +310,19 @@ Example: Manually enable `PVZ_DEBUG` in **Release build** so that you can use **
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DPVZ_DEBUG=ON
 ```
 
-Gameplay timing summaries are recorded in `userdata/performance.log`. To include detailed subsystem timings, set `PVZ_PROFILE=detail` when launching the game, for example:
+Gameplay timing summaries are recorded in `userdata/performance.log`. `PVZ_PROFILE=detail` enables the most detailed diagnostics: subsystem timings plus individual damage and healing audit events in the log file and console. Use the same flag when launching the game:
 
 ```bash
 PVZ_PROFILE=detail ./build/pvz-portable
 ```
+
+Without detailed profiling, health audit logging defaults to one-second summaries for repeated damage and passive healing, grouped by source, target and cause. Summaries retain event counts, first/last/minimum/peak HP and total damage, healing, overflow and sun spent; ordinary fields describe the last event in the group. Deaths and Serra casts retain individual records. Health events normally go to the file only, avoiding console spam. For detailed profiling with parallel particle updates:
+
+```bash
+PVZ_PARTICLE_PARALLEL=1 PVZ_PROFILE=detail ./build/pvz-portable -resdir "$PWD"
+```
+
+The log file flushes every second or after 64 KiB of output; errors and plant deaths flush immediately, and save/load, board teardown and shutdown flush pending summaries. At 64 MiB, `log.txt` is moved to a timestamped `.archive` file and a new log is opened. Existing oversized logs are archived on startup. Archives are preserved, so total archive disk usage is not capped. An abrupt crash can lose the most recent buffered second of audit events; fatal signal reporting retains its separate file descriptor.
 
 If running these commands does not create a successful build please create an issue and detail your problem.
 

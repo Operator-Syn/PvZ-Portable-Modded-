@@ -31,6 +31,7 @@
             packages = with pkgs; [
               cmake
               ninja
+              ccache
               gcc
               clang-tools
               pkg-config

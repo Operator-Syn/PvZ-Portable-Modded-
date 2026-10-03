@@ -2,9 +2,24 @@ cmake_minimum_required(VERSION 3.12...4.0)
 
 project(pvz-portable LANGUAGES C CXX)
 
+option(PVZ_USE_CCACHE "Use ccache when available for repeated compilations" ON)
+if(PVZ_USE_CCACHE AND CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
+	find_program(PVZ_CCACHE_EXECUTABLE NAMES ccache)
+	if(PVZ_CCACHE_EXECUTABLE)
+		foreach(_pvz_language C CXX)
+			if(CMAKE_${_pvz_language}_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$" AND
+				NOT DEFINED CMAKE_${_pvz_language}_COMPILER_LAUNCHER)
+				set(CMAKE_${_pvz_language}_COMPILER_LAUNCHER "${PVZ_CCACHE_EXECUTABLE}")
+				message(STATUS "Using ccache for ${_pvz_language} compilations")
+			endif()
+		endforeach()
+	endif()
+endif()
+
 include(CMake/GameResources.cmake)
 
 option(PVZ_BUILD_TESTS "Build asset-free gameplay and save-format regression tests" OFF)
+option(PVZ_FAST_ITERATION "Use lighter optimization for local Release game builds (GCC/Clang)" OFF)
 
 include(CMake/ProjectVersion.cmake)
 
@@ -209,6 +224,15 @@ target_compile_definitions(pvz-portable PRIVATE
 )
 target_compile_features(pvz-portable PRIVATE cxx_std_20)
 set_target_properties(pvz-portable PROPERTIES CXX_EXTENSIONS OFF)
+
+if(PVZ_FAST_ITERATION)
+	if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$" AND NOT MSVC)
+		# Target options follow Release's -O3; the last optimization level wins.
+		target_compile_options(pvz-portable PRIVATE $<$<CONFIG:Release>:-O1>)
+	else()
+		message(WARNING "PVZ_FAST_ITERATION requires a GCC/Clang driver; optimization is unchanged")
+	endif()
+endif()
 
 if(TARGET pvz-resources)
 	add_dependencies(pvz-portable pvz-resources)

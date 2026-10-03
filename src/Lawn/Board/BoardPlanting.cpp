@@ -380,6 +380,9 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 				if (aAffectedPlant->mSeedType == SeedType::SEED_SNIPER_FEMALE)
 				{
 					aAffectedPlant->mSniperCoffeeTicksRemaining = Plant::SNIPER_COFFEE_DURATION_TICKS;
+					PvzpLogLn("[sniper_coffee] tick={} event=started plant_id={} row={} col={} duration_ticks={} attack_speed_multiplier={} projectile_sun_cost={}",
+						mMainCounter, static_cast<unsigned int>(aAffectedPlantID), aAffectedPlant->mRow, aAffectedPlant->mPlantCol,
+						Plant::SNIPER_COFFEE_DURATION_TICKS, Plant::SNIPER_COFFEE_ATTACK_SPEED_MULTIPLIER, Plant::SNIPER_COFFEE_ARROW_SUN_COST);
 				}
 				else if (aAffectedPlant->mSeedType == SeedType::SEED_SUN_MAGNET)
 				{

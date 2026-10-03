@@ -304,7 +304,15 @@ void Board::UpdatePlantOverdrive()
 		if (PlantHealing::PlantCanRegenerate(aPlant) && !aPlant->mSquished && aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM)
 			++aGloomShroomCount;
 	aPaidGloomShrooms = std::min(aGloomShroomCount, mContinuousPaidGloomShroomCount);
+	const int aGloomSunBefore = mSunMoney;
 	bool aGloomShroomUpkeepPaid = aPaidGloomShrooms == 0 || TakeSunMoneyRate(aPaidGloomShrooms * 150.0f);
+	if (aGloomSunBefore != mSunMoney)
+	{
+		Sexy::LogHealthAudit("gloomshroom_upkeep", std::format(
+			"[healing] tick={} event=regeneration_upkeep cause=gloomshroom_upkeep source_kind=effect source_id=0 recipients={} sun_spent={} sun_before={} sun_after={} payment_succeeded={}",
+			mMainCounter, aPaidGloomShrooms, aGloomSunBefore - mSunMoney, aGloomSunBefore, mSunMoney, aGloomShroomUpkeepPaid),
+			mMainCounter, 0, 0, 0, 0, aGloomSunBefore - mSunMoney);
+	}
 	int aHealedGloomShrooms = 0;
 	for (Plant* aPlant : mPlants)
 	{
@@ -312,7 +320,7 @@ void Board::UpdatePlantOverdrive()
 			continue;
 		if (aGloomShroomUpkeepPaid && aHealedGloomShrooms < aPaidGloomShrooms && aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM)
 		{
-			PlantHealing::HealPlant(this, aPlant, 0.25f);
+			PlantHealing::HealPlant(this, aPlant, 0.25f, "gloomshroom_overdrive_regeneration", aPlant);
 			++aHealedGloomShrooms;
 		}
 		if (mGoldMagnetOverdriveActive && aPlant->mSeedType == SeedType::SEED_GOLD_MAGNET)
@@ -325,10 +333,10 @@ void Board::UpdatePlantOverdrive()
 			aPlant->LogDamage(aHealthBefore, "gold_magnet_overdrive_health_drain");
 		}
 		if (mPumpkinOverdriveActive && aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
-			PlantHealing::HealPlant(this, aPlant, 0.5f);
+			PlantHealing::HealPlant(this, aPlant, 0.5f, "pumpkin_overdrive_regeneration", aPlant);
 		if (mTallNutOverdriveActive && aPlant->IsTallNut())
 		{
-			PlantHealing::HealPlant(this, aPlant, 0.5f);
+			PlantHealing::HealPlant(this, aPlant, 0.5f, "tallnut_overdrive_regeneration", aPlant);
 			aContinuousSunCost += 200.0f;
 		}
 		if (mChomperOverdriveActive && aPlant->IsChomper())
@@ -363,7 +371,15 @@ void Board::UpdatePlantOverdrive()
 		}
 	}
 	if (aContinuousSunCost > 0.0f)
-		TakeSunMoneyRate(aContinuousSunCost);
+	{
+		const int aSunBefore = mSunMoney;
+		const bool aPaid = TakeSunMoneyRate(aContinuousSunCost);
+		if (aSunBefore != mSunMoney)
+			Sexy::LogHealthAudit("overdrive_upkeep", std::format(
+				"[healing] tick={} event=regeneration_upkeep cause=shared_overdrive_upkeep source_kind=effect source_id=0 rate_per_second={:.3f} sun_spent={} sun_before={} sun_after={} payment_succeeded={}",
+				mMainCounter, aContinuousSunCost, aSunBefore - mSunMoney, aSunBefore, mSunMoney, aPaid),
+				mMainCounter, 0, 0, 0, 0, aSunBefore - mSunMoney);
+	}
 	for (Zombie* aZombie : mZombies)
 	{
 		if (aZombie->mDead || aZombie->IsDeadOrDying() || aZombie->mBodyHealth <= 0 || aZombie->mBodyHealth >= aZombie->mBodyMaxHealth)

@@ -81,6 +81,8 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 	mEphraimAttackSet = 0;
 	mSniperHitStopCounter = 0;
 	mSniperCoffeeTicksRemaining = 0;
+	mSniperMovementStacks = 0;
+	mSniperAttackMovementStacks = -1;
 	mSniperHomeRow = theSeedType == SeedType::SEED_SNIPER_FEMALE ? theGridY : -1;
 	mSniperDestinationRow = -1;
 	mSniperDodgeFromRow = -1;
@@ -607,6 +609,10 @@ void Plant::UpdateSniperLaneMovement()
 		const float aBlend = aProgress * aProgress * (3.0f - 2.0f * aProgress);
 		const int aDestinationY = mBoard->GridToPixelY(mPlantCol, mRow);
 		mY = mSniperDodgeStartY + static_cast<int>(std::lround((aDestinationY - mSniperDodgeStartY) * aBlend));
+		if (mSniperDodgeTicksRemaining == 0 && mRow != mSniperDodgeFromRow &&
+			mSniperDodgeStartY == mBoard->GridToPixelY(mPlantCol, mSniperDodgeFromRow) &&
+			mSniperMovementStacks < std::numeric_limits<int32_t>::max())
+			++mSniperMovementStacks;
 	}
 }
 
@@ -720,8 +726,6 @@ void Plant::UpdateAbilities()
 			UpdateShooting();
 			UpdateShooter();
 		}
-		if (mSniperCoffeeTicksRemaining > 0)
-			--mSniperCoffeeTicksRemaining;
 	}
 	else
 		UpdateShooting();
@@ -830,6 +834,14 @@ void Plant::Update()
 			--mSerraBlessingTicksRemaining;
 		UpdateAbilities();
 		Animate();
+		// Duration follows active game time, including updates where abilities return early.
+		if (mSeedType == SeedType::SEED_SNIPER_FEMALE && mSniperCoffeeTicksRemaining > 0 &&
+			IsOnBoard() && mApp->mGameScene == GameScenes::SCENE_PLAYING && mApp->mSeedChooserScreen == nullptr)
+		{
+			if (--mSniperCoffeeTicksRemaining == 0)
+				PvzpLogLn("[sniper_coffee] tick={} event=expired plant_id={} row={} col={} attack_speed_multiplier=1 projectile_sun_cost=0",
+					mBoard->mMainCounter, mBoard->mPlants.DataArrayGetID(this), mRow, mPlantCol);
+		}
 
 		if (mPlantHealth < 0)
 			Die();

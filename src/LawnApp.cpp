@@ -249,10 +249,14 @@ void LawnApp::ShutdownHook()
 		mBoardResult = BoardResult::BOARDRESULT_QUIT_APP;
 		mBoard->TryToSaveGame();
 	}
+	Sexy::FlushHealthAudit(true);
+	Sexy::FlushLogFileSink(true);
 }
 
 void LawnApp::KillBoard()
 {
+	Sexy::FlushHealthAudit(true);
+	Sexy::FlushLogFileSink(true);
 	FinishModelessDialogs();
 	KillSeedChooserScreen();
 	if (mBoard)
@@ -1584,6 +1588,8 @@ void LawnApp::UpdatePlayTimeStats()
 
 void LawnApp::UpdateFrames()
 {
+	Sexy::FlushHealthAudit();
+	Sexy::FlushLogFileSink();
 	if ((!mActive || mMinimized) && mBoard)
 	{
 		mBoard->ResetFPSStats();

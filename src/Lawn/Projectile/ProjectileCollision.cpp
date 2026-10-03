@@ -167,7 +167,9 @@ void Projectile::CheckForCollision()
 		return;
 	}
 
-	if (mPosX > mApp->mWidth || mPosX + mWidth < 0.0f)
+	const float aLeftBoundary = (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN ||
+		mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW) ? CUSTOM_PLANT_ATTACK_XMIN : 0.0f;
+	if (mPosX > mApp->mWidth || mPosX + mWidth < aLeftBoundary)
 	{
 		Die();
 		return;
@@ -408,7 +410,7 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 	}
 	bool aQuadraticWintermelonOverdrive = mProjectileType == ProjectileType::PROJECTILE_WINTERMELON &&
 		mBoard->mSunMoney >= WINTER_MELON_QUADRATIC_DAMAGE_SUN_THRESHOLD;
-	bool aQuadraticTwinSunflowerBomb = mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB && mMillionSunDamage;
+	bool aQuadraticTwinSunflowerBomb = mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB;
 	if (!aQuadraticWintermelonOverdrive && !aQuadraticTwinSunflowerBomb)
 	{
 		int aSplashDamageAmount = aSplashDamage * aZombiesGetSplashed;

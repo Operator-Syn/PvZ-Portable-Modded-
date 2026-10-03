@@ -158,17 +158,21 @@ int Zombie::FindCatapultTargets(Plant** theTargets, int theMaxTargets)
 
 void Zombie::UpdateZombieCatapult()
 {
+	const Rect aZombieRect = GetZombieRect();
+	// On extended lawns, bring the complete vehicle inside the viewport with
+	// room for the throwing arm, rather than stopping at 25% visibility.
+	const bool aCanStartAttacking = mPosX <= 650 || (mApp->mWidth > BOARD_WIDTH &&
+		aZombieRect.mX >= 0 && aZombieRect.mX + aZombieRect.mWidth <= mApp->mWidth - 32 && EffectedByDamage(1U));
+	if (!aCanStartAttacking && (mZombiePhase == ZombiePhase::PHASE_CATAPULT_LAUNCHING ||
+		mZombiePhase == ZombiePhase::PHASE_CATAPULT_RELOADING))
+	{
+		// Resume entry for a vehicle saved while parked at the former edge threshold.
+		mZombiePhase = ZombiePhase::PHASE_ZOMBIE_NORMAL;
+		PlayZombieReanim("anim_walk", ReanimLoopType::REANIM_LOOP, 0, 5.5f);
+	}
 	if (mZombiePhase == ZombiePhase::PHASE_ZOMBIE_NORMAL)
 	{
 		Plant* aTargets[3]{};
-		const Rect aZombieRect = GetZombieRect();
-		const float aVisibleLeft = std::max(0.0f, static_cast<float>(aZombieRect.mX));
-		const float aVisibleRight = std::min(static_cast<float>(mApp->mWidth),
-			static_cast<float>(aZombieRect.mX + aZombieRect.mWidth));
-		const float aVisibleWidth = std::max(0.0f, aVisibleRight - aVisibleLeft);
-		const bool aVisibleEnoughToAttack = aVisibleWidth >= aZombieRect.mWidth * 0.25f;
-		const bool aCanStartAttacking = mPosX <= 650 || (mApp->mWidth > BOARD_WIDTH && aVisibleEnoughToAttack &&
-			EffectedByDamage(1U));
 		if (FindCatapultTargets(aTargets, 3) > 0 && aCanStartAttacking && mSummonCounter > 0)
 		{
 			mZombiePhase = ZombiePhase::PHASE_CATAPULT_LAUNCHING;

@@ -81,7 +81,11 @@ int Plant::CalcRenderOrder()
 	}
 	else if (aSeedType == SeedType::SEED_PUMPKINSHELL)
 	{
-		anOrder = PLANT_ORDER::PLANT_ORDER_PUMPKIN;
+		return Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_ZOMBIE, mRow, 1001);
+	}
+	else if (aSeedType == SeedType::SEED_SNIPER_FEMALE)
+	{
+		return Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_ZOMBIE, mRow, 1000);
 	}
 	else if (IsFlying(aSeedType))
 	{

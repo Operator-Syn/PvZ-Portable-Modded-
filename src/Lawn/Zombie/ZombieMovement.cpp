@@ -207,11 +207,13 @@ void Zombie::UpdateZombiePogo()
 		mAltitude += HIGH_GROUND_HEIGHT;
 	}
 
-	// Keep checking through the forward jump if contact missed the original bonk tick.
-	if (mZombiePhase == ZombiePhase::PHASE_POGO_FORWARD_BOUNCE_2 && mPhaseCounter <= 70)
+	// Ephraim blocks every bounce phase, including a jump already underway.
+	if (IsOnBoard())
 	{
 		Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_VAULT);
-		if (aPlant && aPlant->HasTallNutDefense())
+		if (aPlant && aPlant->HasTallNutDefense() &&
+			(aPlant->mSeedType == SeedType::SEED_EPHRAIM ||
+			(mZombiePhase == ZombiePhase::PHASE_POGO_FORWARD_BOUNCE_2 && mPhaseCounter <= 70)))
 		{
 			mApp->PlayFoley(FoleyType::FOLEY_BONK);
 			mApp->AddPvzpParticle(aPlant->mX + 60, aPlant->mY - 20, mRenderOrder + 1, ParticleEffect::PARTICLE_TALL_NUT_BLOCK);

@@ -36,6 +36,8 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cmath>
+#include <limits>
 
 
 
@@ -104,7 +106,7 @@ void Projectile::DoImpact(Zombie* theZombie)
 		int aImpactY = static_cast<int>(mPosY + mPosZ + 40.0f);
 		int aImpactRow = theZombie != nullptr ? theZombie->mRow : mRow;
 		mBoard->KillAllZombiesInRadius(aImpactRow, aImpactX, aImpactY, 115, 1, true, mDamageRangeFlags, 0,
-			(mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB && mMillionSunDamage) ||
+			mProjectileType == ProjectileType::PROJECTILE_TWIN_SUNFLOWER_BOMB ||
 			mWintermelonCherryShot);
 		mApp->AddPvzpParticle(aImpactX, aImpactY, static_cast<int>(RenderLayer::RENDER_LAYER_TOP), ParticleEffect::PARTICLE_POWIE);
 		mBoard->ShakeBoard(3, -4);
@@ -126,7 +128,7 @@ void Projectile::DoImpact(Zombie* theZombie)
 			for (GridItem* aGridItem : mBoard->mGridItems)
 			{
 				if (!aGridItem->mDead && aGridItem->mGridY == aImpactRow && aGridItem->mGridItemType == GridItemType::GRIDITEM_LADDER)
-					aGridItem->GridItemDie();
+					aGridItem->DamageLadderByExplosion();
 			}
 			Zombie* aBossZombie = mBoard->GetBossZombie();
 			if (aBossZombie)
@@ -195,14 +197,31 @@ void Projectile::DoImpact(Zombie* theZombie)
 			aDamage += std::max(50, aCurrentBodyHealthBonus);
 		}
 		if (mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW)
+		{
+			// Multiply the fully scaled attack; keep its snapshot through every piercing hit.
+			const double aMovementMultiplier = 1.0 + static_cast<double>(mSniperMovementStacks) *
+				Plant::SNIPER_MOVEMENT_DAMAGE_PERCENT_PER_STACK / 100.0;
+			aDamage = static_cast<int>(std::min<double>(std::numeric_limits<int>::max(),
+				std::ceil(aDamage * aMovementMultiplier)));
 			aDamageFlags |= 1U << DamageFlags::DAMAGE_SNIPER_ARROW;
+		}
+		if (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN)
+		{
+			aDamage = Plant::GetEphraimHitDamage(theZombie, aDamage);
+			SetBit(aDamageFlags, static_cast<int>(DamageFlags::DAMAGE_BYPASSES_SHIELD), false);
+			SetBit(aDamageFlags, static_cast<int>(DamageFlags::DAMAGE_HITS_SHIELD_AND_BODY), false);
+		}
 		theZombie->TakeDamage(aDamage, aDamageFlags);
 		if (mProjectileType == ProjectileType::PROJECTILE_EPHRAIM_JAVELIN)
 			Plant::ApplyEphraimHitEffects(theZombie);
 		if (mProjectileType == ProjectileType::PROJECTILE_SNIPER_ARROW)
 		{
 			if (!theZombie->IsDeadOrDying() && !theZombie->IsSunTierInvulnerable() && theZombie->CanBeTargetedByPlants())
+			{
 				theZombie->mSniperWoundCounter = Zombie::SNIPER_WOUND_DURATION_TICKS;
+				theZombie->ApplyHealingReduction(mSniperSourcePlantID, Zombie::SNIPER_HEALING_REDUCTION_PERCENT,
+					Zombie::SNIPER_WOUND_DURATION_TICKS);
+			}
 			Plant* aSource = mBoard->mPlants.DataArrayTryToGet(static_cast<unsigned int>(mSniperSourcePlantID));
 			if (aSource != nullptr && !aSource->mDead && !aSource->mSquished &&
 				aSource->mSeedType == SeedType::SEED_SNIPER_FEMALE && aSource->mShootingCounter > 0)

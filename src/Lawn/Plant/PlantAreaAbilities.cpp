@@ -105,7 +105,7 @@ void Plant::BurnRow(int theRow)
 			continue;
 		if (aGridItem->mGridY == theRow && aGridItem->mGridItemType == GridItemType::GRIDITEM_LADDER)
 		{
-			aGridItem->GridItemDie();
+			aGridItem->DamageLadderByExplosion();
 		}
 	}
 

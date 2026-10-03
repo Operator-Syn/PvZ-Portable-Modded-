@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <format>
+#include <limits>
 
 #include "../Plant/Plant.h"
 #include "../Board/Board.h"
@@ -1066,11 +1067,48 @@ void Zombie::TakeBodyDamage(int theDamage, unsigned int theDamageFlags)
 	}
 }
 
+void Zombie::ApplyHealingReduction(PlantID theSource, int thePercent, int theDuration)
+{
+	if (theDuration <= 0 || thePercent <= 0)
+		return;
+	// A legacy wound has no recorded source; replace it when attribution becomes known.
+	if (theSource != PlantID::PLANTID_NULL)
+		std::erase_if(mHealingReductions, [](const ZombieHealingReduction& e)
+			{ return e.mSourcePlantID == PlantID::PLANTID_NULL; });
+	for (ZombieHealingReduction& anEffect : mHealingReductions)
+	{
+		if (anEffect.mSourcePlantID == theSource)
+		{
+			anEffect.mReductionPercent = std::clamp(thePercent, 0, 100);
+			anEffect.mRemainingTicks = theDuration;
+			return;
+		}
+	}
+	mHealingReductions.push_back({theSource, std::clamp(thePercent, 0, 100), theDuration});
+}
+
+float Zombie::HealingReceivedMultiplier() const
+{
+	float aMultiplier = 1.0f;
+	for (const ZombieHealingReduction& anEffect : mHealingReductions)
+		if (anEffect.mRemainingTicks > 0)
+			aMultiplier *= (100 - anEffect.mReductionPercent) / 100.0f;
+	return aMultiplier;
+}
+
+void Zombie::UpdateHealingReductions()
+{
+	for (ZombieHealingReduction& anEffect : mHealingReductions)
+		--anEffect.mRemainingTicks;
+	std::erase_if(mHealingReductions, [](const ZombieHealingReduction& e)
+		{ return e.mRemainingTicks <= 0; });
+}
+
 void Zombie::ApplyHealing(float theAmount)
 {
 	if (IsDeadOrDying() || mBodyHealth <= 0 || theAmount <= 0.0f)
 		return;
-	const float aChange = mContinuousHealthRemainder + theAmount * (mSniperWoundCounter > 0 ? 0.25f : 1.0f);
+	const float aChange = mContinuousHealthRemainder + theAmount * HealingReceivedMultiplier();
 	const int aWholeChange = static_cast<int>(aChange);
 	mContinuousHealthRemainder = aChange - aWholeChange;
 	mBodyHealth = std::min(mBodyHealth + aWholeChange, mBodyMaxHealth);
@@ -1108,6 +1146,13 @@ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 	if (!CanBeTargetedByPlants())
 		return;
 
+	if (mZombieType == ZombieType::ZOMBIE_BUNGEE && theDamage > 0)
+	{
+		constexpr int BUNGEE_INCOMING_DAMAGE_MULTIPLIER = 6; // +500% incoming damage.
+		theDamage = static_cast<int>(std::min<int64_t>(std::numeric_limits<int>::max(),
+			static_cast<int64_t>(theDamage) * BUNGEE_INCOMING_DAMAGE_MULTIPLIER));
+	}
+
 	const bool aSniperArrow = TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_SNIPER_ARROW));
 	const bool aSniperDamage = aSniperArrow || TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_SNIPER_DOT));
 	if (aSniperDamage)
@@ -1118,7 +1163,8 @@ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 	}
 	mBoard->EnsureZombieTierBucketArmor(this);
 	// Keep armor spillover in armor damage units until it reaches the body.
-	const int aArmorDamage = aSniperArrow ? theDamage * Plant::SNIPER_ARMOR_DAMAGE_PERCENT / 100 : theDamage;
+	const int aArmorDamage = aSniperArrow ? static_cast<int>(std::min<int64_t>(std::numeric_limits<int>::max(),
+		static_cast<int64_t>(theDamage) * Plant::SNIPER_ARMOR_DAMAGE_PERCENT / 100)) : theDamage;
 	int aDamageRemaining = aArmorDamage;
 	// A Balloon's flight protection must break before any armor can absorb a hit.
 	if (mZombieType == ZombieType::ZOMBIE_BALLOON && IsFlying() && mFlyingHealth > 0)
@@ -1152,6 +1198,7 @@ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 	}
 	if (aDamageRemaining > 0)
 	{
-		TakeBodyDamage(aSniperArrow ? aDamageRemaining * Plant::SNIPER_BODY_DAMAGE_PERCENT / Plant::SNIPER_ARMOR_DAMAGE_PERCENT : aDamageRemaining, theDamageFlags);
+		TakeBodyDamage(aSniperArrow ? static_cast<int>(static_cast<int64_t>(aDamageRemaining) *
+			Plant::SNIPER_BODY_DAMAGE_PERCENT / Plant::SNIPER_ARMOR_DAMAGE_PERCENT) : aDamageRemaining, theDamageFlags);
 	}
 }

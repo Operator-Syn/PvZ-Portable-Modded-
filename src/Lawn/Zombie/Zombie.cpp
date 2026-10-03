@@ -83,6 +83,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 
 	mFromWave = theFromWave;
 	mContinuousHealthRemainder = 0.0f;
+	mHealingReductions.clear();
 	mSniperWoundCounter = 0;
 	mSniperDotRemainder = 0;
 	mRow = theRow;
@@ -942,6 +943,7 @@ void Zombie::Update()
 
 	if (doUpdate)
 	{
+		UpdateHealingReductions();
 		UpdateSniperWound();
 		if (mDead)
 			return;

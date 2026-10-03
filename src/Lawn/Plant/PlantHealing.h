@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <string_view>
+
 class Board;
 class Plant;
 
@@ -43,7 +45,11 @@ struct HealingAudit
 };
 
 bool PlantCanRegenerate(Plant* thePlant);
-void HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmount);
+void HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmount,
+	std::string_view theCause, Plant* theSource = nullptr, int theSunSpent = 0, unsigned int theSourceID = 0);
+void LogHealingChange(Board* theBoard, Plant* thePlant, Plant* theSource,
+	std::string_view theCause, int theHealthBefore, float theBaseAmount, float theRequestedAmount,
+	float theRemainderBefore, int theSunSpent = 0, unsigned int theSourceID = 0);
 // The bounded overload budgets base HP; healing bonuses do not consume the budget.
 int HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmount, int theMaxBaseHealing, HealingAudit* theAudit = nullptr);
 void ApplyPlantHealthRate(Plant* thePlant, float theHealthPerSecond);

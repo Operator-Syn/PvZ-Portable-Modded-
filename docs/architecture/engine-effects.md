@@ -20,6 +20,8 @@ The broader `src/SexyAppFramework/` tree supplies framework functionality includ
 
 ## Investigation guidance
 
+The projectile renderer uses direct blits for unrotated, unscaled sprite cells, including mirrored arrows/javelins, avoiding the generic stretch path. Render gathering omits Puff shadow entries because their shadow draw is a no-op. Healing modifier calculation scans nearby Pumpkins once per heal rather than twice. Routine health events are summarized and file writes buffered, reducing console and per-event flush work. These are source-level optimizations; frame-time improvement has not been measured after the changes.
+
 - Follow particle creation through pool allocation, update, deletion/recycling, and draw submission.
 - Check whether an effect is gameplay-significant or decorative before changing spawn rate, lifetime, or quality policy.
 - Compare frame/update, board/effect, particle update/draw, and presentation-wait metrics separately. CPU draw time is not GPU time.

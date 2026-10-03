@@ -158,6 +158,17 @@ bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
 Plant* Zombie::FindPlantTarget(ZombieAttackType theAttackType)
 {
 	Rect aAttackRect = GetZombieAttackRect();
+	if (theAttackType == ZombieAttackType::ATTACKTYPE_VAULT)
+	{
+		// A support plant or overlapping plant must not hide a tall vault blocker.
+		for (Plant* aPlant : mBoard->mPlants)
+		{
+			if (!aPlant->mDead && aPlant->mRow == mRow && aPlant->HasTallNutDefense() &&
+				GetRectOverlap(aAttackRect, aPlant->GetPlantRect()) >= 20 &&
+				CanTargetPlant(aPlant, theAttackType))
+				return aPlant;
+		}
+	}
 	if (theAttackType == ZombieAttackType::ATTACKTYPE_CHEW && ZombieRules::IsGargantuarType(mZombieType) &&
 		mZombieType != ZombieType::ZOMBIE_BULWARK_GARGANTUAR &&
 		mBoard->mZombieTierSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD &&

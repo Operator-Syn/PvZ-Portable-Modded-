@@ -62,6 +62,17 @@ GridItem::GridItem()
 	mMotionTrailCount = 0;
 }
 
+void GridItem::DamageLadderByExplosion()
+{
+	if (mDead || mGridItemType != GridItemType::GRIDITEM_LADDER)
+		return;
+
+	// Ladders do not otherwise use this counter; it is already saved with the item.
+	constexpr int LADDER_EXPLOSIONS_TO_BREAK = 3;
+	if (++mGridItemCounter >= LADDER_EXPLOSIONS_TO_BREAK)
+		GridItemDie();
+}
+
 void GridItem::GridItemDie()
 {
 	mDead = true;

@@ -116,7 +116,7 @@ void Plant::LogDamage(int theHealthBefore, std::string_view theCause, Zombie* th
 		(theProjectile != nullptr ? theProjectile->mSourceZombieType : ZombieType::ZOMBIE_INVALID);
 	const unsigned int aSourceID = theSource != nullptr ? mBoard->mZombies.DataArrayGetID(theSource) :
 		(theProjectile != nullptr ? static_cast<unsigned int>(theProjectile->mSourceZombieID) : 0U);
-	PvzpLogLn("[damage] tick={} cause={} source_kind={} source=\"{}\" source_id={} source_type={} source_row={} "
+	const std::string aDetail = std::format("[damage] tick={} cause={} source_kind={} source=\"{}\" source_id={} source_type={} source_row={} "
 		"projectile_id={} projectile_type={} target=\"{}\" target_id={} target_seed={} target_row={} target_col={} target_x={} target_y={} "
 		"hp_before={} hp_after={} stored_hp_after={} hp_max={} hp_percent_before={:.2f} hp_percent_after={:.2f} damage={} raw_damage={} "
 		"overkill={} destroyed={} squished={} sun_balance={}",
@@ -132,6 +132,9 @@ void Plant::LogDamage(int theHealthBefore, std::string_view theCause, Zombie* th
 		mPlantMaxHealth > 0 ? 100.0f * aEffectiveAfter / mPlantMaxHealth : 0.0f,
 		aDamage, theDestroyed ? theHealthBefore : theHealthBefore - mPlantHealth, theDestroyed ? 0 : std::max(0, -mPlantHealth),
 		theDestroyed || mPlantHealth <= 0, mSquished, mBoard->mSunMoney);
+	Sexy::LogHealthAudit(std::format("damage:{}:{}:{}:{}", mBoard->mPlants.DataArrayGetID(this),
+		aSourceID, static_cast<int>(aSourceType), theCause), aDetail, mBoard->mMainCounter, theHealthBefore,
+		aEffectiveAfter, aDamage, 0, 0, 0.0f, theDestroyed || mPlantHealth <= 0);
 }
 
 void Plant::SpikyTakeDamage(Zombie* theSource)
@@ -190,6 +193,18 @@ bool Plant::IsTallNut() const
 bool Plant::HasTallNutDefense() const
 {
 	return IsTallNut() || mSeedType == SeedType::SEED_EPHRAIM;
+}
+
+int Plant::GetEphraimHitDamage(const Zombie* theZombie, int theBaseDamage, int theMultiplier)
+{
+	const int64_t aCurrentHealth = std::max(0, theZombie->mBodyHealth);
+	const int64_t aBonusDamage = std::max<int64_t>(EPHRAIM_CURRENT_HP_DAMAGE_MINIMUM,
+		(aCurrentHealth * EPHRAIM_CURRENT_HP_DAMAGE_PER_MILLE + 999) / 1000);
+	int64_t aDamage = (static_cast<int64_t>(theBaseDamage) + aBonusDamage) * theMultiplier;
+	if (theZombie->mBodyMaxHealth > 0 && aCurrentHealth * 100 <
+		static_cast<int64_t>(theZombie->mBodyMaxHealth) * EPHRAIM_EXECUTE_HEALTH_PERCENT)
+		aDamage *= EPHRAIM_EXECUTE_DAMAGE_MULTIPLIER;
+	return static_cast<int>(std::clamp<int64_t>(aDamage, 0, std::numeric_limits<int>::max()));
 }
 
 void Plant::ApplyEphraimHitEffects(Zombie* theZombie)

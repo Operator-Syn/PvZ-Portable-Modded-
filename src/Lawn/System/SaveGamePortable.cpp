@@ -1257,6 +1257,7 @@ static void SyncDataArrayObjectsTLV(PortableSaveContext& theContext, DataArray<T
 
 static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard)
 {
+	std::vector<Zombie*> aZombiesWithHealingReductions;
 	SyncDataArrayPortableTLV(theContext, theBoard->mZombies,
 		[&](std::vector<unsigned char>& aOut, Zombie& aZombie)
 		{
@@ -1279,6 +1280,17 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 			{
 				c.SyncInt32(aZombie.mSniperWoundCounter);
 				c.SyncInt32(aZombie.mSniperDotRemainder);
+			});
+			AppendFieldWithSync(aOut, 111U, [&](PortableSaveContext& c)
+			{
+				uint32_t aCount = static_cast<uint32_t>(aZombie.mHealingReductions.size());
+				c.SyncUInt32(aCount);
+				for (ZombieHealingReduction& anEffect : aZombie.mHealingReductions)
+				{
+					SyncEnumU32(c, anEffect.mSourcePlantID);
+					c.SyncInt32(anEffect.mReductionPercent);
+					c.SyncInt32(anEffect.mRemainingTicks);
+				}
 			});
 		},
 		[&](uint32_t aFieldId, const unsigned char* aData, size_t aSize, Zombie& aZombie)
@@ -1315,6 +1327,41 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 					c.SyncInt32(aZombie.mSniperWoundCounter);
 					c.SyncInt32(aZombie.mSniperDotRemainder);
 				});
+			else if (aFieldId == 111U)
+			{
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
+				{
+					uint32_t aCount = 0;
+					c.SyncUInt32(aCount);
+					if (c.mFailed || aSize < 4 || aCount > 4096 || aCount != (aSize - 4) / 12 || (aSize - 4) % 12 != 0)
+					{
+						c.mFailed = true;
+						return;
+					}
+					std::vector<ZombieHealingReduction> anEffects(aCount);
+					for (size_t i = 0; i < anEffects.size(); ++i)
+					{
+						ZombieHealingReduction& anEffect = anEffects[i];
+						SyncEnumU32(c, anEffect.mSourcePlantID);
+						c.SyncInt32(anEffect.mReductionPercent);
+						c.SyncInt32(anEffect.mRemainingTicks);
+						if (c.mFailed || anEffect.mReductionPercent <= 0 || anEffect.mReductionPercent > 100 || anEffect.mRemainingTicks <= 0)
+						{
+							c.mFailed = true;
+							return;
+						}
+						for (size_t j = 0; j < i; ++j)
+							if (anEffects[j].mSourcePlantID == anEffect.mSourcePlantID)
+							{
+								c.mFailed = true;
+								return;
+							}
+					}
+					aZombie.mHealingReductions = std::move(anEffects);
+				}))
+					theContext.mFailed = true;
+				aZombiesWithHealingReductions.push_back(&aZombie);
+			}
 			if (aZombie.mSniperWoundCounter < 0 || aZombie.mSniperWoundCounter > Zombie::SNIPER_WOUND_DURATION_TICKS)
 				aZombie.mSniperWoundCounter = 0;
 			if (aZombie.mSniperWoundCounter == 0 || (aZombie.mSniperDotRemainder < 0 || aZombie.mSniperDotRemainder >= 100000))
@@ -1331,6 +1378,11 @@ static void SyncZombiesPortable(PortableSaveContext& theContext, Board* theBoard
 		// Validate only after type, armor and durability fields have all been read.
 		for (Zombie* aZombie : theBoard->mZombies)
 		{
+			// Old saves retain one unattributed wound until it expires or a known source refreshes it.
+			if (aZombie->mSniperWoundCounter > 0 && std::find(aZombiesWithHealingReductions.begin(),
+				aZombiesWithHealingReductions.end(), aZombie) == aZombiesWithHealingReductions.end())
+				aZombie->ApplyHealingReduction(PlantID::PLANTID_NULL, Zombie::SNIPER_HEALING_REDUCTION_PERCENT,
+					aZombie->mSniperWoundCounter);
 			const int aMaxTier = ZombieStrengthRules::ZombieStrengthTierForSun(std::numeric_limits<int>::max());
 			const int aMaxMultiplier = ZombieStrengthRules::ZombieHealthMultiplierForZombie(
 				aZombie->mZombieType, aZombie->mZombiePhase, aMaxTier);
@@ -1405,6 +1457,11 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 			});
 			AppendFieldWithSync(aOut, 117U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mSniperHitStopCounter); });
 			AppendFieldWithSync(aOut, 121U, [&](PortableSaveContext& c){ c.SyncInt32(aPlant.mSniperCoffeeTicksRemaining); });
+			AppendFieldWithSync(aOut, 122U, [&](PortableSaveContext& c)
+			{
+				c.SyncInt32(aPlant.mSniperMovementStacks);
+				c.SyncInt32(aPlant.mSniperAttackMovementStacks);
+			});
 			AppendFieldWithSync(aOut, 118U, [&](PortableSaveContext& c)
 			{
 				c.SyncInt32(aPlant.mSniperHomeRow);
@@ -1537,6 +1594,17 @@ static void SyncPlantsPortable(PortableSaveContext& theContext, Board* theBoard)
 				}))
 					theContext.mFailed = true;
 			}
+			else if (aFieldId == 122U)
+			{
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
+				{
+					c.SyncInt32(aPlant.mSniperMovementStacks);
+					c.SyncInt32(aPlant.mSniperAttackMovementStacks);
+					if (aPlant.mSniperMovementStacks < 0 || aPlant.mSniperAttackMovementStacks < -1)
+						c.mFailed = true;
+				}))
+					theContext.mFailed = true;
+			}
 			else if (aFieldId == 121U)
 			{
 				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
@@ -1663,6 +1731,7 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 			AppendFieldWithSync(aOut, 110U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mEphraimChargedJavelin); });
 			AppendFieldWithSync(aOut, 111U, [&](PortableSaveContext& c){ SyncEnumU32(c, aProjectile.mSniperSourcePlantID); });
 			AppendFieldWithSync(aOut, 112U, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mSniperCriticalArrow); });
+			AppendFieldWithSync(aOut, 115U, [&](PortableSaveContext& c){ c.SyncInt32(aProjectile.mSniperMovementStacks); });
 			AppendFieldWithSync(aOut, 114U, [&](PortableSaveContext& c)
 			{
 				SyncEnumU32(c, aProjectile.mSourceZombieID);
@@ -1711,6 +1780,16 @@ static void SyncProjectilesPortable(PortableSaveContext& theContext, Board* theB
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ SyncEnumU32(c, aProjectile.mSniperSourcePlantID); });
 			else if (aFieldId == 112U)
 				ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c){ c.SyncBool(aProjectile.mSniperCriticalArrow); });
+			else if (aFieldId == 115U)
+			{
+				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)
+				{
+					c.SyncInt32(aProjectile.mSniperMovementStacks);
+					if (aProjectile.mSniperMovementStacks < 0)
+						c.mFailed = true;
+				}))
+					theContext.mFailed = true;
+			}
 			else if (aFieldId == 114U)
 			{
 				if (!ApplyFieldWithSync(aData, aSize, [&](PortableSaveContext& c)

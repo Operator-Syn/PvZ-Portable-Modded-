@@ -238,6 +238,10 @@ public:
 	static constexpr int EPHRAIM_MAX_HEALTH = 6000;
 	static constexpr int EPHRAIM_TIRE_POP_CHANCE_PERCENT = 10;
 	static constexpr int EPHRAIM_ATTACK_DAMAGE = 80;
+	static constexpr int EPHRAIM_CURRENT_HP_DAMAGE_PER_MILLE = 25;
+	static constexpr int EPHRAIM_CURRENT_HP_DAMAGE_MINIMUM = 50;
+	static constexpr int EPHRAIM_EXECUTE_HEALTH_PERCENT = 7;
+	static constexpr int EPHRAIM_EXECUTE_DAMAGE_MULTIPLIER = 2;
 	static constexpr int EPHRAIM_ATTACK_HEAL_PER_MILLE = 15;
 	// Lance, critical lance, javelin, critical javelin: heavier attacks hit harder.
 	static constexpr std::array<int, 4> EPHRAIM_ATTACK_DAMAGE_PERCENT = { 250, 350, 100, 175 };
@@ -302,6 +306,8 @@ public:
 	int32_t                 mEphraimAttackSet;
 	int32_t                 mSniperHitStopCounter = 0;
 	int32_t                 mSniperCoffeeTicksRemaining = 0;
+	int32_t                 mSniperMovementStacks = 0;
+	int32_t                 mSniperAttackMovementStacks = -1;
 	int32_t                 mSniperHomeRow = -1;
 	int32_t                 mSniperDestinationRow = -1;
 	int32_t                 mSniperDodgeFromRow = -1;
@@ -380,7 +386,7 @@ public:
 	int                     GetEphraimAfterimageOriginX(const EphraimAfterimage& theEcho) const;
 	void                    ConfigureEphraimAfterimage(EphraimAfterimage& theEcho, int theParentSet, int thePreviousSet);
 	void                    SpawnEphraimAfterimages();
-	void                    HealEphraimOnAttack();
+	void                    HealEphraimOnAttack(bool theAfterimage = false);
 	int                     RollEphraimAfterimageCount();
 	void                    UpdateEphraimAfterimages();
 	void                    Die();
@@ -417,6 +423,7 @@ public:
 	static constexpr int SNIPER_COFFEE_ATTACK_SPEED_MULTIPLIER = 3;
 	static constexpr int SNIPER_COFFEE_ARROW_SUN_COST = 300;
 	static constexpr int SNIPER_CRITICAL_DAMAGE_PERCENT = 300;
+	static constexpr int SNIPER_MOVEMENT_DAMAGE_PERCENT_PER_STACK = 2;
 	static constexpr int SNIPER_ARMOR_DAMAGE_PERCENT = 750;
 	static constexpr int SNIPER_BODY_DAMAGE_PERCENT = 185;
 	static constexpr int SNIPER_IDLE_FRAME_COUNT = 3;
@@ -528,6 +535,7 @@ public:
 	bool                    IsTallNut() const;
 	bool                    HasTallNutDefense() const;
 	static void             ApplyEphraimHitEffects(Zombie* theZombie);
+	static int              GetEphraimHitDamage(const Zombie* theZombie, int theBaseDamage, int theMultiplier = 1);
 	void                    UpdateCobCannon();
 	void                    CobCannonFire(int theTargetX, int theTargetY);
 	void                    UpdateGoldMagnetShroom();

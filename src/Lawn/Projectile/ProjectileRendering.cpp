@@ -151,8 +151,7 @@ void Projectile::Draw(Graphics* g)
 		Rect aSrcRect(aCelWidth * mFrame, aCelHeight * aProjectileDef.mImageRow, aCelWidth, aCelHeight);
 		if (FloatApproxEqual(mRotation, 0.0f) && FloatApproxEqual(aScale, 1.0f))
 		{
-			Rect aDestRect(0, 0, aCelWidth, aCelHeight);
-			g->DrawImageMirror(aImage, aDestRect, aSrcRect, aMirror);
+			g->DrawImageMirror(aImage, 0, 0, aSrcRect, aMirror);
 		}
 		else
 		{

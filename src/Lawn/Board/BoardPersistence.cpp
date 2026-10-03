@@ -101,6 +101,8 @@ bool Board::NeedSaveGame()
 
 void Board::SaveGame(const std::string& theFileName)
 {
+	Sexy::FlushHealthAudit(true);
+	Sexy::FlushLogFileSink(true);
 	const auto aResult = LawnSaveGameDetailed(this, theFileName);
 	if (!aResult)
 		PvzpLogLn("Save failed: {} (offset {}, record {})", SaveGameFormat::ErrorMessage(aResult.mError), aResult.mOffset, aResult.mRecordType);
@@ -108,6 +110,8 @@ void Board::SaveGame(const std::string& theFileName)
 
 bool Board::LoadGame(const std::string& theFileName)
 {
+	Sexy::FlushHealthAudit(true);
+	Sexy::FlushLogFileSink(true);
 	mContinuousSunCostRemainder = 0.0f;
 	mContinuousPaidGloomShroomCount = 0;
 	mPlantHealGlows.clear();

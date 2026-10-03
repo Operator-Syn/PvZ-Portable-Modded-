@@ -97,6 +97,7 @@ void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, in
 	mEphraimChargedJavelin = false;
 	mSniperSourcePlantID = PlantID::PLANTID_NULL;
 	mSniperCriticalArrow = false;
+	mSniperMovementStacks = 0;
 	mSniperPiercedZombieIDs.clear();
 	std::fill(std::begin(mPiercedZombieIDs), std::end(mPiercedZombieIDs), ZombieID::ZOMBIEID_NULL);
 	mOnHighGround = mBoard->mGridSquareType[aGridX][theRow] == GridSquareType::GRIDSQUARE_HIGH_GROUND;

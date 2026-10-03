@@ -21,6 +21,7 @@
 
 #include "../Entities/Coin.h"
 #include "Plant.h"
+#include "PlantHealing.h"
 #include "../Board/Board.h"
 #include "../Zombie/Zombie.h"
 #include "../Modes/Cutscene.h"
@@ -95,6 +96,7 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 		mTargetX = aTargetRect.mX + aTargetRect.mWidth / 2;
 		mTargetZombieID = mBoard->ZombieGetID(aZombie);
 		mSniperHitStopCounter = 0;
+		mSniperAttackMovementStacks = -1;
 		// This plant owns mAnimPing as its saved normal/critical atlas selector.
 		mAnimPing = RandRangeInt(0, 1) != 0;
 		const int aSet = mAnimPing ? 1 : 0;
@@ -448,16 +450,22 @@ void Plant::LaunchEphraimJavelin(int theTargetX, int theAttackSet, int theTrailO
 	}
 }
 
-void Plant::HealEphraimOnAttack()
+void Plant::HealEphraimOnAttack(bool theAfterimage)
 {
 	if (mDead || mSquished || mPlantHealth <= 0 || mPlantMaxHealth <= 0)
 		return;
-	const float aHealing = static_cast<float>(mPlantMaxHealth) * EPHRAIM_ATTACK_HEAL_PER_MILLE / 1000.0f + mContinuousHealthRemainder;
+	const int aHealthBefore = mPlantHealth;
+	const float aRemainderBefore = mContinuousHealthRemainder;
+	const float aBaseHealing = static_cast<float>(mPlantMaxHealth) * EPHRAIM_ATTACK_HEAL_PER_MILLE / 1000.0f;
+	const float aHealing = aBaseHealing + mContinuousHealthRemainder;
 	const int aWholeHealing = static_cast<int>(aHealing);
 	mContinuousHealthRemainder = aHealing - aWholeHealing;
 	mPlantHealth = std::min(mPlantHealth + aWholeHealing, mPlantMaxHealth);
 	if (mPlantHealth >= mPlantMaxHealth)
 		mContinuousHealthRemainder = 0.0f;
+	PlantHealing::LogHealingChange(mBoard, this, this,
+		theAfterimage ? "ephraim_afterimage_attack_heal" : "ephraim_attack_heal",
+		aHealthBefore, aBaseHealing, aHealing, aRemainderBefore);
 }
 
 int Plant::RollEphraimAfterimageCount()
@@ -567,7 +575,7 @@ void Plant::UpdateEphraimAfterimages()
 			(anEcho.mPauseFlags & EPHRAIM_ATTACK_FLAG_AFTERIMAGE_IMPACT) == 0)
 		{
 			anEcho.mPauseFlags |= EPHRAIM_ATTACK_FLAG_AFTERIMAGE_IMPACT;
-			HealEphraimOnAttack();
+			HealEphraimOnAttack(true);
 			if ((anEcho.mPauseFlags & EPHRAIM_ATTACK_FLAG_RANGED) != 0)
 			{
 				LaunchEphraimJavelin(anEcho.mTargetX, aSet, anEcho.mTrailOffset, &anOriginX);
@@ -582,7 +590,7 @@ void Plant::UpdateEphraimAfterimages()
 				for (Zombie* aZombie : aHitZombies)
 				{
 					const int aMultiplier = mBoard->GetQuadraticZombieDamageMultiplier(aZombie, aTargetCount);
-					aZombie->TakeDamage(EphraimMeleeAttackDamage(aSet) * aMultiplier, 0U);
+					aZombie->TakeDamage(GetEphraimHitDamage(aZombie, EphraimMeleeAttackDamage(aSet), aMultiplier), 0U);
 					ApplyEphraimHitEffects(aZombie);
 				}
 				if (!aHitZombies.empty() && anEcho.mNestingDepth < EPHRAIM_MAX_AFTERIMAGE_NESTING)
@@ -659,6 +667,12 @@ void Plant::UpdateShooting()
 				mRenderOrder + 1, mRow, ProjectileType::PROJECTILE_SNIPER_ARROW);
 			if (anArrow != nullptr)
 			{
+				if (mSniperAttackMovementStacks < 0)
+				{
+					mSniperAttackMovementStacks = mSniperMovementStacks;
+					mSniperMovementStacks = 0;
+				}
+				anArrow->mSniperMovementStacks = mSniperAttackMovementStacks;
 				anArrow->mSniperSourcePlantID = static_cast<PlantID>(mBoard->mPlants.DataArrayGetID(this));
 				anArrow->mSniperCriticalArrow = aSet == 1;
 				anArrow->mVelX = aFacingLeft ? -7.0f : 7.0f;
@@ -771,7 +785,7 @@ void Plant::UpdateShooting()
 				for (Zombie* aZombie : aHitZombies)
 				{
 					const int aMultiplier = mBoard->GetQuadraticZombieDamageMultiplier(aZombie, aTargetCount);
-					aZombie->TakeDamage(EphraimMeleeAttackDamage(aPrimarySet) * aMultiplier, 0U);
+					aZombie->TakeDamage(GetEphraimHitDamage(aZombie, EphraimMeleeAttackDamage(aPrimarySet), aMultiplier), 0U);
 					ApplyEphraimHitEffects(aZombie);
 				}
 				mEphraimHitStopCounter = aHitZombies.empty()

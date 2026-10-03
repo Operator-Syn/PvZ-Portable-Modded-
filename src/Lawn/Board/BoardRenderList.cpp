@@ -133,9 +133,14 @@ static inline void AddGameObjectRenderItemCursorPreview(std::vector<RenderItem>&
 static inline void AddGameObjectRenderItemPlant(std::vector<RenderItem>& theRenderList,
 	RenderObjectType theRenderObjectType, GameObject* theGameObject)
 {
-	RenderItem& aRenderItem = AppendRenderItem(theRenderList, theRenderObjectType, theGameObject->mRenderOrder);
+	Plant* aPlant = static_cast<Plant*>(theGameObject);
+	const bool aRefreshOrder = aPlant->mSeedType == SeedType::SEED_SNIPER_FEMALE ||
+		aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL ||
+		(aPlant->mSeedType == SeedType::SEED_IMITATER && aPlant->mImitaterType == SeedType::SEED_PUMPKINSHELL);
+	RenderItem& aRenderItem = AppendRenderItem(theRenderList, theRenderObjectType,
+		aRefreshOrder ? aPlant->CalcRenderOrder() : aPlant->mRenderOrder);
 	aRenderItem.mGameObject = theGameObject;
-	aRenderItem.mPlant = (Plant*)theGameObject;
+	aRenderItem.mPlant = aPlant;
 }
 
 static inline void AddGameObjectRenderItemZombie(std::vector<RenderItem>& theRenderList,
@@ -172,6 +177,7 @@ void Board::DrawGameObjects(Graphics* g)
 {
 	Sexy::FrameProfileScope aGatherScope(Sexy::FrameProfileMetric::RENDER_GATHER);
 	mRenderItems.clear();
+	std::array<int, MAX_GRID_SIZE_Y> aPlantRowTop{};
 
 	{
 		for (Plant* aPlant : mPlants)
@@ -181,6 +187,8 @@ void Board::DrawGameObjects(Graphics* g)
 			if (aPlant->mOnBungeeState == PlantOnBungeeState::NOT_ON_BUNGEE)
 			{
 				AddGameObjectRenderItemPlant(mRenderItems, RenderObjectType::RENDER_ITEM_PLANT, aPlant);
+				if (aPlant->mRow >= 0 && aPlant->mRow < MAX_GRID_SIZE_Y)
+					aPlantRowTop[aPlant->mRow] = std::max(aPlantRowTop[aPlant->mRow], mRenderItems.back().mZPos);
 
 				if ((mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN && aPlant->mPottedPlantIndex != -1) ||
 					aPlant->mSerraBlessingTicksRemaining > 0)
@@ -199,6 +207,21 @@ void Board::DrawGameObjects(Graphics* g)
 				}
 			}
 		}
+	}
+	// Apply a consistent body/shell order after all plant poses have been gathered.
+	// This also handles raised attack poses and roaming or stacked Snipers.
+	for (RenderItem& anItem : mRenderItems)
+	{
+		if (anItem.mRenderObjectType != RenderObjectType::RENDER_ITEM_PLANT)
+			continue;
+		Plant* aPlant = anItem.mPlant;
+		if (aPlant->mRow < 0 || aPlant->mRow >= MAX_GRID_SIZE_Y)
+			continue;
+		const SeedType aType = aPlant->mSeedType == SeedType::SEED_IMITATER ? aPlant->mImitaterType : aPlant->mSeedType;
+		if (aType == SeedType::SEED_SNIPER_FEMALE)
+			anItem.mZPos = aPlantRowTop[aPlant->mRow] + 1;
+		else if (aType == SeedType::SEED_PUMPKINSHELL)
+			anItem.mZPos = aPlantRowTop[aPlant->mRow] + 2;
 	}
 	{
 		for (Coin* aCoin : mCoins)
@@ -243,6 +266,10 @@ void Board::DrawGameObjects(Graphics* g)
 			if (aProjectile->mDead)
 				continue;
 			AddGameObjectRenderItemProjectile(mRenderItems, RenderObjectType::RENDER_ITEM_PROJECTILE, aProjectile);
+
+			// Puff projectiles never draw a shadow; avoid gathering/sorting a no-op.
+			if (aProjectile->mProjectileType == ProjectileType::PROJECTILE_PUFF)
+				continue;
 
 			RenderItem& aRenderItem = AppendRenderItem(mRenderItems, RenderObjectType::RENDER_ITEM_PROJECTILE_SHADOW,
 				MakeRenderOrder(RenderLayer::RENDER_LAYER_GROUND, aProjectile->mRow, 3));

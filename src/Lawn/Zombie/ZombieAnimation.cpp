@@ -588,15 +588,17 @@ void Zombie::UpdateAnimSpeed()
 
 	if (mIsEating)
 	{
+		const float aEatingSpeedMultiplier = mBoard->mZombieTierSunMoney >= HIGH_SUN_EATING_THRESHOLD ?
+			HIGH_SUN_EATING_SPEED_PERCENT / 100.0f : 1.0f;
 		if (mZombieType == ZombieType::ZOMBIE_POLEVAULTER || mZombieType == ZombieType::ZOMBIE_BALLOON || mZombieType == ZombieType::ZOMBIE_IMP ||
 			mZombieType == ZombieType::ZOMBIE_DIGGER || mZombieType == ZombieType::ZOMBIE_JACK_IN_THE_BOX || mZombieType == ZombieType::ZOMBIE_SNORKEL ||
 			mZombieType == ZombieType::ZOMBIE_YETI)
 		{
-			ApplyAnimRate(20.0f);
+			ApplyAnimRate(20.0f * aEatingSpeedMultiplier);
 		}
 		else
 		{
-			ApplyAnimRate(36.0f);
+			ApplyAnimRate(36.0f * aEatingSpeedMultiplier);
 		}
 	}
 	else

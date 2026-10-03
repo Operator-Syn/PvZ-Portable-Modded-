@@ -31,6 +31,7 @@
 #include <chrono>
 #include <fstream>
 #include <mutex>
+#include <unordered_map>
 #include <SDL.h>
 #if defined(__linux__) && !defined(__ANDROID__)
 #include <execinfo.h>
@@ -73,6 +74,38 @@ static inline bool IsUnicodeSpace(char32_t theChar)
 
 static std::ofstream gLogFileSink;
 static std::mutex gLogFileSinkMutex;
+static auto gLastLogFlush = std::chrono::steady_clock::now();
+static size_t gPendingLogBytes = 0;
+static std::filesystem::path gLogFilePath;
+static uint64_t gLogFileBytes = 0;
+
+struct HealthAuditSummary
+{
+	std::string mLastDetail;
+	int mFirstTick = 0;
+	int mLastTick = 0;
+	int mFirstHealth = 0;
+	int mLastHealth = 0;
+	int mMinimumHealth = 0;
+	int mMaximumHealth = 0;
+	uint64_t mEvents = 0;
+	int64_t mDamage = 0;
+	int64_t mHealed = 0;
+	int64_t mSunSpent = 0;
+	double mOverflow = 0.0;
+};
+static std::unordered_map<std::string, HealthAuditSummary> gHealthAuditSummaries;
+static auto gLastHealthAuditFlush = std::chrono::steady_clock::now();
+
+static bool DetailedHealthLogging()
+{
+	static const bool aEnabled = []
+	{
+		const char* aValue = std::getenv("PVZ_PROFILE");
+		return aValue != nullptr && std::string_view(aValue) == "detail";
+	}();
+	return aEnabled;
+}
 
 #if defined(__linux__) && !defined(__ANDROID__)
 static int gCrashLogFileDescriptor = -1;
@@ -141,9 +174,10 @@ void Sexy::RegisterCrashLogFileSink(std::string_view thePath)
 		SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_ERROR, "Failed to open crash log '%s'", aPath.c_str());
 		return;
 	}
-	if (gCrashLogFileDescriptor >= 0)
-		close(gCrashLogFileDescriptor);
+	const int aPreviousFileDescriptor = gCrashLogFileDescriptor;
 	gCrashLogFileDescriptor = aFileDescriptor;
+	if (aPreviousFileDescriptor >= 0)
+		close(aPreviousFileDescriptor);
 
 	stack_t aSignalStack{};
 	aSignalStack.ss_sp = gCrashSignalStack;
@@ -170,6 +204,22 @@ void Sexy::RegisterCrashLogFileSink(std::string_view thePath)
 
 void Sexy::RegisterLogFileSink(std::string_view thePath)
 {
+	gLogFilePath = PathFromU8(thePath);
+	std::error_code anError;
+	gLogFileBytes = std::filesystem::file_size(gLogFilePath, anError);
+	if (anError)
+		gLogFileBytes = 0;
+	if (gLogFileBytes >= 64 * 1024 * 1024)
+	{
+		auto anArchive = gLogFilePath;
+		anArchive += std::format(".{}.archive", std::chrono::system_clock::now().time_since_epoch().count());
+		if (!std::filesystem::exists(anArchive, anError) && !anError)
+		{
+			std::filesystem::rename(gLogFilePath, anArchive, anError);
+			if (!anError)
+				gLogFileBytes = 0;
+		}
+	}
 	gLogFileSink.open(PathFromU8(thePath), std::ios::app | std::ios::binary);
 	if (!gLogFileSink)
 		LogErrorLn("Failed to open log file '{}'", thePath);
@@ -182,18 +232,123 @@ void Sexy::DispatchLogLn(SexyLogPriority thePriority, std::string_view theText)
 	if (theText.empty())
 		return;
 
-	SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, thePriority == SexyLogPriority::Error ? SDL_LOG_PRIORITY_ERROR : SDL_LOG_PRIORITY_INFO, "%.*s", static_cast<int>(theText.size()), theText.data());
+	const bool aHealthEvent = theText.starts_with("[damage]") || theText.starts_with("[healing]");
+	if (thePriority == SexyLogPriority::Error || !aHealthEvent || DetailedHealthLogging())
+		SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, thePriority == SexyLogPriority::Error ? SDL_LOG_PRIORITY_ERROR : SDL_LOG_PRIORITY_INFO, "%.*s", static_cast<int>(theText.size()), theText.data());
 
 	std::scoped_lock aLock(gLogFileSinkMutex);
 	if (gLogFileSink.is_open())
 	{
-		gLogFileSink << theText << '\n' << std::flush;
+		gLogFileSink << theText << '\n';
+		gPendingLogBytes += theText.size() + 1;
+		gLogFileBytes += theText.size() + 1;
+		if (thePriority == SexyLogPriority::Error || gPendingLogBytes >= 64 * 1024)
+		{
+			gLogFileSink.flush();
+			gPendingLogBytes = 0;
+			gLastLogFlush = std::chrono::steady_clock::now();
+		}
 		if (!gLogFileSink)
 		{
 			SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_ERROR, "%s", "Failed to write to log file");
 			gLogFileSink.close();
 		}
 	}
+}
+
+void Sexy::FlushLogFileSink(bool theForce)
+{
+	std::scoped_lock aLock(gLogFileSinkMutex);
+	const auto aNow = std::chrono::steady_clock::now();
+	if (gLogFileSink.is_open() && (theForce || aNow - gLastLogFlush >= std::chrono::seconds(1)))
+	{
+		gLogFileSink.flush();
+		gPendingLogBytes = 0;
+		gLastLogFlush = aNow;
+		if (!gLogFileSink)
+		{
+			SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_ERROR, "%s", "Failed to flush log file");
+			gLogFileSink.close();
+			return;
+		}
+		if (gLogFileBytes >= 64 * 1024 * 1024)
+		{
+			auto anArchive = gLogFilePath;
+			anArchive += std::format(".{}.archive", std::chrono::system_clock::now().time_since_epoch().count());
+			std::error_code anError;
+			if (!std::filesystem::exists(anArchive, anError) && !anError)
+			{
+				gLogFileSink.close();
+				std::filesystem::rename(gLogFilePath, anArchive, anError);
+				if (!anError)
+					gLogFileBytes = 0;
+				else
+					SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_ERROR, "%s", "Failed to archive log file; retaining existing log");
+				gLogFileSink.open(gLogFilePath, std::ios::app | std::ios::binary);
+				if (gLogFileSink)
+					RegisterCrashLogFileSink(PathToU8(gLogFilePath));
+				else
+					SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_ERROR, "%s", "Failed to reopen log file after archive");
+			}
+		}
+	}
+}
+
+void Sexy::FlushHealthAudit(bool theForce)
+{
+	const auto aNow = std::chrono::steady_clock::now();
+	if (!theForce && aNow - gLastHealthAuditFlush < std::chrono::seconds(1))
+		return;
+	for (const auto& [aKey, anEvent] : gHealthAuditSummaries)
+	{
+		DispatchLogLn(SexyLogPriority::Info, std::format(
+			"{} aggregate=true events={} tick_first={} tick_last={} hp_first={} hp_last={} hp_min={} hp_peak={} damage_total={} healed_total={} sun_spent_total={} overflow_total={:.3f}",
+			anEvent.mLastDetail, anEvent.mEvents, anEvent.mFirstTick, anEvent.mLastTick,
+			anEvent.mFirstHealth, anEvent.mLastHealth, anEvent.mMinimumHealth, anEvent.mMaximumHealth,
+			anEvent.mDamage, anEvent.mHealed, anEvent.mSunSpent, anEvent.mOverflow));
+	}
+	gHealthAuditSummaries.clear();
+	gLastHealthAuditFlush = aNow;
+}
+
+void Sexy::LogHealthAudit(std::string_view theKey, std::string_view theDetail, int theTick,
+	int theHealthBefore, int theHealthAfter, int theDamage, int theHealed, int theSunSpent,
+	float theOverflow, bool theImmediate)
+{
+	if (DetailedHealthLogging())
+	{
+		DispatchLogLn(SexyLogPriority::Info, theDetail);
+		if (theImmediate)
+			FlushLogFileSink(true);
+		return;
+	}
+	if (theImmediate)
+	{
+		FlushHealthAudit(true);
+		DispatchLogLn(SexyLogPriority::Info, theDetail);
+		FlushLogFileSink(true);
+		return;
+	}
+	if (gHealthAuditSummaries.size() >= 4096)
+		FlushHealthAudit(true);
+	auto& anEvent = gHealthAuditSummaries[std::string(theKey)];
+	if (anEvent.mEvents == 0)
+	{
+		anEvent.mFirstTick = theTick;
+		anEvent.mFirstHealth = theHealthBefore;
+		anEvent.mMinimumHealth = theHealthBefore;
+		anEvent.mMaximumHealth = theHealthBefore;
+	}
+	anEvent.mLastDetail = theDetail;
+	anEvent.mLastTick = theTick;
+	anEvent.mLastHealth = theHealthAfter;
+	anEvent.mMinimumHealth = std::min({anEvent.mMinimumHealth, theHealthBefore, theHealthAfter});
+	anEvent.mMaximumHealth = std::max({anEvent.mMaximumHealth, theHealthBefore, theHealthAfter});
+	++anEvent.mEvents;
+	anEvent.mDamage += theDamage;
+	anEvent.mHealed += theHealed;
+	anEvent.mSunSpent += theSunSpent;
+	anEvent.mOverflow += theOverflow;
 }
 
 int Sexy::Rand()

@@ -127,9 +127,42 @@ static float GetPlantHealingAmount(Board* theBoard, Plant* thePlant, float theBa
 	return theBaseAmount * (2.0f + static_cast<float>(aNearbyPumpkinsSquared)) / 2.0f;
 }
 
-void PlantHealing::HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmount)
+void PlantHealing::LogHealingChange(Board* theBoard, Plant* thePlant, Plant* theSource,
+	std::string_view theCause, int theHealthBefore, float theBaseAmount, float theRequestedAmount,
+	float theRemainderBefore, int theSunSpent, unsigned int theSourceID)
 {
-	HealPlant(theBoard, thePlant, theBaseAmount, std::numeric_limits<int>::max());
+	const int aHealed = thePlant->mPlantHealth - theHealthBefore;
+	if (aHealed == 0 && theSunSpent == 0)
+		return;
+	const unsigned int aSourceID = theSource != nullptr ? theBoard->mPlants.DataArrayGetID(theSource) : theSourceID;
+	const unsigned int aTargetID = theBoard->mPlants.DataArrayGetID(thePlant);
+	const float aOverflow = std::max(0.0f, theRequestedAmount - (thePlant->mPlantMaxHealth - theHealthBefore));
+	const std::string aDetail = std::format(
+		"[healing] tick={} event=plant_regeneration cause={} source_kind={} source=\"{}\" source_id={} source_seed={} "
+		"source_row={} source_col={} target=\"{}\" target_id={} target_seed={} target_row={} target_col={} hp_before={} hp_after={} hp_max={} "
+		"base={:.3f} requested_with_carry={:.3f} healed={} overflow={:.3f} carry_before={:.3f} carry_after={:.3f} sun_spent={} sun_balance={}",
+		theBoard->mMainCounter, theCause, theSource != nullptr ? "plant" : "effect",
+		theSource != nullptr ? Plant::GetNameString(theSource->mSeedType, theSource->mImitaterType) : std::string(theCause),
+		aSourceID, theSource != nullptr ? static_cast<int>(theSource->mSeedType) : -1,
+		theSource != nullptr ? theSource->mRow : -1, theSource != nullptr ? theSource->mPlantCol : -1,
+		Plant::GetNameString(thePlant->mSeedType, thePlant->mImitaterType), aTargetID,
+		static_cast<int>(thePlant->mSeedType), thePlant->mRow, thePlant->mPlantCol,
+		theHealthBefore, thePlant->mPlantHealth, thePlant->mPlantMaxHealth, theBaseAmount,
+		theRequestedAmount, aHealed, aOverflow, theRemainderBefore, thePlant->mContinuousHealthRemainder,
+		theSunSpent, theBoard->mSunMoney);
+	Sexy::LogHealthAudit(std::format("healing:{}:{}:{}", aTargetID, aSourceID, theCause), aDetail,
+		theBoard->mMainCounter, theHealthBefore, thePlant->mPlantHealth, 0, aHealed, theSunSpent, aOverflow);
+}
+
+void PlantHealing::HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmount,
+	std::string_view theCause, Plant* theSource, int theSunSpent, unsigned int theSourceID)
+{
+	if (!PlantCanRegenerate(thePlant))
+		return;
+	HealingAudit anAudit;
+	HealPlant(theBoard, thePlant, theBaseAmount, std::numeric_limits<int>::max(), &anAudit);
+	LogHealingChange(theBoard, thePlant, theSource, theCause, anAudit.mHealthBefore,
+		theBaseAmount, anAudit.mRequestedAmount, anAudit.mRemainderBefore, theSunSpent, theSourceID);
 }
 
 int PlantHealing::HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmount, int theMaxBaseHealing, HealingAudit* theAudit)
@@ -141,9 +174,10 @@ int PlantHealing::HealPlant(Board* theBoard, Plant* thePlant, float theBaseAmoun
 	const bool aIsBudgeted = theMaxBaseHealing != std::numeric_limits<int>::max();
 	const float aFundedBase = aIsBudgeted ?
 		std::min(theBaseAmount, static_cast<float>(std::max(0, std::min(theMaxBaseHealing, aHealingLimit)))) : theBaseAmount;
-	const float aModifiedAmount = GetPlantHealingAmount(theBoard, thePlant, theBaseAmount);
+	const float aHealingMultiplier = GetPlantHealingAmount(theBoard, thePlant, 1.0f);
+	const float aModifiedAmount = theBaseAmount * aHealingMultiplier;
 	float aHealingAmount = aModifiedAmount + thePlant->mContinuousHealthRemainder;
-	const float aFundedAmount = GetPlantHealingAmount(theBoard, thePlant, aFundedBase) + thePlant->mContinuousHealthRemainder;
+	const float aFundedAmount = aFundedBase * aHealingMultiplier + thePlant->mContinuousHealthRemainder;
 	if (theAudit != nullptr)
 	{
 		*theAudit = {};
@@ -199,25 +233,34 @@ void PlantHealing::ApplyPlantHealthRate(Plant* thePlant, float theHealthPerSecon
 {
 	if (!PlantHealing::PlantCanRegenerate(thePlant) || theHealthPerSecond == 0.0f)
 		return;
+	const int aHealthBefore = thePlant->mPlantHealth;
+	const float aRemainderBefore = thePlant->mContinuousHealthRemainder;
 	float aChange = thePlant->mContinuousHealthRemainder + theHealthPerSecond / 100.0f;
 	int aWholeChange = static_cast<int>(aChange);
 	thePlant->mContinuousHealthRemainder = aChange - aWholeChange;
 	thePlant->mPlantHealth = std::clamp(thePlant->mPlantHealth + aWholeChange, 0, thePlant->mPlantMaxHealth);
 	if (thePlant->mPlantHealth == 0 || (thePlant->mPlantHealth == thePlant->mPlantMaxHealth && theHealthPerSecond > 0.0f))
 		thePlant->mContinuousHealthRemainder = 0.0f;
+	if (theHealthPerSecond > 0.0f)
+		LogHealingChange(thePlant->mBoard, thePlant, thePlant, "positive_health_rate",
+			aHealthBefore, theHealthPerSecond / 100.0f, aChange, aRemainderBefore);
 }
 
-static bool ApplySunMagnetRegenerationRate(Board* theBoard, Plant* thePlant, int theStackCount, int theAffectedPlantCount = 1)
+static bool ApplySunMagnetRegenerationRate(Board* theBoard, Plant* thePlant, int theStackCount,
+	int theAffectedPlantCount = 1, Plant* theSource = nullptr, unsigned int theSourceID = 0)
 {
 	constexpr int aSunReserve = 5000;
 	if (!PlantHealing::PlantCanRegenerate(thePlant))
 		return false;
 	int aSunCost = theBoard->mSunMoney >= TWIN_SUNFLOWER_ASSAULT_SUN_THRESHOLD ? 50 : 25;
+	const int aSunBefore = theBoard->mSunMoney;
 	if (thePlant->mPlantHealth >= thePlant->mPlantMaxHealth || theBoard->mSunMoney <= aSunReserve ||
 		!theBoard->TakeSunMoneyRate(static_cast<float>(aSunCost * theStackCount)))
 		return false;
 	PlantHealing::HealPlant(theBoard, thePlant,
-		0.25f * theStackCount * std::max(1, theAffectedPlantCount));
+		0.25f * theStackCount * std::max(1, theAffectedPlantCount),
+		theSource != nullptr || theSourceID != 0 ? "sun_magnet_stacked_regeneration" : "sun_magnet_glow_regeneration",
+		theSource, aSunBefore - theBoard->mSunMoney, theSourceID);
 
 	PlantID aPlantID = static_cast<PlantID>(theBoard->mPlants.DataArrayGetID(thePlant));
 	auto aVisual = std::find_if(theBoard->mPlantHealVisuals.begin(), theBoard->mPlantHealVisuals.end(),
@@ -574,7 +617,9 @@ void Board::UpdatePlantHealGlows()
 	{
 		Plant* aPlant = mPlants.DataArrayTryToGet(static_cast<unsigned int>(aStack->mPlantID));
 		int aTargetCount = aSunMagnetTargetCounts[aStack->mMagnetID];
-		ApplySunMagnetRegenerationRate(this, aPlant, aStack->mStackCount, aTargetCount);
+		ApplySunMagnetRegenerationRate(this, aPlant, aStack->mStackCount, aTargetCount,
+			mPlants.DataArrayTryToGet(static_cast<unsigned int>(aStack->mMagnetID)),
+			static_cast<unsigned int>(aStack->mMagnetID));
 	}
 
 	for (auto anAura = mChomperHealAuras.begin(); anAura != mChomperHealAuras.end();)
@@ -591,7 +636,8 @@ void Board::UpdatePlantHealGlows()
 		int aTargetCount = CountChomperHealTargets(this, anAura->mChomperID);
 		if (aTargetCount > 0)
 		{
-			PlantHealing::HealPlant(this, aPlant, ScaleAreaHealingQuadratically(aHealAmount / 100.0f, aTargetCount));
+			PlantHealing::HealPlant(this, aPlant, ScaleAreaHealingQuadratically(aHealAmount / 100.0f, aTargetCount),
+				"chomper_aura_regeneration", aChomper);
 		}
 		++anAura;
 	}

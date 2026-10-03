@@ -23,6 +23,7 @@
 #define __ZOMBIE_H__
 
 #include <cstdint>
+#include <vector>
 #include "../Entities/GameObject.h"
 #include "../../GameConstants.h"
 
@@ -71,9 +72,19 @@ public:
 class Plant;
 class Reanimation;
 class PvzpParticleSystem;
+struct ZombieHealingReduction
+{
+	PlantID mSourcePlantID = PlantID::PLANTID_NULL;
+	int32_t mReductionPercent = 0;
+	int32_t mRemainingTicks = 0;
+};
+
 class Zombie : public GameObject
 {
 public:
+	static constexpr int HIGH_SUN_EATING_THRESHOLD = 1000000;
+	static constexpr int HIGH_SUN_EATING_SPEED_PERCENT = 110;
+
 	enum
 	{
 		ZOMBIE_WAVE_DEBUG = -1,
@@ -135,6 +146,8 @@ public:
 	int32_t                         mBodyMaxHealth;
 	float                           mContinuousHealthRemainder = 0.0f;
 	static constexpr int SNIPER_WOUND_DURATION_TICKS = 300;
+	static constexpr int SNIPER_HEALING_REDUCTION_PERCENT = 75;
+	std::vector<ZombieHealingReduction> mHealingReductions;
 	int32_t                         mSniperWoundCounter = 0;
 	int32_t                         mSniperDotRemainder = 0; // Units of 1/100000 HP.
 	int32_t                         mHelmHealth;
@@ -192,6 +205,9 @@ public:
 	void                            DrawBungeeCord(Graphics* g, int theOffsetX);
 	void                            TakeDamage(int theDamage, unsigned int theDamageFlags);
 	void                            ApplyHealing(float theAmount);
+	void                            ApplyHealingReduction(PlantID theSource, int thePercent, int theDuration);
+	float                           HealingReceivedMultiplier() const;
+	void                            UpdateHealingReductions();
 	void                            UpdateSniperWound();
 	void                 SetRow(int theRow);
 	float                           GetPosYBasedOnRow(int theRow);

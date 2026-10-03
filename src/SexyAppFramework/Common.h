@@ -132,6 +132,12 @@ enum class SexyLogPriority { Info, Error };
 void				DispatchLogLn(SexyLogPriority thePriority, std::string_view theText);
 void				RegisterLogFileSink(std::string_view thePath);
 void				RegisterCrashLogFileSink(std::string_view thePath);
+void				FlushLogFileSink(bool theForce = false);
+// Main-thread gameplay audit. Repeated events retain totals and first/last HP.
+void				LogHealthAudit(std::string_view theKey, std::string_view theDetail, int theTick,
+	int theHealthBefore, int theHealthAfter, int theDamage, int theHealed, int theSunSpent = 0,
+	float theOverflow = 0.0f, bool theImmediate = false);
+void				FlushHealthAudit(bool theForce = false);
 
 template<typename... Args>
 void				LogInfoLn(std::format_string<Args...> theFmt, Args&&... theArgs)

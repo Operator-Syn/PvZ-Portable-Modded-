@@ -90,6 +90,7 @@ public:
 	bool                    mEphraimChargedJavelin = false;
 	PlantID                 mSniperSourcePlantID = PlantID::PLANTID_NULL;
 	bool                    mSniperCriticalArrow = false;
+	int32_t                 mSniperMovementStacks = 0;
 	std::vector<ZombieID>   mSniperPiercedZombieIDs;
 	ZombieID                mPiercedZombieIDs[MAX_PIERCING_HITS];
 

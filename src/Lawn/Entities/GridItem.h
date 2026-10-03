@@ -77,6 +77,7 @@ public:
 	void					DrawCrater(Sexy::Graphics* g);
 	void					DrawGraveStone(Sexy::Graphics* g);
 	void					GridItemDie();
+	void					DamageLadderByExplosion();
 	void					AddGraveStoneParticles();
 	void					DrawGridItem(Sexy::Graphics* g);
 	void					DrawGridItemOverlay(Sexy::Graphics* g);

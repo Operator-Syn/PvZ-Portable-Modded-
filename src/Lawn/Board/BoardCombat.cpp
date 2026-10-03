@@ -300,7 +300,7 @@ int Board::KillAllZombiesInRadius(int theRow, int theX, int theY, int theRadius,
 		{
 			if (GridInRange(aGridItem->mGridX, aGridItem->mGridY, aGridX, aGridY, theRowRange, theRowRange))
 			{
-				aGridItem->GridItemDie();
+				aGridItem->DamageLadderByExplosion();
 			}
 		}
 	}

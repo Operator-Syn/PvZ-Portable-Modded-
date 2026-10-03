@@ -30,6 +30,8 @@ constexpr const int BOARD_HEIGHT = 600;
 constexpr const int WIDE_BOARD_WIDTH = 800;
 constexpr const int BOARD_OFFSET = 220;
 constexpr const int BOARD_EDGE = -100;
+// Cover collision bounds until even vehicles reach their -175 breach threshold.
+constexpr const int CUSTOM_PLANT_ATTACK_XMIN = -256;
 constexpr const int BOARD_IMAGE_WIDTH_OFFSET = 1180;
 constexpr const int BOARD_ICE_START = 800;
 constexpr const int LAWN_XMIN = 40;

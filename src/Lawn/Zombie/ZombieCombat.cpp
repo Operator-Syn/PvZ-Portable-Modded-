@@ -228,7 +228,8 @@ void Zombie::CheckIfPreyCaught()
 		mBoard->mZombieStrengthTier > 0 ? 30 : 20;
 	if (mBoard->mZombieStrengthTier >= 4 && mZombieType == ZombieType::ZOMBIE_IMP)
 		aBiteSpeedNumerator = 40;
-	constexpr int aBiteSpeedDenominator = 20 * TICKS_BETWEEN_EATS;
+	aBiteSpeedNumerator *= mBoard->mZombieTierSunMoney >= HIGH_SUN_EATING_THRESHOLD ? HIGH_SUN_EATING_SPEED_PERCENT : 100;
+	constexpr int aBiteSpeedDenominator = 20 * 100 * TICKS_BETWEEN_EATS;
 	int aBiteClock = mChilledCounter > 0 ? mZombieAge / 2 : mZombieAge;
 	if (aBiteClock <= 0 ||
 		(static_cast<int64_t>(aBiteClock) * aBiteSpeedNumerator) / aBiteSpeedDenominator ==

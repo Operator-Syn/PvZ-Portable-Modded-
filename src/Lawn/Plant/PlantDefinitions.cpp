@@ -201,6 +201,8 @@ int Plant::GetCost(SeedType theSeedType, SeedType theImitaterType)
 
 std::string Plant::GetNameString(SeedType theSeedType, SeedType theImitaterType)
 {
+	if (theSeedType == SeedType::SEED_SUN_MAGNET)
+		return "Sun Magnet";
 	if (theSeedType == SeedType::SEED_EPHRAIM)
 		return "Ephraim";
 	if (theSeedType == SeedType::SEED_SERRA_BISHOP)

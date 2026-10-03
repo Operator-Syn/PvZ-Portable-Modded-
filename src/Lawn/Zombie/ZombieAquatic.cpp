@@ -146,9 +146,11 @@ void Zombie::UpdateZombieDolphinRider()
 		mAltitude = PvzpAnimateCurveFloat(DOLPHIN_JUMP_TIME, 0, mPhaseCounter, 0.0f, 10.0f, PvzpCurves::CURVE_LINEAR);
 
 		bool aJumpEnds = false;
-		if (aBodyReanim->ShouldTriggerTimedEvent(0.3f))
+		Plant* aVaultPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_VAULT);
+		if ((aVaultPlant && aVaultPlant->mSeedType == SeedType::SEED_EPHRAIM) ||
+			aBodyReanim->ShouldTriggerTimedEvent(0.3f))
 		{
-			Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_VAULT);
+			Plant* aPlant = aVaultPlant;
 			if (aPlant && aPlant->HasTallNutDefense())
 			{
 				mApp->PlayFoley(FoleyType::FOLEY_BONK);
